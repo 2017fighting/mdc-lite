@@ -11,6 +11,11 @@
   图片走 API 缩放端点（视频不抽帧）；生产样式 = Tailwind v4（本文件手写 CSS 只是为了让原型无构建即开）；
   分页 = 页码 + 每页；搜索只搜番号；批量只做重跑；批次只做筛选项；详情页不放日志（只用 step_runs/source_runs）；
   填号两处都能填（待补号页 + 详情页）；「打开输出目录」= 复制路径 + 落盘台账；默认排序 = 创建时间倒序。
+
+  【补充裁决·目录选择】产品跑在容器里，所以根目录/排除都是**容器内**目录选择器：
+  弹窗式浏览器（面包屑 + 子目录列表 + 手输路径 + 「设为根目录」/「加入排除」两个动作）；
+  可浏览范围 = 进程级 `browse_roots` 白名单（默认 `["/media"]`，修正 #8 配置面），越界即报错；
+  路径展示 = 容器内绝对路径 + 挂载点标签，不做宿主路径映射；不做浏览器本地目录拖放。
 -->
 <html lang="zh-CN">
 <head>
@@ -140,6 +145,25 @@ a{cursor:pointer;text-decoration:none}
 #lb.on{display:grid}
 #lb img{max-width:92vw;max-height:84vh;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
 #lb .hint{position:absolute;bottom:16px;left:0;right:0;text-align:center;color:#9aa4b0;font-size:12px}
+/* 容器内目录选择器（弹窗） */
+.modal{position:fixed;inset:0;background:rgba(10,12,16,.55);display:grid;place-items:center;z-index:1100;padding:24px}
+.modal .box{width:min(620px,94vw);background:#fff;color:#161a1f;border-radius:12px;
+  box-shadow:0 24px 60px rgba(0,0,0,.4);overflow:hidden}
+.modal h3{margin:0;padding:12px 14px;border-bottom:1px solid #e6e9ee;font-size:14px}
+.modal .crumb{padding:9px 14px;border-bottom:1px solid #eef1f5;display:flex;gap:4px;flex-wrap:wrap;align-items:center;font-size:12.5px}
+.modal .crumb a{color:#2f6fed}
+.modal .crumb .sep{color:#c3c9d2}
+.modal .jump{display:flex;gap:8px;padding:9px 14px;border-bottom:1px solid #eef1f5}
+.modal .jump input{flex:1;border:1px solid #dfe3e9;border-radius:7px;padding:6px 9px;font-family:ui-monospace,monospace;font-size:12.5px}
+.modal .list{max-height:300px;overflow:auto;padding:6px 8px}
+.modal .item{display:flex;gap:10px;align-items:center;padding:7px 8px;border-radius:7px;cursor:pointer}
+.modal .item:hover{background:#f4f7fc}
+.modal .item .n{flex:1;font-family:ui-monospace,monospace;font-size:12.5px}
+.modal .item .c{color:#8b95a3;font-size:11.5px}
+.modal .foot{display:flex;gap:8px;align-items:center;padding:11px 14px;border-top:1px solid #e6e9ee;background:#fafbfc}
+.modal .foot .btn{border:1px solid #dfe3e9;background:#fff;border-radius:7px;padding:5px 12px;color:#374151}
+.modal .foot .btn.pri{background:#2f6fed;border-color:#2f6fed;color:#fff;font-weight:600}
+.modal .err{margin:0 14px 8px;background:#fdeaea;color:#8f1d1d;border:1px solid #f6c9c9;border-radius:7px;padding:7px 10px;font-size:12px}
 
 /* ================= B · 卡片墙（海报为主 + 顶部导航） ================= */
 .vB{--bg:#fbfaf7;--panel:#fff;--line:#ece7dd;--text:#1a1a1a;--muted:#78716c;--accent:#111;
@@ -307,8 +331,26 @@ a{cursor:pointer;text-decoration:none}
 <script>
 /* ================= 假数据（内存，无持久化） ================= */
 var PIPELINES = [{id:'default', name:'默认流水线'}, {id:'vr', name:'VR 专用'}];
-var ROOTS = ['/mnt/nas/jav', '/mnt/nas/vr'];
-var EXCLUDES = ['/mnt/nas/jav/ignore'];
+var ROOTS = ['/media', '/media/vr'];
+var EXCLUDES = ['/media/ignore'];
+/* 容器内可浏览白名单（= config.yaml 的 browse_roots，默认 ["/media"]）与一棵假文件树 */
+var BROWSER_ROOTS = [{path:'/media', label:'媒体库'}];
+var FS = {
+  '/media':[['2024','12 个目录 · 386 个文件'],['vr','4 个目录 · 62 个文件'],
+            ['ignore','3 个目录 · 41 个文件'],['fc2','2 个目录 · 18 个文件'],['misc','1 个目录 · 9 个文件']],
+  '/media/2024':[['2024-01','3 个目录 · 96 个文件'],['2024-02','2 个目录 · 74 个文件']],
+  '/media/vr':[['SSVR','2 个目录 · 14 个文件'],['MIDE','1 个目录 · 8 个文件']],
+  '/media/ignore':[['old_2019','1 个目录 · 22 个文件']],
+  '/media/fc2':[['3336019','1 个文件']],
+  '/media/misc':[['sample','2 个文件']]
+};
+function fsDirs(p){ return FS[p] || []; }
+function mountOf(p){
+  var m = null;
+  BROWSER_ROOTS.forEach(function(r){ if(p===r.path || p.indexOf(r.path+'/')===0) m = r; });
+  return m;
+}
+function labelOf(p){ var m = mountOf(p); return m ? m.label : '容器'; }
 
 var TASKS = [
   {num:'SSIS-001', title:'新人NO.1STYLE 専属デビュー', status:'succeeded', stage:'—', batch:'b-1042',
@@ -330,23 +372,23 @@ var TASKS = [
 
 var SCAN_GROUPS = [
   {primary:'ABP-123-A.mp4', number:'ABP-123', conf:'ok', parts:['ABP-123-A.mp4','ABP-123-B.mp4'],
-   marker:'确定标记 · -A/-B', dir:'/mnt/nas/jav/2024', size:'4.2 GiB', res:'1920×1080', occupied:false, hue:24},
+   marker:'确定标记 · -A/-B', dir:'/media/2024', size:'4.2 GiB', res:'1920×1080', occupied:false, hue:24},
   {primary:'SSVR-122-cd1.mp4', number:null, cands:['SSVR-122','SSVR-123'], conf:'ambiguous',
-   parts:['SSVR-122-cd1.mp4','SSVR-122-cd2.mp4'], marker:'确定标记 · cd', dir:'/mnt/nas/vr', size:'8.1 GiB',
+   parts:['SSVR-122-cd1.mp4','SSVR-122-cd2.mp4'], marker:'确定标记 · cd', dir:'/media/vr', size:'8.1 GiB',
    res:'3840×1920', occupied:true, hue:265},
   {primary:'9ofje121A.mkv', number:'9ofje121', conf:'ok', parts:['9ofje121A.mkv','9ofje121B.mkv'],
-   marker:'条件标记 · 粘连字母（兄弟文件同意）', dir:'/mnt/nas/jav/misc', size:'3.0 GiB', res:'1280×720',
+   marker:'条件标记 · 粘连字母（兄弟文件同意）', dir:'/media/misc', size:'3.0 GiB', res:'1280×720',
    occupied:false, hue:150},
   {primary:'ABC-123.mp4', number:null, cands:['ABC-123'], conf:'duplicate_stem',
-   parts:['ABC-123.mp4','ABC-123-U.mp4'], marker:'主干相同 · 两侧都无分片标记', dir:'/mnt/nas/jav/misc',
+   parts:['ABC-123.mp4','ABC-123-U.mp4'], marker:'主干相同 · 两侧都无分片标记', dir:'/media/misc',
    size:'1.1 GiB', res:'1920×1080', occupied:false, hue:40},
   {primary:'FC2-3336019.mp4', number:'FC2-3336019', conf:'ok', parts:['FC2-3336019.mp4'],
-   marker:'—', dir:'/mnt/nas/jav/fc2', size:'2.4 GiB', res:'1920×1080', occupied:false, hue:8}
+   marker:'—', dir:'/media/fc2', size:'2.4 GiB', res:'1920×1080', occupied:false, hue:8}
 ];
 var SCAN_FILTERED = [
-  {p:'/mnt/nas/jav/misc/sample.mp4', r:'规则 2 · 大小 42 MiB < 100 MiB'},
-  {p:'/mnt/nas/jav/ignore/old_2019.mp4', r:'排除目录 · 整棵子树不扫'},
-  {p:'/mnt/nas/jav/misc/cover.jpg', r:'规则 3 · 后缀不在 [.mp4 .mkv .wmv .srt .ass]'}
+  {p:'/media/misc/sample.mp4', r:'规则 2 · 大小 42 MiB < 100 MiB'},
+  {p:'/media/ignore/old_2019.mp4', r:'排除目录 · 整棵子树不扫'},
+  {p:'/media/misc/cover.jpg', r:'规则 3 · 后缀不在 [.mp4 .mkv .wmv .srt .ass]'}
 ];
 
 function fields(spec){ return spec; }
@@ -386,7 +428,7 @@ var DETAILS = {
       ['javdb','ok','',9,820],['dmm','ok','',3,1240],['javbus','ok','',2,640],['fc2','notfound','',0,210]
     ],
     rows:[
-      ['video','—','—','/mnt/nas/jav/SSIS-001.mp4','SSIS-001/SSIS-001.mp4','6.1 GiB','hardlink'],
+      ['video','—','—','/media/SSIS-001.mp4','SSIS-001/SSIS-001.mp4','6.1 GiB','hardlink'],
       ['image','poster','0','dmm','SSIS-001/poster.jpg','268 KB','write'],
       ['image','fanart','0','dmm','SSIS-001/fanart.jpg','412 KB','write'],
       ['image','extrafanart','1..6','javbus','SSIS-001/extrafanart/fanart1…6.jpg','1.8 MB','write'],
@@ -428,8 +470,8 @@ var DETAILS = {
       ['javdb','ok','',7,1400],['javbus','ok','',2,900],['dmm','failed','cooldown',0,60],['fc2','notfound','',0,180]
     ],
     rows:[
-      ['video','—','—','/mnt/nas/jav/ABP-123-A.mp4','ABP-123/ABP-123-cd1.mp4','2.1 GiB','hardlink'],
-      ['video','—','—','/mnt/nas/jav/ABP-123-B.mp4','ABP-123/ABP-123-cd2.mp4','2.1 GiB','hardlink'],
+      ['video','—','—','/media/ABP-123-A.mp4','ABP-123/ABP-123-cd1.mp4','2.1 GiB','hardlink'],
+      ['video','—','—','/media/ABP-123-B.mp4','ABP-123/ABP-123-cd2.mp4','2.1 GiB','hardlink'],
       ['image','poster','0','javdb','ABP-123/poster.jpg','241 KB','write'],
       ['image','fanart','0','javdb','ABP-123/fanart.jpg','380 KB','write'],
       ['nfo','—','—','—','ABP-123/movie.nfo','2.7 KB','write']
@@ -496,11 +538,11 @@ var DETAILS = {
 };
 
 var NUMBERS = [
-  {task:'SSVR-122', kind:'ambiguous', batch:'b-1043', dir:'/mnt/nas/vr', files:[
+  {task:'SSVR-122', kind:'ambiguous', batch:'b-1043', dir:'/media/vr', files:[
     {p:'SSVR-122-cd1.mp4', cands:['SSVR-122','SSVR-123'], part:false, primary:true},
     {p:'SSVR-122-cd2.mp4', cands:['SSVR-122','SSVR-123'], part:true, primary:false}
   ]},
-  {task:'ABC-123', kind:'duplicate_stem', batch:'b-1043', dir:'/mnt/nas/jav/misc', files:[
+  {task:'ABC-123', kind:'duplicate_stem', batch:'b-1043', dir:'/media/misc', files:[
     {p:'ABC-123.mp4', cands:['ABC-123'], part:false, primary:true},
     {p:'ABC-123-U.mp4', cands:['ABC-123'], part:false, primary:false}
   ]}
@@ -530,13 +572,46 @@ function stepBadge(s){
   return '<span class="muted">待跑</span>';
 }
 function stepCls(s){ return s==='ok' ? 'ok' : (s==='failed' ? 'bad' : ''); }
+function chipHTML(kind, p){
+  return '<span class="pill mono">'+labelOf(p)+' · '+p
+   + ' <a data-chip="'+kind+'" data-chip-path="'+p+'" style="color:#b91c1c;cursor:pointer">✕</a></span>';
+}
+function pickHTML(){
+  if(!S.picker.open) return '';
+  var p = S.picker.path, dirs = fsDirs(p), segs = [], acc = '';
+  p.split('/').filter(function(x){return x!==''}).forEach(function(x){
+    acc += '/'+x;
+    segs.push('<a data-pk="go" data-pk-path="'+acc+'">'+x+'</a>');
+  });
+  var h = '<div class="modal"><div class="box"><h3>选择目录 · '
+   + (S.picker.mode==='exclude'?'加入排除':'设为根目录') + '（容器内）</h3>'
+   + '<div class="crumb"><a data-pk="mount" data-pk-path="'+BROWSER_ROOTS[0].path+'">'
+   + BROWSER_ROOTS[0].label+'</a><span class="sep">/</span>'+segs.join('<span class="sep">/</span>')+'</div>'
+   + '<div class="jump"><input id="pkpath" value="'+p+'" placeholder="/media/2024">'
+   + '<button class="btn" data-pk="jump">前往</button></div>';
+  if(S.picker.err) h += '<div class="err">'+S.picker.err+'</div>';
+  h += '<div class="list">';
+  if(p!==BROWSER_ROOTS[0].path) h += '<div class="item" data-pk="up"><span>⬆</span><span class="n">..</span>'
+   + '<span class="c">上一级</span></div>';
+  if(!dirs.length) h += '<div class="item" style="cursor:default;color:#8b95a3">（没有子目录）</div>';
+  dirs.forEach(function(d){
+    h += '<div class="item" data-pk="go" data-pk-path="'+p+'/'+d[0]+'"><span>📁</span>'
+     + '<span class="n">'+d[0]+'/</span><span class="c">'+d[1]+'</span></div>';
+  });
+  h += '</div><div class="foot"><span class="mono" style="font-size:12px">'+p+'</span>'
+   + '<span style="flex:1"></span><button class="btn" data-pk="close">取消</button>'
+   + '<button class="btn" data-pk="apply" data-pk-mode="root">设为根目录</button>'
+   + '<button class="btn pri" data-pk="apply" data-pk-mode="exclude">加入排除</button></div></div></div>';
+  return h;
+}
 function st(st){ return '<span class="st s-'+st+'"><i></i>'+stLabel(st)+'</span>'; }
 function reasonLabel(r){ return {egress_unavailable:'出口不可用',timeout:'超时',blocked:'被拦',
   cooldown:'冷却中',http_5xx:'5xx',parse:'解析失败'}[r] || r; }
 function taskByNum(n){ for(var i=0;i<TASKS.length;i++) if(TASKS[i].num===n) return TASKS[i]; return null; }
 
 /* ================= 状态 ================= */
-var S = {variant:'A', view:'scan', state:'normal', detail:'SSIS-001', picked:{}, nums:{}, rows:{}, tab:'overview', page:1};
+var S = {variant:'A', view:'scan', state:'normal', detail:'SSIS-001', picked:{}, nums:{}, rows:{}, tab:'overview', page:1,
+  roots:ROOTS.slice(), excludes:EXCLUDES.slice(), picker:{open:false, path:'/media', mode:'root', err:''}};
 var VIEWS = [['scan','扫描预览'],['tasks','任务列表'],['detail','任务详情'],['numbers','待补号']];
 var STATES = [['normal','正常'],['loading','加载中'],['empty','空'],['error','出错']];
 var VARIANTS = [['A','运维台'],['B','卡片墙'],['C','流程看板']];
@@ -587,11 +662,18 @@ function aScan(){
    + (loading?' → …':'')+'）</div>';
   h += '<div class="card" style="padding:12px"><div class="filters">'
    + '<span class="muted">根目录</span>'
-   + ROOTS.map(function(r){return '<span class="pill mono">'+r+'</span>'}).join('')
-   + '<span class="muted">排除</span>'+EXCLUDES.map(function(r){return '<span class="pill mono">'+r+'</span>'}).join('')
-   + '<span class="grow" style="flex:1"></span>'
-   + '<input type="text" placeholder="追加路径，回车加入根目录" style="width:250px">'
-   + '<button class="btn pri">'+(loading?'扫描中…':'开始扫描')+'</button></div></div>';
+   + S.roots.map(function(r){return chipHTML('root',r)}).join('')
+   + '<button class="btn sm" data-pk="open" data-pk-mode="root">+ 添加</button>'
+   + '<span class="muted">排除</span>'
+   + (S.excludes.length ? S.excludes.map(function(r){return chipHTML('exclude',r)}).join('')
+      : '<span class="muted" style="font-size:11.5px">（无）</span>')
+   + '<button class="btn sm" data-pk="open" data-pk-mode="exclude">+ 添加</button>'
+   + '<span style="flex:1"></span>'
+   + '<button class="btn pri">'+(loading?'扫描中…':'开始扫描')+'</button>'
+   + '<div class="muted" style="flex-basis:100%;font-size:11.5px">目录选择器浏览的是 <b>容器内</b>文件系统，'
+   + '白名单由 <span class="mono">config.yaml</span> 的 <span class="mono">browse_roots</span> 决定（默认 '
+   + '<span class="mono">/media</span>）；不做本机目录拖放</div>'
+   + '</div></div>';
   if(loading){
     h += '<div class="card" style="margin-top:12px"><div class="prog"><span class="done">✓ scan 41ms</span>'
      + '<span class="done">✓ filter 2ms</span><span class="now pulse">● group 运行中…</span>'
@@ -834,10 +916,13 @@ function bBody(view){
 }
 function bScan(){
   var h = '<h1>扫描预览</h1><div class="sub">选一个目录，看一眼能进候选的文件，勾选后建任务</div>';
-  h += '<div class="drop"><div class="big">把目录拖进来，或粘贴路径</div>'
-   + '<div class="hint">不要选下载器正在写的目录（未静默的文件会被跳过）</div>'
-   + '<div class="roots">'+ROOTS.map(function(r){return '<span class="root">'+r+'</span>'}).join('')
-   + '<span class="root" style="opacity:.6">排除 '+EXCLUDES[0]+'</span></div>'
+  h += '<div class="drop"><div class="big">选择容器内的目录</div>'
+   + '<div class="hint">选择器只能浏览 <span class="mono">browse_roots</span> 白名单（默认 /media）下的路径；'
+   + '不要选下载器正在写的目录（未静默的文件会被跳过）</div>'
+   + '<div class="roots">'+S.roots.map(function(r){return '<span class="root"><b>'+labelOf(r)+'</b> '+r+'</span>'}).join('')
+   + S.excludes.map(function(r){return '<span class="root" style="opacity:.6">排除 '+r+'</span>'}).join('')
+   + '<span class="root" data-pk="open" data-pk-mode="root" style="cursor:pointer">+ 添加目录</span>'
+   + '<span class="root" data-pk="open" data-pk-mode="exclude" style="cursor:pointer;opacity:.7">+ 添加排除</span></div>'
    + '<div style="margin-top:16px"><button class="btn pri">'+(S.state==='loading'?'扫描中…':'扫描')+'</button></div></div>';
   if(S.state==='loading'){
     h += '<div class="cand"><div class="sk f16"></div><div class="info"><div class="sk" style="height:18px;width:180px"></div>'
@@ -970,14 +1055,19 @@ function cScan(){
    + '<div class="wiz"><span class="s on"><b>1</b>选目录</span><span>→</span>'
    + '<span class="s '+(S.state!=='loading'?'':'on')+'"><b>2</b>候选</span><span>→</span>'
    + '<span class="s"><b>3</b>建任务</span></div>';
-  h += '<div class="panel" style="margin-bottom:12px"><h3>根目录</h3>'
-   + ROOTS.map(function(r){return '<div class="scanrow"><span class="mono">'+r+'</span>'
-     + '<span class="badge">根</span><span class="sz">已选</span></div>'}).join('')
-   + '<div class="scanrow"><span class="mono">'+EXCLUDES[0]+'</span><span class="badge warn">排除子树</span>'
-   + '<span class="sz">跳过</span></div>'
-   + '<div style="display:flex;gap:8px;margin-top:10px"><input type="text" placeholder="追加路径…" '
-   + 'style="flex:1;background:#0e1116;border:1px solid #2b3644;color:#e6edf3;border-radius:7px;padding:6px 10px">'
-   + '<button class="btn pri">'+(S.state==='loading'?'扫描中…':'扫描')+'</button></div></div>';
+  h += '<div class="panel" style="margin-bottom:12px"><h3>根目录（容器内路径）</h3>'
+   + S.roots.map(function(r){return '<div class="scanrow"><span class="mono">'+r+'</span>'
+     + '<span class="badge">'+labelOf(r)+'</span>'
+     + '<span class="sz"><a data-chip="root" data-chip-path="'+r+'" style="color:#fca5a5">移除</a></span></div>'}).join('')
+   + S.excludes.map(function(r){return '<div class="scanrow"><span class="mono">'+r+'</span>'
+     + '<span class="badge warn">排除子树</span>'
+     + '<span class="sz"><a data-chip="exclude" data-chip-path="'+r+'" style="color:#fca5a5">移除</a></span></div>'}).join('')
+   + '<div style="display:flex;gap:8px;margin-top:10px">'
+   + '<button class="btn" data-pk="open" data-pk-mode="root">+ 添加目录</button>'
+   + '<button class="btn" data-pk="open" data-pk-mode="exclude">+ 添加排除</button>'
+   + '<span style="flex:1"></span><button class="btn pri">'+(S.state==='loading'?'扫描中…':'扫描')+'</button></div>'
+   + '<div style="color:#6f7b88;font-size:11.5px;margin-top:8px">'
+   + '选择器只浏览容器内 <span class="mono">browse_roots</span> 白名单（默认 /media）下的路径</div></div>';
   if(S.state==='loading'){
     h += '<div class="panel"><h3>候选（scan → filter → group…）</h3>'
      + '<div class="scanrow"><div class="sk" style="height:14px;width:100%"></div></div>'.repeat(4)+'</div>';
@@ -1108,6 +1198,7 @@ function render(){
   if(S.variant==='A') app.innerHTML = aShell(S.view);
   else if(S.variant==='B') app.innerHTML = bShell(S.view);
   else app.innerHTML = cShell(S.view);
+  app.insertAdjacentHTML('beforeend', pickHTML());
   renderBar();
 }
 function renderBar(){
@@ -1135,8 +1226,54 @@ document.addEventListener('click', function(e){
   var img = e.target.closest('.ph');
   if(img && S.view==='detail'){ openLB(img.style.backgroundImage); return; }
   if(e.target.id==='lb'){ closeLB(); return; }
-  var el = e.target.closest('[data-act],[data-view],[data-state],[data-detail],[data-tab],[data-num],[data-g],[data-row]');
+  if(e.target.classList && e.target.classList.contains('modal')){
+    S.picker.open=false; render(); return;
+  }
+  var el = e.target.closest('[data-act],[data-view],[data-state],[data-detail],[data-tab],[data-num],[data-g],[data-row],[data-pk],[data-chip]');
   if(!el) return;
+  if(el.dataset.pk){
+    var pk = el.dataset.pk;
+    if(pk==='open'){
+      S.picker.open = true; S.picker.err = '';
+      S.picker.mode = el.dataset.pkMode || 'root';
+      S.picker.path = S.roots[0] || BROWSER_ROOTS[0].path;
+      render(); return;
+    }
+    if(pk==='close'){ S.picker.open=false; render(); return; }
+    if(pk==='go' || pk==='mount'){ S.picker.path = el.dataset.pkPath; S.picker.err=''; render(); return; }
+    if(pk==='up'){
+      var q = S.picker.path.replace(/\/[^\/]+\/?$/, '');
+      S.picker.path = (q.length < BROWSER_ROOTS[0].path.length) ? BROWSER_ROOTS[0].path : q;
+      S.picker.err=''; render(); return;
+    }
+    if(pk==='jump'){
+      var inp = document.getElementById('pkpath');
+      var v = ((inp && inp.value) || '').replace(/\s+$/, '');
+      S.picker.path = v || BROWSER_ROOTS[0].path;
+      S.picker.err = mountOf(S.picker.path) ? ''
+        : '不在可浏览根内（browse_roots: /media）—— 只允许 /media 及其子目录';
+      render(); return;
+    }
+    if(pk==='apply'){
+      var mode = el.dataset.pkMode, path = S.picker.path;
+      if(!mountOf(path)){ S.picker.err = '不在可浏览根内（browse_roots: /media）'; render(); return; }
+      if(mode==='root'){
+        if(S.roots.indexOf(path) < 0) S.roots.push(path);
+      } else {
+        var under = false;
+        S.roots.forEach(function(r){ if(path.indexOf(r+'/')===0) under = true; });
+        if(!under){ S.picker.err = '排除目录必须是某个根目录的真子目录（#10 的校验规则）'; render(); return; }
+        if(S.excludes.indexOf(path) < 0) S.excludes.push(path);
+      }
+      S.picker.open = false; render(); return;
+    }
+  }
+  if(el.dataset.chip){
+    var kind = el.dataset.chip, cp = el.dataset.chipPath;
+    if(kind==='root') S.roots = S.roots.filter(function(x){return x!==cp});
+    else S.excludes = S.excludes.filter(function(x){return x!==cp});
+    render(); return;
+  }
   if(el.dataset.row!==undefined && el.classList.contains('rowpick')){
     var r = el.dataset.row;
     if(S.rows[r]) delete S.rows[r]; else S.rows[r]=true;
@@ -1171,7 +1308,11 @@ document.addEventListener('click', function(e){
 document.addEventListener('keydown', function(e){
   var t = document.activeElement;
   if(t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
-  if(e.key==='Escape') closeLB();
+  if(e.key==='Escape'){
+    if(S.picker.open){ S.picker.open=false; render(); } else closeLB();
+    return;
+  }
+  if(S.picker.open) return;
   if(e.key==='ArrowLeft') cycle(-1);
   if(e.key==='ArrowRight') cycle(1);
 });
