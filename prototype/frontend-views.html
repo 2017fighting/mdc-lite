@@ -42,34 +42,34 @@
   --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
   --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 
-  /* 间距（4 基刻度） */
-  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:24px; --sp-7:32px; --sp-8:48px;
-  /* 字阶（功能性文字地板 12px） */
-  --fs-micro:12px; --fs-body:13px; --fs-lead:15px; --fs-title:19px; --fs-display:24px;
-  --lh-body:1.45; --lh-prose:1.62;
+  /* 间距（4 基刻度 + 层次韵律） */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:28px; --sp-7:36px; --sp-8:48px;
+  /* 字阶（主次分明、排版节奏） */
+  --fs-micro:11.5px; --fs-body:13.5px; --fs-lead:16px; --fs-title:20px; --fs-display:26px;
+  --lh-body:1.5; --lh-prose:1.65;
   /* 圆角 */
   --r-1:4px; --r-2:6px; --r-3:8px; --r-4:12px; --r-5:16px; --r-pill:999px;
   /* 动效 */
   --dur-fast:120ms; --dur-base:200ms; --dur-slow:320ms; --ease-out:cubic-bezier(.16,1,.3,1);
 
   /* 表面与文本（浅） */
-  --bg:#f4f5f7; --surface:#ffffff; --surface-2:#fafbfc; --surface-3:#eef1f5;
-  --line:#e3e6ec; --line-strong:#cfd5de;
-  --text:#14181d;            /* 17.8:1 on surface */
-  --text-2:#59626f;          /* 6.2:1 on surface · 5.7:1 on bg */
-  --text-3:#6b7480;          /* 4.7:1 on surface（只在白底用，不上画布） */
-  --accent:#1b4fcc; --accent-ink:#ffffff; --accent-soft:#eaf1fe;
+  --bg:#f4f5f8; --surface:#ffffff; --surface-2:#f8fafc; --surface-3:#eef2f6;
+  --line:#e2e6ed; --line-strong:#cbd2dd;
+  --text:#0f141a;            /* 18.2:1 on surface */
+  --text-2:#525d6d;          /* 6.5:1 on surface · 6.0:1 on bg */
+  --text-3:#667282;          /* 4.8:1 on surface（只在白底用，不上画布） */
+  --accent:#1b4fcc; --accent-ink:#ffffff; --accent-soft:#edf3fe;
   --focus:#1b4fcc;
 
   /* 状态色：一处定义，三处（A 表格 / B 色条 / C 看板）都引用这里
      ink = 文本（浅底 ≥4.5:1）· mark = 图形/色条（≥3:1）· tint = 极浅底 */
-  --st-succeeded-ink:#116b31;    --st-succeeded-mark:#15803d;    --st-succeeded-tint:#eaf6ee;
-  --st-partial-ink:#8f4406;      --st-partial-mark:#b45309;      --st-partial-tint:#fdf3e3;
-  --st-failed-ink:#9c1b1b;       --st-failed-mark:#b91c1c;       --st-failed-tint:#fdecec;
-  --st-running-ink:#1b4fcc;      --st-running-mark:#2563eb;      --st-running-tint:#eaf1fe;
-  --st-queued-ink:#4f5a67;       --st-queued-mark:#64748b;       --st-queued-tint:#eef1f5;
-  --st-needs_number-ink:#9c1cae; --st-needs_number-mark:#c026d3; --st-needs_number-tint:#fbeefc;
-  --st-cancelled-ink:#59606b;    --st-cancelled-mark:#8b95a3;    --st-cancelled-tint:#f1f3f6;
+  --st-succeeded-ink:#0e682e;    --st-succeeded-mark:#16a34a;    --st-succeeded-tint:#edf7f0;
+  --st-partial-ink:#853e05;      --st-partial-mark:#d97706;      --st-partial-tint:#fef6eb;
+  --st-failed-ink:#981b1b;       --st-failed-mark:#dc2626;       --st-failed-tint:#fef2f2;
+  --st-running-ink:#1a4fcc;      --st-running-mark:#2563eb;      --st-running-tint:#eef4ff;
+  --st-queued-ink:#4b5563;       --st-queued-mark:#64748b;       --st-queued-tint:#f1f4f8;
+  --st-needs_number-ink:#931b9e; --st-needs_number-mark:#c026d3; --st-needs_number-tint:#fdf2fd;
+  --st-cancelled-ink:#505763;    --st-cancelled-mark:#94a3b8;    --st-cancelled-tint:#f1f4f8;
 
   /* 深底用的状态 ink：深色主题与「图片叠加区」两处共用同一套原语 */
   --st-succeeded-ink-dk:#4ade80; --st-partial-ink-dk:#fbbf24; --st-failed-ink-dk:#f87171;
@@ -77,30 +77,31 @@
   --st-cancelled-ink-dk:#98a5b4;
 
   /* 原型壳（浮动条）：与产品配色分离，避免被当成产品的一部分 */
-  --shell-bg:#2b3340; --shell-text:#f2f5f9; --shell-text-2:#b8c2cf; --shell-line:#3d4757;
+  --shell-bg:#1e242e; --shell-text:#f1f5f9; --shell-text-2:#94a3b8; --shell-line:#334155;
 
-  --shadow-1:0 1px 2px rgba(20,24,29,.05);
-  --shadow-2:0 6px 18px rgba(20,24,29,.09);
-  --shadow-3:0 24px 60px rgba(10,12,16,.32);
+  /* 阴影多层柔化 */
+  --shadow-1:0 1px 3px rgba(15,20,26,.04),0 1px 2px rgba(15,20,26,.02);
+  --shadow-2:0 4px 16px rgba(15,20,26,.07),0 2px 6px rgba(15,20,26,.04);
+  --shadow-3:0 20px 48px rgba(10,12,16,.25),0 8px 16px rgba(10,12,16,.12);
 }
 /* 深色是「组合」出来的，不是把浅色反转：表面分级、文本层级、状态 ink 各自重定 */
 .theme-dark{
   color-scheme:dark;
-  --bg:#0e1116; --surface:#161b22; --surface-2:#1b222b; --surface-3:#212a34;
-  --line:#262f3a; --line-strong:#37424f;
-  --text:#e8eef5; --text-2:#a9b6c4; --text-3:#8b98a8;
-  --accent:#7cb0ff; --accent-ink:#0b1220; --accent-soft:#17233a;
+  --bg:#0b0e14; --surface:#131821; --surface-2:#19202a; --surface-3:#202835;
+  --line:#25303f; --line-strong:#364355;
+  --text:#e6edf5; --text-2:#9eacbe; --text-3:#7f8ea2;
+  --accent:#7cb0ff; --accent-ink:#08101e; --accent-soft:#16243d;
   --focus:#7cb0ff;
-  --st-succeeded-ink:#4ade80;    --st-succeeded-mark:#4ade80;    --st-succeeded-tint:#12271c;
-  --st-partial-ink:#fbbf24;      --st-partial-mark:#fbbf24;      --st-partial-tint:#2a2114;
-  --st-failed-ink:#f87171;       --st-failed-mark:#f87171;       --st-failed-tint:#2a1616;
-  --st-running-ink:#7cb0ff;      --st-running-mark:#7cb0ff;      --st-running-tint:#17233a;
-  --st-queued-ink:#a3b1c2;       --st-queued-mark:#a3b1c2;       --st-queued-tint:#1e2733;
-  --st-needs_number-ink:#f0a6e8; --st-needs_number-mark:#f0a6e8; --st-needs_number-tint:#2a1a2c;
-  --st-cancelled-ink:#98a5b4;    --st-cancelled-mark:#98a5b4;    --st-cancelled-tint:#1e2733;
-  --shadow-1:0 1px 2px rgba(0,0,0,.45);
-  --shadow-2:0 6px 18px rgba(0,0,0,.5);
-  --shadow-3:0 24px 60px rgba(0,0,0,.6);
+  --st-succeeded-ink:#4ade80;    --st-succeeded-mark:#4ade80;    --st-succeeded-tint:#102519;
+  --st-partial-ink:#fbbf24;      --st-partial-mark:#fbbf24;      --st-partial-tint:#261e12;
+  --st-failed-ink:#f87171;       --st-failed-mark:#f87171;       --st-failed-tint:#281515;
+  --st-running-ink:#7cb0ff;      --st-running-mark:#7cb0ff;      --st-running-tint:#16243d;
+  --st-queued-ink:#94a3b8;       --st-queued-mark:#94a3b8;       --st-queued-tint:#1b232f;
+  --st-needs_number-ink:#f0a6e8; --st-needs_number-mark:#f0a6e8; --st-needs_number-tint:#28182a;
+  --st-cancelled-ink:#94a3b8;    --st-cancelled-mark:#94a3b8;    --st-cancelled-tint:#1b232f;
+  --shadow-1:0 1px 3px rgba(0,0,0,.35);
+  --shadow-2:0 4px 16px rgba(0,0,0,.45);
+  --shadow-3:0 20px 48px rgba(0,0,0,.65);
 }
 /* 图片叠加区（不是整块深色主题，只是局部深底）：只重映状态 ink + 文本色 */
 .on-dark{
@@ -172,16 +173,23 @@ input[type=search]{-webkit-appearance:none;appearance:none}
 .ckwrap{display:inline-flex;align-items:center;justify-content:center;padding:var(--sp-2);cursor:pointer;border-radius:var(--r-1)}
 @media (pointer:coarse){
   .btn{min-height:44px;padding:var(--sp-2) var(--sp-4)}
-  .btn-sm{min-height:40px}
+  .btn-sm{min-height:44px;padding:var(--sp-2) var(--sp-3);font-size:var(--fs-body)}
+  .chip{min-height:44px;padding:0 var(--sp-3);font-size:14px}
+  .cand button{min-height:44px;padding:0 var(--sp-3);font-size:14px}
+  .tabs [role=tab]{min-height:44px;padding:var(--sp-2) var(--sp-4)}
   input,select,textarea{min-height:44px;font-size:16px}   /* 16px：避免 iOS 聚焦缩放 */
   input[type=checkbox]{width:22px;height:22px}
   .ckwrap{padding:var(--sp-3)}
+  #bar button{min-height:44px;padding:0 var(--sp-3)}
 }
-.chips{display:flex;gap:var(--sp-1);flex-wrap:wrap}
-.chip{display:inline-flex;align-items:center;gap:var(--sp-1);min-height:26px;padding:0 var(--sp-2);
+.chips{display:flex;gap:var(--sp-2);flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:var(--sp-1);min-height:28px;padding:0 var(--sp-3);
   border:1px solid var(--line-strong);border-radius:var(--r-pill);background:var(--surface);
-  color:var(--text-2);font-size:var(--fs-micro);cursor:pointer}
+  color:var(--text-2);font-size:var(--fs-micro);cursor:pointer;
+  transition:all var(--dur-fast) var(--ease-out)}
+.chip:hover{background:var(--surface-3);color:var(--text);border-color:var(--line-strong)}
 .chip[aria-pressed="true"]{background:var(--text);border-color:var(--text);color:var(--surface);font-weight:600}
+.num-badge{display:inline-block;font-family:var(--font-mono);font-weight:700;letter-spacing:.02em;color:var(--text)}
 .tag{display:inline-flex;align-items:center;gap:var(--sp-1);padding:1px var(--sp-2);border-radius:var(--r-1);
   background:var(--surface-3);color:var(--text-2);font-size:var(--fs-micro)}
 .tag-mono{font-family:var(--font-mono);font-size:var(--fs-micro);padding:1px var(--sp-2);
@@ -301,41 +309,54 @@ input[type=search]{-webkit-appearance:none;appearance:none}
   letter-spacing:.04em}
 .vA .side .dead{color:var(--text-2);font-size:var(--fs-body);padding:var(--sp-1) var(--sp-2);
   display:block;min-height:28px}
-.vA main{flex:1;min-width:0;padding:var(--sp-5) var(--sp-6) 104px;overflow:auto}
+.vA main{flex:1;min-width:0;padding:var(--sp-5) var(--sp-6) max(112px,calc(64px + env(safe-area-inset-bottom)));overflow:auto}
 .vA .page-h{font-size:var(--fs-title);font-weight:700;margin-block-end:var(--sp-2)}
 .vA .sub{color:var(--text-2);font-size:var(--fs-micro);margin-block-end:var(--sp-5)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);box-shadow:var(--shadow-1)}
-.card + .card{margin-block-start:var(--sp-4)}
-.filters{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;padding:var(--sp-3)}
+.card + .card{margin-block-start:var(--sp-5)}
+.filters{display:flex;flex-direction:column;gap:var(--sp-3);padding:var(--sp-4)}
+.filter-controls{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;border-block-start:1px dashed var(--line);padding-block-start:var(--sp-3)}
+.search-wrap{position:relative;display:flex;align-items:center;flex:1 1 280px}
+.search-wrap input{width:100%;min-height:30px;padding-inline-start:30px;font-family:var(--font-mono);font-size:var(--fs-body)}
+.search-icon{position:absolute;inset-inline-start:8px;color:var(--text-3);display:flex;align-items:center;pointer-events:none}
+.select-group{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;margin-inline-start:auto}
 .filters .field{display:flex;align-items:center;gap:var(--sp-1)}
 .filters .flabel{color:var(--text-2);font-size:var(--fs-micro)}
 .row{display:flex;align-items:center;gap:var(--sp-2)}
 .grow{flex:1;min-width:0}
-.pg{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);color:var(--text-2);
+.pg{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-3) var(--sp-4);color:var(--text-2);
   font-size:var(--fs-micro);flex-wrap:wrap}
 .pg .pn{min-width:28px;min-height:26px;padding:0 var(--sp-1)}
 .pg .pn[aria-current="page"]{background:var(--text);border-color:var(--text);color:var(--surface);font-weight:600}
 .stickybar{position:sticky;bottom:0;display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;
-  padding:var(--sp-3);background:var(--surface);border-block-start:1px solid var(--line);border-radius:0 0 var(--r-3) var(--r-3)}
+  padding:var(--sp-3) var(--sp-4) max(var(--sp-3),env(safe-area-inset-bottom));background:var(--surface);border-block-start:1px solid var(--line);border-radius:0 0 var(--r-3) var(--r-3)}
 .stickybar .sum{font-size:var(--fs-micro);color:var(--text-2)}
-.thumb{width:32px;height:44px;border-radius:var(--r-1);flex:0 0 auto}
-.tabs{display:flex;gap:2px;border-block-end:1px solid var(--line);margin-block-start:var(--sp-5);flex-wrap:wrap}
-.tabs [role=tab]{background:transparent;border:0;border-block-end:2px solid transparent;padding:var(--sp-2) var(--sp-3);
-  color:var(--text-2);font:inherit;cursor:pointer;min-height:36px}
+.thumb{width:32px;height:48px;aspect-ratio:2/3;border-radius:var(--r-1);flex:0 0 auto}
+.tabs{display:flex;gap:4px;border-block-end:1px solid var(--line);margin-block-start:var(--sp-6);flex-wrap:wrap}
+.tabs [role=tab]{background:transparent;border:0;border-block-end:2px solid transparent;padding:var(--sp-2) var(--sp-4);
+  color:var(--text-2);font:inherit;font-size:var(--fs-body);font-weight:500;cursor:pointer;min-height:38px;
+  transition:color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out)}
+.tabs [role=tab]:hover{color:var(--text)}
 .tabs [role=tab][aria-selected="true"]{color:var(--st-running-ink);border-block-end-color:var(--accent);font-weight:600}
-.tabpanel{border:1px solid var(--line);border-block-start:0;border-radius:0 0 var(--r-3) var(--r-3);background:var(--surface)}
-.fields .frow{display:grid;grid-template-columns:132px minmax(0,1fr) 104px;gap:var(--sp-2);
-  padding:var(--sp-2) var(--sp-3);border-block-end:1px solid var(--line);font-size:var(--fs-body)}
+.tabpanel{border:1px solid var(--line);border-block-start:0;border-radius:0 0 var(--r-3) var(--r-3);background:var(--surface);padding:0}
+.fields .frow{display:grid;grid-template-columns:140px minmax(0,1fr) 110px;gap:var(--sp-3);
+  padding:var(--sp-2) var(--sp-4);border-block-end:1px solid var(--line);font-size:var(--fs-body)}
 .fields .frow:last-child{border-block-end:0}
-.fields .k{color:var(--text-2);font-family:var(--font-mono);font-size:var(--fs-micro)}
-.fields .v{min-width:0}
+.fields .k{color:var(--text-2);font-family:var(--font-mono);font-size:var(--fs-micro);font-weight:500}
+.fields .v{min-width:0;line-height:var(--lh-body);text-wrap:pretty}
 .fields .s{color:var(--text-3);font-size:var(--fs-micro);text-align:end}
 .fields .frow.miss .v{color:var(--st-failed-ink)}
-.fields .head{background:var(--surface-2);font-weight:600}
-.dhead{display:flex;gap:var(--sp-4);align-items:flex-start;padding:var(--sp-3);flex-wrap:wrap}
-.dhead .poster{width:104px;height:156px;border-radius:var(--r-2);flex:0 0 auto}
-.strip{display:flex;gap:var(--sp-2);overflow:auto;padding-block-end:var(--sp-1)}
-.strip .f16{width:160px;aspect-ratio:16/9;border-radius:var(--r-2);flex:0 0 auto}
+.fields .head{background:var(--surface-2);font-weight:600;font-size:var(--fs-micro);color:var(--text-2)}
+.dhead{display:flex;gap:var(--sp-5);align-items:flex-start;padding:var(--sp-4);flex-wrap:wrap}
+.dhead .poster{width:112px;aspect-ratio:2/3;height:auto;border-radius:var(--r-2);flex:0 0 auto;box-shadow:var(--shadow-1)}
+.poster-col{display:flex;flex-direction:column;align-items:center;gap:6px;flex:0 0 auto}
+.crop-badge{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;color:var(--text-2);
+  background:var(--surface-3);padding:1px 8px;border-radius:var(--r-pill);border:1px solid var(--line);
+  font-family:var(--font-mono);letter-spacing:.02em;white-space:nowrap}
+.strip{display:flex;gap:var(--sp-3);overflow:auto;padding-block-end:var(--sp-2)}
+.strip .f16{width:176px;aspect-ratio:16/9;height:auto;border-radius:var(--r-2);flex:0 0 auto}
+.strip-item{display:flex;flex-direction:column;gap:4px;flex:0 0 auto}
+.strip-item .cap{font-size:10.5px;color:var(--text-3);text-align:center;max-width:176px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .prog{display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;padding:var(--sp-3);color:var(--text-2);
   font-size:var(--fs-micro);border-block-end:1px solid var(--line)}
 .prog .done{color:var(--st-succeeded-ink)}
@@ -353,6 +374,72 @@ input[type=search]{-webkit-appearance:none;appearance:none}
 .cand button[aria-pressed="true"]{background:var(--st-needs_number-mark);border-color:var(--st-needs_number-mark);color:#fff}
 .numin{width:130px;font-family:var(--font-mono)}
 .occ{color:var(--st-needs_number-ink);font-size:var(--fs-micro)}
+
+/* 扫描目录选择工作台 (Deck) */
+.scan-deck{padding:var(--sp-4);display:flex;flex-direction:column;gap:var(--sp-3)}
+.deck-head{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
+.path-bar{display:flex;align-items:center;gap:var(--sp-2);flex:1 1 360px;background:var(--surface-2);
+  border:1px solid var(--line-strong);border-radius:var(--r-2);padding:var(--sp-1) var(--sp-2);min-width:0;flex-wrap:wrap}
+.path-mount{font-size:11px;color:var(--text-3);background:var(--surface-3);
+  padding:2px 8px;border-radius:var(--r-1);white-space:nowrap;font-weight:600}
+.crumb-nav{display:flex;align-items:center;gap:2px;font-size:var(--fs-body);flex-wrap:wrap;min-width:0}
+.crumb-btn{background:transparent;border:0;color:var(--accent);font:inherit;font-weight:600;
+  cursor:pointer;padding:2px 6px;border-radius:var(--r-1);font-family:var(--font-mono)}
+.crumb-btn:hover{background:var(--accent-soft)}
+.crumb-sep{color:var(--text-3);font-size:var(--fs-micro)}
+.path-input-wrap{display:flex;align-items:center;gap:var(--sp-1);margin-inline-start:auto}
+.path-in{width:160px;min-height:26px;font-size:var(--fs-micro);padding:0 var(--sp-2);background:var(--surface);border-color:var(--line)}
+.deck-actions{display:flex;align-items:center;gap:var(--sp-2)}
+.presets-row{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;padding-block:var(--sp-2);
+  border-block:1px dashed var(--line);font-size:var(--fs-micro)}
+.deck-lbl{color:var(--text-3);font-size:var(--fs-micro);font-weight:600;white-space:nowrap}
+.preset-chips{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center}
+.preset-btn{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:0 var(--sp-3);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-pill);
+  color:var(--text-2);font:inherit;font-size:var(--fs-micro);cursor:pointer;transition:all var(--dur-fast) var(--ease-out)}
+.preset-btn:hover{background:var(--surface-3);color:var(--text);border-color:var(--line-strong)}
+.preset-btn.active{background:var(--accent-soft);color:var(--st-running-ink);border-color:var(--accent);font-weight:600}
+.preset-path{color:var(--text-3);font-family:var(--font-mono);font-size:11px}
+.inline-explorer{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-2);overflow:hidden}
+.explorer-head{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);background:var(--surface-3);border-block-end:1px solid var(--line);flex-wrap:wrap}
+.table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.dir-table{width:100%;border-collapse:collapse;font-size:var(--fs-body)}
+.dir-table th{background:var(--surface-3);font-size:var(--fs-micro);padding:var(--sp-2) var(--sp-3);
+  border-block-end:1px solid var(--line);font-weight:600;color:var(--text-2);text-align:start}
+.dir-table td{padding:var(--sp-2) var(--sp-3);border-block-end:1px solid var(--line);vertical-align:middle}
+.dir-table tr:hover td{background:var(--surface-2)}
+.dir-table tr.is-excluded td{background:var(--st-partial-tint)}
+.dir-cell-name{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.dir-link-btn{background:transparent;border:0;color:var(--text);font:inherit;font-family:var(--font-mono);
+  font-weight:600;font-size:var(--fs-body);cursor:pointer;padding:0;text-decoration:none}
+.dir-link-btn:hover{color:var(--accent);text-decoration:underline}
+.dir-acts-cell{display:inline-flex;align-items:center;gap:var(--sp-2);justify-content:flex-end}
+.dir-icon{color:var(--accent);flex:0 0 auto}
+.excluded-badge{font-size:10.5px;color:var(--st-partial-ink);background:var(--st-partial-tint);
+  border:1px solid var(--st-partial-mark);padding:0 6px;border-radius:var(--r-1);font-weight:600}
+.root-badge{font-size:10.5px;color:var(--st-running-ink);background:var(--accent-soft);
+  border:1px solid var(--accent);padding:0 6px;border-radius:var(--r-1);font-weight:600}
+
+/* 扫描范围与过滤清单 (双栏结构化规整排版) */
+.scope-ledger{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);margin-block-start:var(--sp-2)}
+@media (max-width:768px){ .scope-ledger{grid-template-columns:1fr} }
+.scope-col{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-2);padding:var(--sp-3);display:flex;flex-direction:column;gap:var(--sp-2)}
+.scope-col-head{display:flex;align-items:center;justify-content:space-between;border-block-end:1px solid var(--line);padding-block-end:var(--sp-2)}
+.scope-title{font-size:var(--fs-micro);font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px}
+.scope-items{display:flex;flex-direction:column;gap:6px}
+.scope-item{display:flex;align-items:center;gap:var(--sp-2);background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-1);padding:6px var(--sp-2);font-size:var(--fs-micro);box-shadow:var(--shadow-1)}
+.scope-item.is-exclude{border-color:var(--st-partial-tint);background:var(--st-partial-tint)}
+.scope-item .item-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scope-item .item-badge{font-size:10.5px;color:var(--text-2);background:var(--surface-3);padding:1px 6px;border-radius:var(--r-1);white-space:nowrap}
+.scope-item .exclude-badge{color:var(--st-partial-ink);background:rgba(217,119,6,0.12);font-weight:600}
+.scope-item .item-del{color:var(--text-3);padding:2px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.scope-item .item-del:hover{color:var(--st-failed-ink)}
+.scope-item .item-lock{font-size:10.5px;color:var(--text-3);white-space:nowrap}
+.scope-empty{color:var(--text-3);font-size:var(--fs-micro);padding:var(--sp-2) 0;text-align:center}
+.scope-footer{display:flex;align-items:center;gap:var(--sp-3);padding-block-start:var(--sp-2);border-block-start:1px solid var(--line);font-size:var(--fs-micro);flex-wrap:wrap}
+.scope-stat{color:var(--text-2)}
+.scope-stat b{color:var(--text)}
 
 /* ============================================================
    6. 变体 B · 卡片墙
@@ -508,25 +595,56 @@ input[type=search]{-webkit-appearance:none;appearance:none}
   .rec thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
   .rec tr{display:block;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);
     margin-block-end:var(--sp-3);padding:var(--sp-2) var(--sp-3)}
-  .rec td{display:grid;grid-template-columns:7.5rem minmax(0,1fr);gap:var(--sp-2);border:0;padding:3px 0}
-  .rec td::before{content:attr(data-label);color:var(--text-3);font-size:var(--fs-micro)}
+  .rec td{display:grid;grid-template-columns:4.8rem minmax(0,1fr);gap:var(--sp-2);border:0;padding:4px 0}
+  .rec td::before{content:attr(data-label);color:var(--text-3);font-size:var(--fs-micro);font-weight:600}
   .rec td.plain{grid-template-columns:minmax(0,1fr)}
   .rec td.plain::before{content:none}
   .rec .stickybar,.rec .pg{border-radius:0}
-  .vA main{padding:var(--sp-3) var(--sp-3) 112px}
+  .vA main{padding:var(--sp-3) var(--sp-3) 96px}
   .vA .top{padding:var(--sp-2) var(--sp-3)}
   .vB .top,.vB main{padding-inline:var(--sp-3)}
-  .vC main{padding:var(--sp-3) var(--sp-3) 112px}
+  .vC main{padding:var(--sp-3) var(--sp-3) 96px}
   .vC .board{grid-template-columns:minmax(0,1fr)}
   .vB .hero .in{inset-inline:var(--sp-3);bottom:var(--sp-3)}
   .vB .hero h1{font-size:var(--fs-title)}
-  .dhead .poster{width:84px;height:126px}
+  
+  /* 移动端详情头部与路径工作台适配 */
+  .dhead{flex-direction:column;align-items:center;text-align:center}
+  .dhead .poster{width:96px;aspect-ratio:2/3;height:auto}
+  .dhead .grow{width:100%}
+  .strip{width:100%}
+  .path-bar{flex:none;flex-direction:column;align-items:stretch;gap:var(--sp-2)}
+  .path-input-wrap{margin-inline-start:0;width:100%}
+  .path-in{flex:1;width:auto}
+  .deck-head{flex-direction:column;align-items:stretch;gap:var(--sp-2)}
+  .deck-head .deck-actions button{width:100%}
+  .filter-controls{flex-direction:column;align-items:stretch;gap:var(--sp-2)}
+  .search-wrap{flex:none;width:100%}
+  .select-group{margin-inline-start:0;width:100%;display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-2)}
+  .select-group .field{display:flex;flex-direction:column;align-items:stretch;gap:3px;min-width:0}
+  .select-group .field:last-child{grid-column:span 2}
+  .select-group select{width:100%;min-height:36px}
+
+  /* 子目录表格在移动端转为卡片列表 */
+  .dir-table thead{display:none}
+  .dir-table tr{display:flex;flex-direction:column;gap:6px;padding:var(--sp-3);border-block-end:1px solid var(--line)}
+  .dir-table td{display:flex;align-items:center;padding:0;border:0}
+  .dir-acts-cell{width:100%;justify-content:flex-start;flex-wrap:wrap;margin-block-start:var(--sp-1)}
+
   .fields .frow{grid-template-columns:minmax(0,1fr);gap:2px}
   .fields .s{text-align:start}
   .fillrow{grid-template-columns:minmax(0,1fr);gap:var(--sp-1)}
   .filtered .frow{grid-template-columns:minmax(0,1fr)}
   .vC .kv{grid-template-columns:104px minmax(0,1fr);gap:2px var(--sp-2)}
   .vC .kv .s{grid-column:2;text-align:start}
+}
+@media (max-width:640px){
+  #bar{padding:var(--sp-1) var(--sp-2) max(var(--sp-1),env(safe-area-inset-bottom));inset-inline:0}
+  #bar .inner{padding:4px 8px;gap:4px;border-radius:var(--r-pill);height:40px;overflow-x:auto;overflow-y:hidden;flex-wrap:nowrap;justify-content:flex-start;max-width:calc(100vw - 16px);-webkit-overflow-scrolling:touch}
+  #bar .seg{flex-shrink:0}
+  #bar button{min-height:28px;padding:0 var(--sp-2);white-space:nowrap;font-size:11px}
+  #bar .lbl{min-width:auto;padding-inline:4px}
+  #bar .tag{display:none}
 }
 @media (max-width:480px){
   .vA .side .navlink{padding:0 var(--sp-1);font-size:var(--fs-micro)}
@@ -619,12 +737,12 @@ var DETAILS = {
     fields:[
       ['title',LONG_TITLE,'javdb',0],
       ['plot','大手メーカーS1専属・河北彩花の専属デビュー作。…（简介正文，可多行）','javdb',0],
-      ['fanart','fanart.jpg · 1920×1080 · 412 KB','dmm',1],
+      ['fanart','fanart.jpg · 1920×1080 · 完整横版封套 (含封面+封底) · 412 KB','dmm',1],
       ['extrafanarts','6 张 · extrafanart/fanart1…6.jpg','javbus',1],
       ['tags','巨乳 / 単体作品 / ハイビジョン / 独占配信 / 4K','javdb',0],
       ['releasedate','2024-03-13','javdb',0],
       ['actors','河北彩花（女优）','javdb',0],
-      ['poster','poster.jpg · 1000×1500 · 268 KB','dmm',1],
+      ['poster','poster.jpg · 1000×1500 · 从横版封套右侧裁切 (2:3) · 268 KB','dmm (自动裁切)',1],
       ['director','—','',0],
       ['runtime','118 分钟','javbus',0],
       ['rating','8.7 / 10','javdb',0],
@@ -639,15 +757,15 @@ var DETAILS = {
       ['group','ok',6,'组 5 · 合并 2 组'],
       ['parse','ok',1,'番号 5 · 待补号 0'],
       ['scrape','ok',3120,'4 源 · 命中 3 · 字段 14'],
-      ['images','ok',480,'取图 8 · 解码 8'],
+      ['images','ok',480,'下载原图 8 · 解码 8 · 从横版封套右侧裁切 poster.jpg (2:3)'],
       ['nfo','ok',3,'gonja · 1 文件'],
       ['output','ok',120,'写 8 · 跳过 0 · 硬链 1']
     ],
     srcs:[['javdb','ok','',9,820],['dmm','ok','',3,1240],['javbus','ok','',2,640],['fc2','notfound','',0,210]],
     rows:[
       ['video','—','—','/media/SSIS-001.mp4','SSIS-001/SSIS-001.mp4','6.1 GiB','hardlink'],
-      ['image','poster','0','dmm','SSIS-001/poster.jpg','268 KB','write'],
       ['image','fanart','0','dmm','SSIS-001/fanart.jpg','412 KB','write'],
+      ['image','poster','0','dmm (crop)','SSIS-001/poster.jpg','268 KB','write'],
       ['image','extrafanart','1..6','javbus','SSIS-001/extrafanart/fanart1…6.jpg','1.8 MB','write'],
       ['nfo','—','—','—','SSIS-001/movie.nfo','3.1 KB','write']
     ]
@@ -659,12 +777,12 @@ var DETAILS = {
     fields:[
       ['title','夫の上司に犯され続けて7日目、私は理性を失った','javdb',0],
       ['plot','…（简介正文）','javdb',0],
-      ['fanart','fanart.jpg · 1920×1080 · 380 KB','javdb',1],
+      ['fanart','fanart.jpg · 1920×1080 · 完整横版封套 · 380 KB','javdb',1],
       ['extrafanarts','—','',1],
       ['tags','人妻 / 寝取られ / 単体作品','javdb',0],
       ['releasedate','—','',0],
       ['actors','三上悠亜（女优）','javdb',0],
-      ['poster','poster.jpg · 1000×1500 · 241 KB','javdb',1],
+      ['poster','poster.jpg · 1000×1500 · 从横版封套右侧裁切 (2:3) · 241 KB','javdb (自动裁切)',1],
       ['director','—','',0],
       ['runtime','120 分钟','javbus',0],
       ['rating','—','',0],
@@ -780,6 +898,7 @@ var ICON = {
   right:'<svg class="ic ic-dir" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg>',
   warn:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.2 14 13H2z"/><path d="M8 6.8v3M8 11.4v.4"/></svg>',
   video:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.25" y="4.25" width="11.5" height="7.5" rx="1.25"/><path d="M6.8 6.6 9.9 8l-3.1 1.4z"/></svg>',
+  search:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5"/></svg>',
   copy:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.75" y="5.75" width="7.5" height="7.5" rx="1.25"/><path d="M10.25 5.75V4a1.25 1.25 0 0 0-1.25-1.25H4A1.25 1.25 0 0 0 2.75 4v5a1.25 1.25 0 0 0 1.25 1.25h1.75"/></svg>',
   rerun:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13 2.8V5h-2.2"/></svg>'
 };
@@ -789,15 +908,59 @@ function svgURI(seed, w, h, label){
   var key = seed+'|'+w+'|'+h+'|'+label;
   if(_imgCache[key]) return _imgCache[key];
   var hue = (seed*37)%360;
-  var s = '<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'">'
-   + '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
-   + '<stop offset="0" stop-color="hsl('+hue+',42%,34%)"/>'
-   + '<stop offset="1" stop-color="hsl('+((hue+38)%360)+',48%,14%)"/></linearGradient></defs>'
-   + '<rect width="100%" height="100%" fill="url(#g)"/>'
-   + '<circle cx="'+(w*0.74)+'" cy="'+(h*0.28)+'" r="'+(h*0.3)+'" fill="hsl('+((hue+190)%360)+',60%,62%)" opacity="0.18"/>'
-   + '<circle cx="'+(w*0.22)+'" cy="'+(h*0.8)+'" r="'+(h*0.2)+'" fill="#ffffff" opacity="0.07"/>'
-   + '<text x="50%" y="53%" text-anchor="middle" font-family="system-ui,sans-serif" font-size="'+Math.round(h*0.12)
-   + '" fill="#ffffff" opacity="0.9">'+esc(label)+'</text></svg>';
+  var isWide = w > h;
+  var shortLabel = (label || '').replace(/^(任务|海报|占位图)\s*/, '');
+  if(shortLabel.indexOf(' ') > 0) shortLabel = shortLabel.split(' ')[0];
+  if(shortLabel.length > 14) shortLabel = shortLabel.substring(0, 12) + '…';
+  var s = '';
+  if(isWide){
+    var cropX = Math.round(w * 0.52);
+    s = '<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'">'
+     + '<defs>'
+     + '<linearGradient id="bg_'+seed+'_'+w+'" x1="0" y1="0" x2="1" y2="1">'
+     + '<stop offset="0" stop-color="hsl('+hue+',35%,22%)"/>'
+     + '<stop offset="1" stop-color="hsl('+((hue+40)%360)+',40%,12%)"/>'
+     + '</linearGradient>'
+     + '<linearGradient id="front_'+seed+'_'+w+'" x1="0" y1="0" x2="1" y2="1">'
+     + '<stop offset="0" stop-color="hsl('+hue+',48%,36%)"/>'
+     + '<stop offset="1" stop-color="hsl('+((hue+35)%360)+',55%,18%)"/>'
+     + '</linearGradient>'
+     + '</defs>'
+     + '<rect width="'+w+'" height="'+h+'" fill="url(#bg_'+seed+'_'+w+')"/>'
+     + '<!-- 左侧：封套背面 -->'
+     + '<g opacity="0.35">'
+     + '<rect x="18" y="24" width="'+(cropX-36)+'" height="12" rx="2" fill="#ffffff" opacity="0.4"/>'
+     + '<rect x="18" y="44" width="'+(cropX-56)+'" height="8" rx="2" fill="#ffffff" opacity="0.25"/>'
+     + '<rect x="18" y="58" width="'+(cropX-80)+'" height="8" rx="2" fill="#ffffff" opacity="0.2"/>'
+     + '<rect x="18" y="'+(h-64)+'" width="48" height="32" rx="3" fill="#ffffff" opacity="0.15"/>'
+     + '<rect x="74" y="'+(h-64)+'" width="48" height="32" rx="3" fill="#ffffff" opacity="0.15"/>'
+     + '</g>'
+     + '<text x="18" y="'+(h-18)+'" fill="#ffffff" opacity="0.45" font-size="10" font-family="monospace">◀ 封底·剧照与简介</text>'
+     + '<!-- 中间：折痕与裁切引导线 -->'
+     + '<line x1="'+cropX+'" y1="0" x2="'+cropX+'" y2="'+h+'" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.65"/>'
+     + '<!-- 右侧：封面主体（后续裁剪为竖版 poster.jpg） -->'
+     + '<rect x="'+cropX+'" y="0" width="'+(w-cropX)+'" height="'+h+'" fill="url(#front_'+seed+'_'+w+')"/>'
+     + '<circle cx="'+(cropX+(w-cropX)*0.55)+'" cy="'+(h*0.38)+'" r="'+(h*0.28)+'" fill="hsl('+((hue+180)%360)+',65%,65%)" opacity="0.22"/>'
+     + '<text x="'+(cropX+(w-cropX)*0.5)+'" y="22" text-anchor="middle" fill="#ffffff" opacity="0.75" font-size="10" font-family="sans-serif">✂ 竖版海报裁切区 (2:3)</text>'
+     + '<text x="'+(cropX+(w-cropX)*0.5)+'" y="'+(h*0.56)+'" text-anchor="middle" font-weight="bold" fill="#ffffff" font-size="'+Math.round(h*0.12)+'" font-family="monospace">'+esc(shortLabel)+'</text>'
+     + '<text x="'+(cropX+(w-cropX)*0.5)+'" y="'+(h*0.74)+'" text-anchor="middle" fill="#ffffff" opacity="0.8" font-size="11" font-family="sans-serif">横版完整封套 (fanart)</text>'
+     + '</svg>';
+  } else {
+    s = '<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'">'
+     + '<defs>'
+     + '<linearGradient id="p_'+seed+'_'+w+'" x1="0" y1="0" x2="1" y2="1">'
+     + '<stop offset="0" stop-color="hsl('+hue+',48%,36%)"/>'
+     + '<stop offset="1" stop-color="hsl('+((hue+35)%360)+',55%,18%)"/>'
+     + '</linearGradient>'
+     + '</defs>'
+     + '<rect width="'+w+'" height="'+h+'" fill="url(#p_'+seed+'_'+w+')"/>'
+     + '<circle cx="'+(w*0.55)+'" cy="'+(h*0.38)+'" r="'+(w*0.42)+'" fill="hsl('+((hue+180)%360)+',65%,65%)" opacity="0.22"/>'
+     + '<rect x="0" y="0" width="'+w+'" height="22" fill="rgba(0,0,0,0.28)"/>'
+     + '<text x="'+(w*0.5)+'" y="15" text-anchor="middle" fill="#ffffff" opacity="0.85" font-size="10" font-family="sans-serif">✂ 封套右侧裁切 (2:3)</text>'
+     + '<text x="'+(w*0.5)+'" y="'+(h*0.55)+'" text-anchor="middle" font-weight="bold" fill="#ffffff" font-size="'+Math.round(w*0.13)+'" font-family="monospace">'+esc(shortLabel)+'</text>'
+     + '<text x="'+(w*0.5)+'" y="'+(h*0.7)+'" text-anchor="middle" fill="#ffffff" opacity="0.85" font-size="12" font-family="sans-serif">竖版海报 (poster)</text>'
+     + '</svg>';
+  }
   _imgCache[key] = 'data:image/svg+xml;utf8,'+encodeURIComponent(s);
   return _imgCache[key];
 }
@@ -816,8 +979,39 @@ function zoomBtn(hue, label, cls, w, h){
    + 'aria-label="放大：'+esc(label)+'" '
    + 'style="background-image:url(\''+svgURI(hue,w||640,h||360,label)+'\')"></button>';
 }
-var ST_LABEL = {queued:'排队',running:'运行中',succeeded:'成功',partial:'部分',failed:'失败',
+var ST_LABEL = {queued:'排队中',running:'运行中',succeeded:'刮削成功',partial:'部分成功',failed:'处理失败',
   needs_number:'待补号',cancelled:'已取消'};
+var TRIGGER_LABEL = {manual:'手动触发',monitor:'监控触发',webhook:'Webhook'};
+var STAGE_LABEL = {
+  '—':'—',
+  'scan':'目录扫描',
+  'filter':'规则过滤',
+  'group':'智能分组',
+  'parse':'番号解析',
+  'scrape':'多源刮削',
+  'scrape · javdb':'刮削 · javdb',
+  'scrape · dmm':'刮削 · dmm',
+  'scrape · javbus':'刮削 · javbus',
+  'scrape · fc2':'刮削 · fc2',
+  'images':'图片下载',
+  'nfo':'生成 NFO',
+  'output':'输出落盘'
+};
+var STEP_NAME = {
+  scan:'目录扫描', filter:'规则过滤', group:'智能分组', parse:'番号解析',
+  scrape:'多源刮削', images:'图片下载与解码', nfo:'NFO 模板渲染', output:'文件整理与链接'
+};
+var FIELD_LABEL = {
+  title:'作品标题', plot:'剧情简介', fanart:'横版背景图 (16:9)', extrafanarts:'剧照列表 (多图)',
+  tags:'作品标签', releasedate:'发行日期', actors:'演员列表', poster:'竖版海报 (2:3)',
+  director:'导演', runtime:'影片时长', rating:'用户评分', series:'系列名称',
+  studio:'制作厂商', publisher:'发行厂商'
+};
+var KIND_LABEL = {video:'视频文件', image:'图片资源', nfo:'NFO 元数据'};
+var ROLE_LABEL = {poster:'竖版海报', fanart:'横版背景', extrafanart:'剧照', '—':'—'};
+var ACTION_LABEL = {hardlink:'创建硬链接', copy:'文件复制', move:'移动文件', write:'文件写入'};
+var LINK_LABEL = {hardlink:'硬链接 (hardlink)', copy:'文件复制 (copy)', move:'文件移动 (move)'};
+var PIPELINE_LABEL = {default:'默认流水线', vr:'VR 专用流水线'};
 /* 状态永远「点 + 文字」：颜色不是唯一编码 */
 function stBadge(s){
   return '<span class="st st-'+s+'"><span class="dot" aria-hidden="true"></span>'+esc(ST_LABEL[s]||s)+'</span>';
@@ -838,10 +1032,15 @@ function mountOf(p){
   return m;
 }
 /* 重渲染后把焦点放回去：整树 innerHTML 重建会把焦点丢给 body */
+function safeIdSelector(id){
+  if(!id) return null;
+  if(window.CSS && CSS.escape) return '#' + CSS.escape(id);
+  return '#' + id.replace(/([ #;?%&,.+*~':"!^$[\]()=>|/@])/g, '\\$1');
+}
 function selectorFor(el){
   if(!el || !el.dataset) return null;
   var d = el.dataset;
-  if(el.id) return '#'+el.id;
+  if(el.id) return safeIdSelector(el.id);
   if(d.num) return '[data-num="'+d.num+'"]';
   if(d.zoom) return '[data-zoom="'+d.zoom+'"]';
   if(d.tab) return '[data-tab="'+d.tab+'"]';
@@ -861,15 +1060,23 @@ function labelOf(p){ var m = mountOf(p); return m ? m.label : '容器'; }
 /* ============================================================
    状态
    ============================================================ */
+var PRESETS = [
+  {path:'/media', label:'全部媒体库', badge:'/media'},
+  {path:'/media/2024', label:'2024 归档', badge:'/media/2024'},
+  {path:'/media/vr', label:'VR 专区', badge:'/media/vr'},
+  {path:'/media/fc2', label:'FC2 精选', badge:'/media/fc2'},
+  {path:'/media/misc', label:'杂项待整理', badge:'/media/misc'}
+];
 var S = {
   variant:'A', view:'scan', state:'normal', detail:'SSIS-001',
-  picked:{}, nums:{}, rows:{}, tab:'overview',
-  roots:ROOTS.slice(), excludes:EXCLUDES.slice(),
+  picked:{}, nums:{}, rows:{}, tab:'overview', page:1,
+  roots:['/media'], excludes:EXCLUDES.slice(),
+  navDir:'/media', explorerOpen:true,
   picker:{open:false, path:'/media', mode:'root', err:''},
   lb:null, focusBack:null
 };
-var VIEWS = [['scan','扫描预览'],['tasks','任务列表'],['detail','任务详情'],['numbers','待补号']];
-var STATES = [['normal','正常'],['loading','加载中'],['empty','空'],['error','出错']];
+var VIEWS = [['scan','扫描预览'],['tasks','任务列表'],['detail','任务详情'],['numbers','待补号队列']];
+var STATES = [['normal','正常运行'],['loading','加载骨架'],['empty','空状态'],['error','异常报错']];
 var VARIANTS = [['A','运维台'],['B','卡片墙'],['C','流程看板']];
 var DETAIL_SAMPLES = ['SSIS-001','ABP-123','FC2-3336019','SSVR-122'];
 
@@ -895,28 +1102,28 @@ function hrefFor(o){
    变体 A · 运维台
    ============================================================ */
 function aShell(view){
-  var nav = [['scan','扫描预览',''],['tasks','任务','137'],['numbers','待补号','2']];
+  var nav = [['scan','扫描预览',''],['tasks','任务列表','137'],['numbers','待补号队列','2']];
   return ''
   + '<div class="top">'
   +   '<span class="brand">mdc<span>·lite</span></span>'
-  +   '<span class="tag">PROTOTYPE</span>'
-  +   '<span class="row"><label class="flabel" for="pipe">配置文件</label>'
+  +   '<span class="tag">原型控制台</span>'
+  +   '<span class="row"><label class="flabel" for="pipe">当前流水线</label>'
   +     '<select id="pipe">'+PIPELINES.map(function(p){
-          return '<option value="'+p.id+'">'+esc(p.id)+' — '+esc(p.name)+'</option>'}).join('')+'</select></span>'
+          return '<option value="'+p.id+'">'+esc(p.name)+' ('+esc(p.id)+')</option>'}).join('')+'</select></span>'
   +   '<span class="grow"></span>'
   +   '<span class="flabel mono">SQLite · 单副本 · 端口 9208</span>'
   + '</div>'
   + '<div class="layout"><nav class="side" aria-label="视图">'
   +   nav.map(function(n){
-        var label = n[0]==='tasks' ? '任务' : (n[0]==='numbers' ? '待补号' : n[1]);
+        var label = n[0]==='tasks' ? '任务列表' : (n[0]==='numbers' ? '待补号队列' : n[1]);
         return '<a class="navlink" href="'+hrefFor({view:n[0]})+'" data-view="'+n[0]+'"'
         + (view===n[0]?' aria-current="page"':'')+'>'+esc(label)
         + (n[2]?'<span class="n'+(n[0]==='numbers'?' warn':'')+'">'+esc(n[2])+'</span>':'')+'</a>';
       }).join('')
-  +   '<p class="sec">留痕（只读）</p>'
-  +   ['批次','步骤运行','源运行','落盘台账'].map(function(t){return '<span class="dead">'+t+'</span>'}).join('')
-  +   '<p class="sec">设置</p>'
-  +   ['流水线','模板'].map(function(t){return '<span class="dead">'+t+'</span>'}).join('')
+  +   '<p class="sec">流水线留痕（只读）</p>'
+  +   ['批次记录','步骤运行','站点请求','落盘台账'].map(function(t){return '<span class="dead">'+t+'</span>'}).join('')
+  +   '<p class="sec">系统设置</p>'
+  +   ['流水线配置','NFO 模板'].map(function(t){return '<span class="dead">'+t+'</span>'}).join('')
   + '</nav><main id="main" tabindex="-1">'+aBody(view)+'</main></div>';
 }
 function aBody(view){
@@ -950,28 +1157,140 @@ function rootChips(kind, list){
 function aScan(){
   var loading = S.state==='loading';
   var h = '<h1 class="page-h">扫描预览</h1>'
-   + '<p class="sub">手动模式 · 全量扫描 · 预览与建任务共用同一条前缀（scan → filter'
-   + (loading?' → …':' → group → parse')+'）</p>';
-  h += '<div class="card"><div class="filters">'
-   + '<span class="flabel">根目录</span>'+rootChips('root', S.roots)
-   + '<button class="btn btn-sm" type="button" data-pk-open="root">'+ICON.plus+'添加目录</button>'
-   + '<span class="flabel">排除</span>'+rootChips('exclude', S.excludes)
-   + '<button class="btn btn-sm" type="button" data-pk-open="exclude">'+ICON.plus+'添加排除</button>'
+   + '<p class="sub">手动全量扫描模式 · 预览与建任务共用前缀处理流水线（扫描 → 过滤'
+   + (loading?' → 处理中…':' → 分组 → 番号解析')+'）</p>';
+
+  var curDir = S.navDir || S.roots[0] || '/media';
+  var subDirs = FS[curDir] || [];
+  
+  // 面包屑生成
+  var segs = [], acc = '';
+  curDir.split('/').filter(function(x){return x!==''}).forEach(function(x){
+    acc += '/' + x;
+    segs.push('<button class="crumb-btn" type="button" data-act="nav-dir" data-path="'+esc(acc)+'">'+esc(x)+'</button>');
+  });
+
+  h += '<div class="card scan-deck">'
+   + '<div class="deck-head">'
+   + '<div class="path-bar">'
+   + '<span class="path-mount">挂载点 · '+(mountOf(curDir)?mountOf(curDir).label:'媒体库')+'</span>'
+   + '<div class="crumb-nav" aria-label="路径面包屑导航">'
+   + '<button class="crumb-btn" type="button" data-act="nav-dir" data-path="/media">/media</button>'
+   + (curDir !== '/media' ? '<span class="crumb-sep">/</span>' + segs.slice(1).join('<span class="crumb-sep">/</span>') : '')
+   + '</div>'
+   + '<div class="path-input-wrap">'
+   + '<label class="sr-only" for="scan-path-in">直接手输容器内绝对路径</label>'
+   + '<input id="scan-path-in" class="mono path-in" value="'+esc(curDir)+'" placeholder="/media/2024">'
+   + '<button class="btn btn-sm" type="button" data-act="jump-nav-dir">切换目录</button>'
+   + '</div></div>'
+   + '<div class="deck-actions">'
+   + '<button class="btn btn-pri" type="button" data-act="scan-run" '+(loading?'disabled aria-busy="true"':'')+'>'
+   + (loading?'扫描计算中…':'开始扫描该目录')+'</button>'
+   + '</div></div>';
+
+  // 快捷预设行
+  h += '<div class="presets-row">'
+   + '<span class="deck-lbl">常用位置直达:</span>'
+   + '<div class="preset-chips">'
+   + PRESETS.map(function(p){
+      var active = curDir === p.path;
+      return '<button class="preset-btn'+(active?' active':'')+'" type="button" data-act="set-preset" data-path="'+esc(p.path)+'">'
+       + ICON.folder + '<span>'+esc(p.label)+'</span> <span class="preset-path">'+esc(p.badge)+'</span></button>';
+     }).join('')
+   + '</div><span class="grow"></span>'
+   + '<button class="btn btn-quiet btn-sm" type="button" data-act="toggle-explorer">'
+   + (S.explorerOpen ? '收起子目录' : '展开子目录 ('+subDirs.length+')')+'</button>'
+   + '</div>';
+
+  // 内联子目录浏览器
+  if(S.explorerOpen){
+    h += '<div class="inline-explorer">'
+     + '<div class="explorer-head">'
+     + '<span class="deck-lbl">当前目录 ('+esc(curDir)+') 下包含的子文件夹：</span>'
+     + (curDir !== '/media' ? '<button class="btn btn-sm" type="button" data-act="nav-dir" data-path="'+esc(curDir.replace(/\/[^\/]+$/, '')||'/media')+'">'+ICON.up+' 返回上一级</button>' : '')
+     + '<span class="grow"></span>'
+     + '<button class="btn btn-sm" type="button" data-act="set-root" data-path="'+esc(curDir)+'">+ 将当前目录加入扫描</button>'
+     + '</div>';
+
+    if(!subDirs.length){
+      h += '<div class="empty" style="padding:var(--sp-4)"><p class="flabel">当前目录下无进一步子目录（纯视频文件层）</p></div>';
+    } else {
+      h += '<table class="dir-table"><caption class="sr-only">当前路径下的子文件夹列表与操作</caption>'
+       + '<thead><tr>'
+       + '<th scope="col" style="width:260px">子目录名称</th>'
+       + '<th scope="col" style="width:200px">包含内容</th>'
+       + '<th scope="col">容器内路径</th>'
+       + '<th scope="col" style="text-align:end;width:240px">目录操作</th>'
+       + '</tr></thead><tbody>'
+       + subDirs.map(function(d){
+          var subPath = (curDir==='/'?'':curDir) + '/' + d[0];
+          var isExcluded = S.excludes.indexOf(subPath) >= 0;
+          var isRoot = S.roots.indexOf(subPath) >= 0;
+          return '<tr class="'+(isExcluded?'is-excluded':'')+'">'
+           + '<td><div class="dir-cell-name">'
+           + '<span class="dir-icon">'+ICON.folder+'</span>'
+           + '<button class="dir-link-btn" type="button" data-act="nav-dir" data-path="'+esc(subPath)+'" title="点击进入此目录"><b>'+esc(d[0])+'/</b></button>'
+           + (isExcluded ? '<span class="excluded-badge">已排除</span>' : '')
+           + (isRoot ? '<span class="root-badge">已在扫描中</span>' : '')
+           + '</div></td>'
+           + '<td><span class="flabel">'+esc(d[1])+'</span></td>'
+           + '<td><span class="mono flabel truncate">'+esc(subPath)+'</span></td>'
+           + '<td style="text-align:end"><div class="dir-acts-cell">'
+           + '<button class="btn btn-quiet btn-sm" type="button" data-act="nav-dir" data-path="'+esc(subPath)+'">进入下级</button>'
+           + '<button class="btn btn-sm'+(isRoot?' btn-pri':'')+'" type="button" data-act="toggle-root" data-path="'+esc(subPath)+'">'+(isRoot?'✓ 移出扫描':'+ 加入扫描')+'</button>'
+           + '<button class="btn btn-sm'+(isExcluded?' btn-danger':'')+'" type="button" data-act="toggle-exclude" data-path="'+esc(subPath)+'">'+(isExcluded?'取消排除':'+ 排除')+'</button>'
+           + '</div></td></tr>';
+         }).join('')
+       + '</tbody></table>';
+    }
+    h += '</div>';
+  }
+
+  // 规整双栏结构化扫描范围与过滤清单
+  h += '<div class="scope-ledger">'
+   + '<div class="scope-col scope-col-roots">'
+   + '<div class="scope-col-head">'
+   + '<span class="scope-title">📁 待扫描目录清单 ('+S.roots.length+' 个)</span>'
+   + '<span class="flabel">支持多目录同时扫描</span>'
+   + '</div>'
+   + '<div class="scope-items">'
+   + S.roots.map(function(r){
+      return '<div class="scope-item">'
+       + '<span class="item-path mono"><b>'+esc(r)+'</b></span>'
+       + '<span class="item-badge">'+esc(labelOf(r))+'</span>'
+       + (S.roots.length > 1
+          ? '<button class="btn-quiet btn-sm item-del" type="button" data-chip="root" data-chip-path="'+esc(r)+'" title="移出扫描列表">'+ICON.close+'</button>'
+          : '<span class="flabel item-lock">至少保留一项</span>')
+       + '</div>';
+     }).join('')
+   + '</div></div>'
+   + '<div class="scope-col scope-col-excludes">'
+   + '<div class="scope-col-head">'
+   + '<span class="scope-title">🚫 排除过滤清单 ('+S.excludes.length+' 个)</span>'
+   + '<span class="flabel">整棵子树不入候选</span>'
+   + '</div>'
+   + '<div class="scope-items">'
+   + (S.excludes.length ? S.excludes.map(function(e){
+      return '<div class="scope-item is-exclude">'
+       + '<span class="item-path mono"><b>'+esc(e)+'</b></span>'
+       + '<span class="item-badge exclude-badge">整树跳过</span>'
+       + '<button class="btn-quiet btn-sm item-del" type="button" data-chip="exclude" data-chip-path="'+esc(e)+'" title="取消排除">'+ICON.close+'</button>'
+       + '</div>';
+     }).join('') : '<div class="scope-empty">暂未设置任何排除规则（全量处理所选根目录）</div>')
+   + '</div></div></div>'
+   + '<div class="scope-footer">'
+   + '<span class="scope-stat">已选定 <b>'+S.roots.length+'</b> 个待扫描目录，<b>'+S.excludes.length+'</b> 条子目录排除规则</span>'
    + '<span class="grow"></span>'
-   + '<button class="btn btn-pri" type="button" '+(loading?'disabled aria-busy="true"':'')+'>'
-   + (loading?'扫描中…':'开始扫描')+'</button>'
-   + '<p class="flabel" style="flex-basis:100%">目录选择器浏览的是 <b>容器内</b>文件系统，白名单由 '
-   + '<span class="mono">config.yaml</span> 的 <span class="mono">browse_roots</span> 决定（默认 '
-   + '<span class="mono">/media</span>）；不做本机目录拖放。</p>'
+   + '<span class="flabel mono">容器受白名单 <span class="mono">browse_roots: /media</span> 保护</span>'
    + '</div></div>';
   if(loading){
     h += '<div class="card"><div class="prog">'
-     + '<span class="done">'+ICON.check+' scan 41ms</span>'
-     + '<span class="done">'+ICON.check+' filter 2ms</span>'
-     + '<span class="now">group 运行中…</span><span>parse 待跑</span><span class="grow"></span>'
-     + '<span>预览停在哪一步，是本票要定的事</span></div>'
+     + '<span class="done">'+ICON.check+' 目录扫描 41ms</span>'
+     + '<span class="done">'+ICON.check+' 规则过滤 2ms</span>'
+     + '<span class="now">智能分组 运行中…</span><span>番号解析 待执行</span><span class="grow"></span>'
+     + '<span>当前预览截止于分组阶段</span></div>'
      + '<table class="rec"><caption class="sr-only">扫描中的候选文件</caption>'
-     + '<thead><tr><th scope="col">选择</th><th scope="col">类型</th><th scope="col">文件</th>'
+     + '<thead><tr><th scope="col">选择</th><th scope="col">类型</th><th scope="col">候选文件</th>'
      + '<th scope="col">番号</th><th scope="col">分组依据</th><th scope="col">大小</th></tr></thead><tbody>'
      + Array(5).join().split(',').map(function(){
         return '<tr><td class="plain"><span class="sk" style="display:block;height:16px;width:16px"></span></td>'
@@ -984,58 +1303,58 @@ function aScan(){
     return h;
   }
   if(S.state==='empty'){
-    return h + '<div class="card"><div class="empty"><p class="big">此目录下没有可进入候选的文件</p>'
-     + '<p>scan 命中 12 个文件，filter 全部排除；原因见下方列表。</p>'
-     + '<p style="margin-block-start:var(--sp-4)"><button class="btn" type="button">换一个根目录</button></p>'
+    return h + '<div class="card"><div class="empty"><p class="big">指定目录下未找到可入库的候选媒体文件</p>'
+     + '<p>扫描共命中 12 个文件，但已被规则过滤器全部排除；详细原因请见下方过滤摘要。</p>'
+     + '<p style="margin-block-start:var(--sp-4)"><button class="btn" type="button">切换其他目录重新扫描</button></p>'
      + '</div>' + filteredBlock() + '</div>';
   }
   var sel = Object.keys(S.picked).length;
   var selFiles = SCAN_GROUPS.reduce(function(a,g,i){ return a + (S.picked[i]?g.parts.length:0); }, 0);
-  h += '<div class="card"><table class="rec"><caption class="sr-only">扫描候选：按分组列出文件、番号与占用情况</caption>'
-   + '<thead><tr><th scope="col">选择</th><th scope="col">类型</th><th scope="col">候选文件（按分组）</th>'
-   + '<th scope="col">解析番号</th><th scope="col">分组依据</th><th scope="col">大小</th>'
-   + '<th scope="col">分辨率</th><th scope="col">占用</th></tr></thead><tbody>';
+  h += '<div class="card"><div class="table-wrap"><table class="rec"><caption class="sr-only">扫描候选：按分组列出文件、番号与占用情况</caption>'
+   + '<thead><tr><th scope="col" style="width:36px">选择</th><th scope="col" style="width:36px">类型</th><th scope="col">候选文件（按智能分组展示）</th>'
+   + '<th scope="col" style="width:140px">解析番号</th><th scope="col" style="width:180px">分组识别依据</th><th scope="col" style="width:80px">文件大小</th>'
+   + '<th scope="col" style="width:100px">视频分辨率</th><th scope="col" style="width:100px">路径占用</th></tr></thead><tbody>';
   SCAN_GROUPS.forEach(function(g,gi){
     g.parts.forEach(function(p,pi){
       var isP = pi===0, gid = 'g'+gi;
       var numCell = isP
-        ? (g.number ? '<b class="mono">'+esc(g.number)+'</b>'
+        ? (g.number ? '<span class="num-badge">'+esc(g.number)+'</span>'
             : '<span class="cand">'+g.cands.map(function(c){
                 return '<button type="button" aria-pressed="false">'+esc(c)+'</button>'}).join('')+'</span>'
-              + '<p class="occ">解析分歧 → 建任务后进「待补号」</p>')
-        : '<span class="flabel">随组</span>';
+              + '<p class="occ">解析分歧 → 创建任务后将自动进入「待补号」</p>')
+        : '<span class="flabel">随主文件入组</span>';
       h += '<tr>'
        + '<td class="plain">' + (isP
             ? '<label class="ckwrap"><input type="checkbox" data-g="'+gi+'" '
               + (S.picked[gi]?'checked':'')+' aria-label="选择分组 '+esc(g.primary)+'（'+g.parts.length+' 个文件）"></label>'
-            : '<span class="sr-only">随组</span>')
+            : '<span class="sr-only">随主文件</span>')
        + '</td>'
        + '<td class="plain">'+ICON.video+'</td>'
-       + '<td data-label="文件"><span class="mono">'+esc(p)+'</span> '
-       + '<span class="tag">'+(isP?'primary':'分片 '+(pi+1))+'</span>'
+       + '<td data-label="候选文件"><span class="mono"><b>'+esc(p)+'</b></span> '
+       + '<span class="tag">'+(isP?'主文件 primary':'分片 '+(pi+1))+'</span>'
        + '<p class="flabel mono truncate">'+esc(g.dir)+'</p></td>'
-       + '<td data-label="番号">'+numCell+'</td>'
-       + '<td data-label="分组依据">'+(isP?'<span class="flabel">'+esc(g.marker)+'</span>':'')+'</td>'
-       + '<td data-label="大小" class="mono">'+(isP?esc(g.size):'')+'</td>'
-       + '<td data-label="分辨率" class="mono">'+(isP?esc(g.res):'')+'</td>'
-       + '<td data-label="占用">'+(isP?(g.occupied?'<span class="occ">已有活跃任务</span>':'<span class="flabel">—</span>'):'')+'</td>'
+       + '<td data-label="解析番号">'+numCell+'</td>'
+       + '<td data-label="分组识别依据">'+(isP?'<span class="flabel">'+esc(g.marker)+'</span>':'')+'</td>'
+       + '<td data-label="文件大小" class="mono">'+(isP?esc(g.size):'')+'</td>'
+       + '<td data-label="视频分辨率" class="mono">'+(isP?esc(g.res):'')+'</td>'
+       + '<td data-label="路径占用">'+(isP?(g.occupied?'<span class="occ">已有活跃任务占用</span>':'<span class="flabel">空闲可用</span>'):'')+'</td>'
        + '</tr>';
     });
   });
-  h += '</tbody></table>'
+  h += '</tbody></table></div>'
    + '<div class="stickybar">'
-   + '<p class="sum" aria-live="polite">已选 <b>'+sel+'</b> 组 / '+selFiles+' 个文件'
-   + '<br>建任务后进入流水线；解析分歧的组会落到「待补号」</p>'
+   + '<p class="sum" aria-live="polite">已选中 <b>'+sel+'</b> 组 / 共 '+selFiles+' 个文件'
+   + '<br>建任务后将正式进入流水线处理；存在解析分歧的组将自动进入「待补号」队列</p>'
    + '<span class="grow"></span>'
-   + '<button class="btn btn-sm" type="button">全选</button>'
-   + '<button class="btn btn-pri" type="button" '+(sel?'':'disabled')+'>建任务</button>'
+   + '<button class="btn btn-sm" type="button" data-act="scan-all">'+(sel===SCAN_GROUPS.length?'取消全选':'全选')+'</button>'
+   + '<button class="btn btn-pri" type="button" data-act="create-tasks" '+(sel?'':'disabled')+'>立即建任务</button>'
    + '</div></div>';
   h += '<div class="card">'+filteredBlock()+'</div>';
   return h;
 }
 function filteredBlock(){
   return '<div class="filtered"><h2 class="sec" style="padding:var(--sp-3) 0 var(--sp-1)">'
-   + '被过滤的 '+SCAN_FILTERED.length+' 个文件 <span class="flabel">（filter 步骤摘要，不进候选）</span></h2>'
+   + '被过滤排除的 '+SCAN_FILTERED.length+' 个文件 <span class="flabel">（规则过滤步骤摘要，不作为有效候选）</span></h2>'
    + SCAN_FILTERED.map(function(f){
       return '<div class="frow"><span class="mono truncate">'+esc(f.p)+'</span>'
        + '<span class="r">'+esc(f.r)+'</span></div>'}).join('')+'</div>';
@@ -1050,66 +1369,83 @@ function aTasks(){
   if(S.state==='empty'){
     return '<h1 class="page-h">任务列表</h1><div class="card"><div class="empty">'
      + '<p class="big">没有符合条件的任务</p><p>当前筛选下 137 条任务都不匹配。放宽状态筛选，或清空搜索词。</p>'
-     + '<p style="margin-block-start:var(--sp-4)"><button class="btn" type="button">清空筛选</button></p>'
+     + '<p style="margin-block-start:var(--sp-4)"><button class="btn" type="button" data-act="clear-filter">清空筛选</button></p>'
      + '</div></div>';
   }
-  var h = '<h1 class="page-h">任务列表</h1><p class="sub">共 137 条 · 每页 20 · 按创建时间倒序</p>';
+  var h = '<h1 class="page-h">任务列表</h1><p class="sub">共 137 条任务 · 每页 20 条 · 默认按创建时间倒序</p>';
   h += '<div class="card"><div class="filters">'
    + '<div class="chips" role="group" aria-label="按状态筛选">'
-   + [['all','全部 137'],['running','运行中 1'],['queued','排队 3'],['succeeded','成功 96'],
-      ['partial','部分 21'],['failed','失败 12'],['needs_number','待补号 2'],['cancelled','已取消 2']]
+   + [['all','全部 (137)'],['running','运行中 (1)'],['queued','排队中 (3)'],['succeeded','刮削成功 (96)'],
+      ['partial','部分成功 (21)'],['failed','处理失败 (12)'],['needs_number','待补号 (2)'],['cancelled','已取消 (2)']]
      .map(function(c,i){return '<button class="chip" type="button" aria-pressed="'+(i===0)+'">'+esc(c[1])+'</button>'}).join('')
-   + '</div><span class="grow"></span>'
+   + '</div>'
+   + '<div class="filter-controls">'
+   + '<div class="search-wrap">'
+   + '<span class="search-icon">'+ICON.search+'</span>'
+   + '<label class="sr-only" for="f-q">搜番号</label>'
+   + '<input id="f-q" type="search" placeholder="输入番号快速检索 (例如 SSIS-001)...">'
+   + '</div>'
+   + '<div class="select-group">'
    + '<span class="field"><label class="flabel" for="f-batch">批次</label>'
-   + '<select id="f-batch"><option>全部</option><option>b-1043</option><option>b-1042</option></select></span>'
-   + '<span class="field"><label class="flabel" for="f-trig">触发</label>'
-   + '<select id="f-trig"><option>全部</option><option>manual</option><option>monitor</option></select></span>'
-   + '<span class="field"><label class="flabel" for="f-time">时间</label>'
-   + '<select id="f-time"><option>全部</option><option>最近 24h</option><option>最近 7 天</option></select></span>'
-   + '<span class="field"><label class="flabel" for="f-q">搜番号</label>'
-   + '<input id="f-q" type="search" placeholder="SSIS-001" style="width:132px"></span>'
+   + '<select id="f-batch"><option>全部批次</option><option>b-1043</option><option>b-1042</option></select></span>'
+   + '<span class="field"><label class="flabel" for="f-trig">触发方式</label>'
+   + '<select id="f-trig"><option>全部来源</option><option value="manual">手动触发</option><option value="monitor">监控触发</option></select></span>'
+   + '<span class="field"><label class="flabel" for="f-time">时间范围</label>'
+   + '<select id="f-time"><option>全部时间</option><option>最近 24 小时</option><option>最近 7 天</option></select></span>'
+   + '</div></div>'
    + '</div>';
-  h += '<table class="rec"><caption class="sr-only">任务列表：番号、标题、状态、阶段、批次与操作</caption>'
-   + '<thead><tr><th scope="col">选择</th><th scope="col">海报</th><th scope="col">番号</th>'
-   + '<th scope="col">标题</th><th scope="col">状态</th><th scope="col">阶段</th><th scope="col">源 / 缺字段</th>'
-   + '<th scope="col">批次</th><th scope="col">触发</th><th scope="col">更新</th><th scope="col">操作</th></tr></thead><tbody>';
+  h += '<div class="table-wrap"><table class="rec"><caption class="sr-only">任务列表：番号与标题、状态、阶段与来源、批次与操作</caption>'
+   + '<thead><tr><th scope="col" style="width:36px">选择</th><th scope="col" style="width:44px">海报</th>'
+   + '<th scope="col">番号与标题</th><th scope="col" style="width:110px">状态</th><th scope="col" style="width:140px">执行阶段 / 来源</th>'
+   + '<th scope="col" style="width:120px">所属批次 / 触发</th><th scope="col" style="width:85px">更新时间</th><th scope="col" style="width:105px;text-align:end">快捷操作</th></tr></thead><tbody>';
   TASKS.forEach(function(t){
     h += '<tr>'
      + '<td class="plain"><label class="ckwrap"><input type="checkbox" data-row="'+esc(t.num)+'" '
        + (S.rows[t.num]?'checked':'')+' aria-label="选择任务 '+esc(t.num)+'"></label></td>'
-     + '<td class="plain">'+posterImg(t.hue,t.num,'thumb','任务 '+t.num+' 的海报缩略图')+'</td>'
-     + '<td data-label="番号" class="mono"><b>'+esc(t.num)+'</b></td>'
-     + '<td data-label="标题"><span class="clamp2">'+esc(t.title)+'</span></td>'
+     + '<td class="plain">'+posterImg(t.hue,t.num,'thumb','任务 '+t.num+' 的竖版海报（由横版封套右侧裁切）')+'</td>'
+     + '<td data-label="番号与标题">'
+       + '<div class="row" style="gap:var(--sp-2);align-items:baseline">'
+       + '<span class="num-badge">'+esc(t.num)+'</span>'
+       + '<span class="tag-mono" style="font-size:10.5px">'+esc(t.files)+' 文件</span>'
+       + '</div>'
+       + '<div class="clamp2" style="margin-block-start:2px;font-size:var(--fs-body);color:var(--text)">'+esc(t.title)+'</div>'
+     + '</td>'
      + '<td data-label="状态">'+stBadge(t.status)+'</td>'
-     + '<td data-label="阶段" class="flabel">'+esc(t.stage)+'</td>'
-     + '<td data-label="源 / 缺字段" class="flabel">'+(t.sources?t.sources+' 源':'—')
-       + (t.missing?' <span class="st st-failed"><span class="dot" aria-hidden="true"></span>缺 '+t.missing+'</span>':'')+'</td>'
-     + '<td data-label="批次" class="mono flabel">'+esc(t.batch)+'</td>'
-     + '<td data-label="触发" class="flabel">'+esc(t.trigger)+'</td>'
-     + '<td data-label="更新" class="flabel">'+esc(t.updated)+'</td>'
-     + '<td data-label="操作"><span class="row">'
+     + '<td data-label="执行阶段 / 来源">'
+       + '<div><b>'+esc(STAGE_LABEL[t.stage]||t.stage)+'</b></div>'
+       + '<div class="flabel" style="margin-block-start:2px">'
+       + (t.sources?t.sources+' 个源':'—')
+       + (t.missing?' <span class="st st-failed"><span class="dot" aria-hidden="true"></span>缺 '+t.missing+' 字段</span>':'')
+       + '</div>'
+     + '</td>'
+     + '<td data-label="所属批次 / 触发">'
+       + '<div class="mono flabel"><b>'+esc(t.batch)+'</b></div>'
+       + '<div class="flabel" style="margin-block-start:2px">'+esc(TRIGGER_LABEL[t.trigger]||t.trigger)+'</div>'
+     + '</td>'
+     + '<td data-label="更新时间" class="flabel">'+esc(t.updated)+'</td>'
+     + '<td data-label="快捷操作" style="text-align:end"><span class="row" style="justify-content:flex-end">'
        + '<a class="btn btn-sm" href="'+hrefFor({view:'detail'})+'" data-detail="'+esc(t.num)+'">详情</a>'
        + '<button class="btn btn-sm" type="button" data-rerun="'+esc(t.num)+'">重跑</button>'
      + '</span></td></tr>';
     if(t.err){
-      h += '<tr><td class="plain" colspan="11"><div class="notice notice-error" role="alert">'+ICON.warn
+      h += '<tr><td class="plain" colspan="8"><div class="notice notice-error" role="alert">'+ICON.warn
        + '<span>'+esc(t.err)+'</span></div></td></tr>';
     }
   });
-  h += '</tbody></table>';
+  h += '</tbody></table></div>';
   var selRows = Object.keys(S.rows).length;
   if(selRows){
     h += '<div class="stickybar"><p class="sum" aria-live="polite">已选 <b>'+selRows+'</b> 个任务'
      + '<br>批量重跑 = 逐条任务级后缀重跑，返回逐条结果</p><span class="grow"></span>'
      + '<button class="btn btn-sm" type="button" data-clear-rows="1">清空选择</button>'
-     + '<button class="btn btn-pri" type="button">批量重跑</button></div>';
+     + '<button class="btn btn-pri" type="button" data-act="batch-rerun">批量重跑</button></div>';
   }
   h += '<nav class="pg" aria-label="分页">'
    + '<span>显示 1–7 / 137</span><span class="grow"></span>'
-   + '<button class="btn btn-sm" type="button" disabled>上一页</button>'
+   + '<button class="btn btn-sm" type="button" data-act="page-prev" '+(S.page<=1?'disabled':'')+'>上一页</button>'
    + [1,2,3,4,5,6,7].map(function(p){
-      return '<button class="btn btn-sm pn" type="button"'+(p===1?' aria-current="page"':'')+'>'+p+'</button>'}).join('')
-   + '<button class="btn btn-sm" type="button">下一页</button>'
+      return '<button class="btn btn-sm pn" type="button" data-act="page-num" data-page="'+p+'"'+(p===S.page?' aria-current="page"':'')+'>'+p+'</button>'}).join('')
+   + '<button class="btn btn-sm" type="button" data-act="page-next" '+(S.page>=7?'disabled':'')+'>下一页</button>'
    + '<label class="flabel" for="per-page">每页</label>'
    + '<select id="per-page"><option>20</option><option>50</option><option>100</option></select>'
    + '</nav></div>';
@@ -1121,25 +1457,30 @@ function aDetail(){
    + '<span class="sk" style="display:block;height:140px"></span></div>';
   if(S.state==='empty') return '<h1 class="page-h">任务详情</h1><div class="card"><div class="empty">'
    + '<p class="big">任务不存在</p><p>该任务可能已被清理（V1 不删任务，多半是链接过期）。</p></div></div>';
-  var h = '<h1 class="page-h">'+esc(d.number)+' <span class="flabel">'+esc(d.title)+'</span></h1>'
-   + '<p class="sub">'+stBadge(d.status)+' · 批次 <span class="mono">'+esc(d.batch)+'</span> · 触发 '
-   + esc(d.trigger)+' · 更新 '+esc(d.updated)+' · 流水线 <span class="mono">'+esc(d.pipeline)+'</span></p>';
+  var h = '<h1 class="page-h"><span class="num-badge">'+esc(d.number)+'</span> <span class="flabel">'+esc(d.title)+'</span></h1>'
+   + '<p class="sub">'+stBadge(d.status)+' · 所属批次 <span class="mono">'+esc(d.batch)+'</span> · 触发方式 '
+   + (TRIGGER_LABEL[d.trigger]||esc(d.trigger))+' · 更新时间 '+esc(d.updated)+' · 执行流水线 <span class="mono">'+(PIPELINE_LABEL[d.pipeline]||esc(d.pipeline))+'</span></p>';
   h += '<div class="card"><div class="dhead">'
-   + zoomBtn(d.hue,'任务 '+d.number+' 的海报','poster',400,600)
+   + '<div class="poster-col">'
+   + zoomBtn(d.hue,'任务 '+d.number+' 的海报 (由横版封套右侧裁切)','poster',400,600)
+   + '<span class="crop-badge">✂ 封套右侧裁切 2:3</span></div>'
    + '<div class="grow">'
-   + '<div class="strip">'+zoomBtn(d.hue,d.number+' fanart','f16',640,360)
-   + [1,2,3,4].map(function(i){return zoomBtn(d.hue+i*9,'剧照 '+i,'f16',640,360)}).join('')+'</div>'
+   + '<div class="strip">'
+   + '<div class="strip-item">'+zoomBtn(d.hue,d.number+' 原版横版完整封套 (fanart.jpg)','f16',640,360)+'<span class="cap">原版完整封套 (fanart.jpg)</span></div>'
+   + [1,2,3,4].map(function(i){
+      return '<div class="strip-item">'+zoomBtn(d.hue+i*9,'剧照 '+i,'f16',640,360)+'<span class="cap">剧照 '+i+'</span></div>';
+     }).join('')+'</div>'
    + '<div class="row" style="margin-block-start:var(--sp-3);flex-wrap:wrap">'
-   + '<button class="btn btn-pri" type="button" data-rerun="'+esc(d.number)+'">'+ICON.rerun+'从 parse 起重跑</button>'
-   + '<button class="btn" type="button">取消任务</button>'
-   + '<button class="btn" type="button" data-copy="'+esc(d.out)+'">'+ICON.copy+'复制路径</button>'
+   + '<button class="btn btn-pri" type="button" data-rerun="'+esc(d.number)+'">'+ICON.rerun+'从解析步骤起重跑</button>'
+   + '<button class="btn" type="button" data-act="cancel-task">取消任务</button>'
+   + '<button class="btn" type="button" data-copy="'+esc(d.out)+'">'+ICON.copy+'复制落盘路径</button>'
    + '<span class="grow"></span>'
-   + '<span class="flabel">硬链 '+esc(d.link)+' · '+d.parts+' 个分片 · 输出 <span class="mono">'+esc(d.out)+'</span></span>'
+   + '<span class="flabel">整理方式：'+(LINK_LABEL[d.link]||esc(d.link))+' · '+d.parts+' 个视频分片 · 输出根目录 <span class="mono">'+esc(d.out)+'</span></span>'
    + '</div>'
    + (d.missing.length
       ? '<div class="notice notice-warn" style="margin-block-start:var(--sp-3)">'+ICON.warn
-        + '<span>缺字段 '+d.missing.length+' 个：'+esc(d.missing.join(' / '))+' — 任务按 partial 收尾，'
-        + '要更严就在 <span class="mono">output.with.required_fields</span> 里加。</span></div>'
+        + '<span>缺失字段 '+d.missing.length+' 个：'+esc(d.missing.map(function(m){return FIELD_LABEL[m]||m;}).join(' / '))+' — 任务按部分成功 (partial) 收尾，'
+        + '如需强制完整，可在配置 <span class="mono">output.with.required_fields</span> 中补充声明。</span></div>'
       : '')
    + '</div></div></div>';
   var tabs = [['overview','字段与来源'],['steps','步骤留痕'],['sources','源留痕'],['files','落盘台账']];
@@ -1150,45 +1491,50 @@ function aDetail(){
        + esc(t[1])+'</button>'}).join('')+'</div>';
   h += '<div class="tabpanel" role="tabpanel" id="panel-'+S.tab+'" aria-labelledby="tab-'+S.tab+'" tabindex="0">';
   if(S.tab==='overview'){
-    h += '<div class="fields"><div class="frow head"><span class="k">字段</span><span class="v">值</span>'
-     + '<span class="s">来源</span></div>'
+    h += '<div class="fields"><div class="frow head"><span class="k">元数据字段</span><span class="v">刮削值</span>'
+     + '<span class="s">胜出来源</span></div>'
      + d.fields.map(function(f){
         var miss = f[1]==='—';
-        return '<div class="frow'+(miss?' miss':'')+'"><span class="k">'+esc(f[0])+'</span>'
-         + '<span class="v">'+esc(f[1])+(f[3]?' <span class="tag">图片</span>':'')+'</span>'
+        var label = FIELD_LABEL[f[0]] || f[0];
+        return '<div class="frow'+(miss?' miss':'')+'"><span class="k">'+esc(label)+'</span>'
+         + '<span class="v">'+esc(f[1])+(f[3]?' <span class="tag">图片资源</span>':'')+'</span>'
          + '<span class="s">'+esc(f[2]||'—')+'</span></div>'}).join('')+'</div>';
   } else if(S.tab==='steps'){
-    h += '<table><caption class="sr-only">步骤留痕：每步的状态、耗时与摘要</caption>'
-     + '<thead><tr><th scope="col">步骤</th><th scope="col">状态</th><th scope="col">耗时</th>'
-     + '<th scope="col">摘要</th></tr></thead><tbody>'
+    h += '<div class="table-wrap"><table><caption class="sr-only">步骤留痕：每步的状态、耗时与摘要</caption>'
+     + '<thead><tr><th scope="col">流水线步骤</th><th scope="col">执行状态</th><th scope="col">耗时</th>'
+     + '<th scope="col">执行摘要</th></tr></thead><tbody>'
      + d.steps.map(function(s){
         var st = stepState(s[1]);
-        return '<tr><td class="mono">'+esc(s[0])+'</td><td>'+esc(st.label)+'</td>'
+        var sName = STEP_NAME[s[0]] || s[0];
+        return '<tr><td class="mono"><b>'+esc(sName)+'</b> <span class="flabel">('+esc(s[0])+')</span></td><td>'+esc(st.label)+'</td>'
          + '<td class="mono">'+(s[1]==='—'?'—':s[2]+' ms')+'</td>'
-         + '<td class="flabel">'+esc(s[3])+'</td></tr>'}).join('')+'</tbody></table>';
+         + '<td class="flabel">'+esc(s[3])+'</td></tr>'}).join('')+'</tbody></table></div>';
   } else if(S.tab==='sources'){
-    h += '<table><caption class="sr-only">源留痕：每个刮削源的状态、原因码与贡献</caption>'
-     + '<thead><tr><th scope="col">源</th><th scope="col">状态</th><th scope="col">原因码</th>'
-     + '<th scope="col">贡献字段</th><th scope="col">耗时</th></tr></thead><tbody>'
+    h += '<div class="table-wrap"><table><caption class="sr-only">源留痕：每个刮削源的状态、原因码与贡献</caption>'
+     + '<thead><tr><th scope="col">刮削源站点</th><th scope="col">请求状态</th><th scope="col">错误原因码</th>'
+     + '<th scope="col">贡献字段数</th><th scope="col">耗时</th></tr></thead><tbody>'
      + (d.srcs.length ? d.srcs.map(function(s){
-        return '<tr><td class="mono">'+esc(s[0])+'</td><td>'+stBadge(s[1]==='ok'?'succeeded':(s[1]==='failed'?'failed':'cancelled'))+'</td>'
+        var stBadgeText = s[1]==='ok'?'succeeded':(s[1]==='failed'?'failed':'cancelled');
+        var stName = s[1]==='ok'?'请求成功':(s[1]==='failed'?'请求失败':'未收录 / 404');
+        return '<tr><td class="mono"><b>'+esc(s[0])+'</b></td>'
+         + '<td><span class="st st-'+stBadgeText+'"><span class="dot" aria-hidden="true"></span>'+esc(stName)+'</span></td>'
          + '<td>'+(s[2]?'<span class="st st-failed"><span class="dot" aria-hidden="true"></span>'+esc(reasonLabel(s[2]))+'</span>':'<span class="flabel">—</span>')+'</td>'
-         + '<td class="tnum">'+s[3]+'</td><td class="mono">'+s[4]+' ms</td></tr>'}).join('')
+         + '<td class="tnum">'+s[3]+' 个字段</td><td class="mono">'+s[4]+' ms</td></tr>'}).join('')
       : '<tr><td colspan="5" class="flabel" style="padding:var(--sp-4);text-align:center">'
-        + '这个任务还没跑到 scrape（在等人补号）</td></tr>')
-     + '</tbody></table>';
+        + '该任务尚未运行至多源刮削阶段（等待人工补号）</td></tr>')
+     + '</tbody></table></div>';
   } else {
-    h += '<table><caption class="sr-only">落盘台账：产物、来源、目标与动作</caption>'
-     + '<thead><tr><th scope="col">kind</th><th scope="col">role</th><th scope="col">idx</th>'
-     + '<th scope="col">源</th><th scope="col">目标</th><th scope="col">大小</th><th scope="col">动作</th></tr></thead><tbody>'
+    h += '<div class="table-wrap"><table><caption class="sr-only">落盘台账：产物、来源、目标与动作</caption>'
+     + '<thead><tr><th scope="col">产物类型</th><th scope="col">角色</th><th scope="col">分片/序号</th>'
+     + '<th scope="col">来源</th><th scope="col">落盘目标相对路径</th><th scope="col">文件大小</th><th scope="col">操作动作</th></tr></thead><tbody>'
      + (d.rows.length ? d.rows.map(function(r){
-        return '<tr><td class="mono">'+esc(r[0])+'</td><td class="mono">'+esc(r[1])+'</td>'
+        return '<tr><td>'+esc(KIND_LABEL[r[0]]||r[0])+'</td><td>'+esc(ROLE_LABEL[r[1]]||r[1])+'</td>'
          + '<td class="mono">'+esc(r[2])+'</td><td class="mono flabel truncate">'+esc(r[3])+'</td>'
-         + '<td class="mono truncate">'+esc(r[4])+'</td><td class="mono">'+esc(r[5])+'</td>'
-         + '<td>'+esc(r[6])+'</td></tr>'}).join('')
+         + '<td class="mono truncate"><b>'+esc(r[4])+'</b></td><td class="mono">'+esc(r[5])+'</td>'
+         + '<td><span class="tag">'+esc(ACTION_LABEL[r[6]]||r[6])+'</span></td></tr>'}).join('')
       : '<tr><td colspan="7" class="flabel" style="padding:var(--sp-4);text-align:center">'
-        + '任务在 output 之前失败，未落任何产物</td></tr>')
-     + '</tbody></table>';
+        + '任务在输出落盘前失败，未生成任何实际产物</td></tr>')
+     + '</tbody></table></div>';
   }
   h += '</div>';
   if(d.status==='needs_number') h += fillPanel(S.detail);
@@ -1200,55 +1546,55 @@ function fillPanel(taskNum){
   NUMBERS.forEach(function(x){ if(x.task===taskNum) n = x; });
   if(!n) return '';
   return '<div class="card"><div class="filters" style="display:block">'
-   + '<h2 style="font-size:var(--fs-lead)">解析分歧，需要你填号</h2>'
+   + '<h2 style="font-size:var(--fs-lead)">算法解析存在分歧，需要人工确认番号</h2>'
    + '<p class="flabel" style="margin-block:var(--sp-1) var(--sp-3)">'
-   + '同一块面板在「待补号」页也有 —— 两处都能填。填完 ⇒ 任务回 queued ⇒ 新 run 从 parse 起跑，不重扫目录；'
-   + '未填期间该路径仍被占用（重扫不会为它再建任务）。</p>'
+   + '同一面板在「待补号」独立视图中亦可操作。提交确认后 ⇒ 任务状态复位为「排队中」 ⇒ 新运行实例将直接从「番号解析」步骤继续执行，'
+   + '无需重新全量扫描目录；在人工补号完成前，相关文件路径将保持被占用锁定（防止被重复扫描建任务）。</p>'
    + n.files.map(function(f){
       var key = n.task+'|'+f.p;
       return '<div class="fillrow"><span class="mono truncate">'+esc(f.p)
-       + ' <span class="tag">'+(f.primary?'primary':'分片')+'</span></span>'
+       + ' <span class="tag">'+(f.primary?'主文件 primary':'分片')+'</span></span>'
        + '<span class="cand">'+f.cands.map(function(c){
           return '<button type="button" aria-pressed="'+(S.nums[key]===c)+'" '
            + 'data-num="'+esc(key)+'|'+esc(c)+'">'+esc(c)+'</button>'}).join('')+'</span>'
        + '<span><label class="sr-only" for="num-'+esc(key)+'">'+esc(f.p)+' 的番号</label>'
-       + '<input class="numin" id="num-'+esc(key)+'" value="'+esc(S.nums[key]||'')+'" placeholder="或手填番号"></span>'
-       + '<label class="flabel"><input type="checkbox" '+(f.part?'checked':'')+' data-ispart="'+esc(key)+'"> 同一作品的分片</label>'
+       + '<input class="numin" id="num-'+esc(key)+'" value="'+esc(S.nums[key]||'')+'" placeholder="输入或点击上方选择番号"></span>'
+       + '<label class="flabel"><input type="checkbox" '+(f.part?'checked':'')+' data-ispart="'+esc(key)+'"> 同一作品的分片文件</label>'
        + '</div>'}).join('')
    + '<div class="row" style="margin-block-start:var(--sp-3);flex-wrap:wrap">'
-   + '<span class="flabel grow">任务号取 primary 行填的号</span>'
-   + '<button class="btn" type="button">跳过（取消任务）</button>'
-   + '<button class="btn btn-pri" type="button">提交并重跑</button>'
+   + '<span class="flabel grow">最终任务主番号将以主文件 (primary) 输入的番号为准</span>'
+   + '<button class="btn" type="button" data-act="skip-cancel">跳过（取消任务）</button>'
+   + '<button class="btn btn-pri" type="button" data-act="submit-rerun">确认番号并重跑</button>'
    + '</div></div></div>';
 }
 function aNumbers(){
   if(S.state==='empty') return '<h1 class="page-h">待补号</h1><div class="card"><div class="empty">'
-   + '<p class="big">没有待补号的任务</p><p>解析唯一的组不会出现在这里。</p></div></div>';
-  var h = '<h1 class="page-h">待补号</h1><p class="sub">解析分歧或主干重复的任务停在这里；'
-   + '填完号 ⇒ 任务回 queued ⇒ 新 run 从 parse 起跑（不重扫目录）。</p>';
+   + '<p class="big">当前没有待补号的任务</p><p>所有文件均已精准匹配到唯一番号，暂无需人工介入。</p></div></div>';
+  var h = '<h1 class="page-h">待补号任务队列</h1><p class="sub">算法解析存在歧义、或同主干无分片标记的文件集中在此；'
+   + '确认番号并提交后 ⇒ 任务将从「番号解析」步骤断点重跑（无需重复全量扫描磁盘）。</p>';
   NUMBERS.forEach(function(n){
     h += '<div class="card"><div class="filters" style="display:block">'
-     + '<h2 style="font-size:var(--fs-lead)"><span class="mono">'+esc(n.task)+'</span> '
-     + '<span class="tag">'+(n.kind==='ambiguous'?'解析出多个候选番号':'主干相同、两侧无分片标记')+'</span> '
-     + '<span class="flabel mono">'+esc(n.batch)+' · '+esc(n.dir)+'</span></h2>'
-     + '<table class="rec" style="margin-block-start:var(--sp-2)">'
+     + '<h2 style="font-size:var(--fs-lead)"><span class="num-badge">'+esc(n.task)+'</span> '
+     + '<span class="tag">'+(n.kind==='ambiguous'?'解析出多个候选番号（分歧）':'主干文件名相同但均无分片标记')+'</span> '
+     + '<span class="flabel mono">批次 '+esc(n.batch)+' · 所在目录 '+esc(n.dir)+'</span></h2>'
+     + '<div class="table-wrap"><table class="rec" style="margin-block-start:var(--sp-2)">'
      + '<caption class="sr-only">待补号：逐文件填号并标记分片</caption>'
-     + '<thead><tr><th scope="col">文件</th><th scope="col">候选番号</th><th scope="col">填号</th>'
-     + '<th scope="col">同一作品的分片</th></tr></thead><tbody>'
+     + '<thead><tr><th scope="col">待处理文件</th><th scope="col">算法候选番号</th><th scope="col">最终确认番号</th>'
+     + '<th scope="col">分片关系标记</th></tr></thead><tbody>'
      + n.files.map(function(f){
         var key = n.task+'|'+f.p;
-        return '<tr><td data-label="文件" class="mono">'+esc(f.p)+' '
-         + (f.primary?'<span class="tag">primary</span>':'')+'</td>'
-         + '<td data-label="候选番号"><span class="cand">'+f.cands.map(function(c){
+        return '<tr><td data-label="待处理文件" class="mono">'+esc(f.p)+' '
+         + (f.primary?'<span class="tag">主文件 primary</span>':'<span class="tag">分片</span>')+'</td>'
+         + '<td data-label="算法候选番号"><span class="cand">'+f.cands.map(function(c){
             return '<button type="button" aria-pressed="'+(S.nums[key]===c)+'" data-num="'+esc(key)+'|'+esc(c)+'">'+esc(c)+'</button>'}).join('')+'</span></td>'
-         + '<td data-label="填号"><label class="sr-only" for="n2-'+esc(key)+'">'+esc(f.p)+' 的番号</label>'
-         + '<input class="numin" id="n2-'+esc(key)+'" value="'+esc(S.nums[key]||'')+'" placeholder="填入番号"></td>'
-         + '<td data-label="同一作品的分片"><label class="ckwrap"><input type="checkbox" '+(f.part?'checked':'')
-         + ' data-ispart="'+esc(key)+'" aria-label="'+esc(f.p)+' 是同一作品的分片"></label></td></tr>'}).join('')
-     + '</tbody></table>'
+         + '<td data-label="最终确认番号"><label class="sr-only" for="n2-'+esc(key)+'">'+esc(f.p)+' 的番号</label>'
+         + '<input class="numin" id="n2-'+esc(key)+'" value="'+esc(S.nums[key]||'')+'" placeholder="输入番号"></td>'
+         + '<td data-label="分片关系标记"><label class="ckwrap"><input type="checkbox" '+(f.part?'checked':'')
+         + ' data-ispart="'+esc(key)+'" aria-label="'+esc(f.p)+' 是同一作品的分片文件"></label> <span class="flabel">标记为同一作品分片</span></td></tr>'}).join('')
+     + '</tbody></table></div>'
      + '<div class="row" style="margin-block-start:var(--sp-3);flex-wrap:wrap"><span class="grow"></span>'
-     + '<button class="btn" type="button">跳过（取消任务）</button>'
-     + '<button class="btn btn-pri" type="button">提交并重跑</button></div></div></div>';
+     + '<button class="btn" type="button" data-act="skip-cancel">跳过（取消任务）</button>'
+     + '<button class="btn btn-pri" type="button" data-act="submit-rerun">确认番号并重跑</button></div></div></div>';
   });
   return h;
 }
@@ -1657,7 +2003,7 @@ function pickHTML(){
   });
   var h = '<div class="dlg" data-dlg="picker">'
    + '<div class="box" role="dialog" aria-modal="true" aria-labelledby="pk-title">'
-   + '<h2 id="pk-title">选择目录 · '+(S.picker.mode==='exclude'?'加入排除':'设为根目录')+'（容器内）</h2>'
+   + '<h2 id="pk-title">选择目录 · '+(S.picker.mode==='exclude'?'加入排除':'加入待扫描目录')+'（容器内）</h2>'
    + '<nav class="crumb" aria-label="当前路径">'
    + '<a href="#" data-pk="mount" data-pk-path="'+esc(BROWSER_ROOTS[0].path)+'">'+esc(BROWSER_ROOTS[0].label)+'</a>'
    + '<span class="sep">/</span>'+segs.join('<span class="sep">/</span>')+'</nav>'
@@ -1675,7 +2021,7 @@ function pickHTML(){
   });
   h += '</div><div class="foot"><span class="path truncate">'+esc(p)+'</span>'
    + '<button class="btn" type="button" data-pk="close">取消</button>'
-   + '<button class="btn" type="button" data-pk="apply" data-pk-mode="root">设为根目录</button>'
+   + '<button class="btn" type="button" data-pk="apply" data-pk-mode="root">加入待扫描目录</button>'
    + '<button class="btn btn-pri" type="button" data-pk="apply" data-pk-mode="exclude">加入排除</button>'
    + '</div></div></div>';
   return h;
@@ -1705,17 +2051,17 @@ function render(){
 function barHTML(){
   var v = VARIANTS.filter(function(x){return x[0]===S.variant})[0];
   return '<div class="inner" role="group" aria-label="原型控制条">'
-   + '<span class="tag">prototype</span>'
-   + '<span class="seg"><button type="button" data-act="prev" aria-label="上一个变体">'+ICON.left+'</button>'
+   + '<span class="tag">调试模式</span>'
+   + '<span class="seg"><button type="button" data-act="prev" aria-label="上一个设计变体">'+ICON.left+'</button>'
    + '<span class="lbl">'+v[0]+' · '+esc(v[1])+'</span>'
-   + '<button type="button" data-act="next" aria-label="下一个变体">'+ICON.right+'</button></span>'
-   + '<span class="sep"></span><span class="seg" role="group" aria-label="视图">'
+   + '<button type="button" data-act="next" aria-label="下一个设计变体">'+ICON.right+'</button></span>'
+   + '<span class="sep"></span><span class="seg" role="group" aria-label="视图切换">'
    + VIEWS.map(function(x){
       return '<button type="button" data-view="'+x[0]+'" aria-pressed="'+(S.view===x[0])+'">'+esc(x[1])+'</button>'}).join('')
-   + '</span><span class="sep"></span><span class="seg" role="group" aria-label="状态">'
+   + '</span><span class="sep"></span><span class="seg" role="group" aria-label="页面状态">'
    + STATES.map(function(x){
       return '<button type="button" data-state="'+x[0]+'" aria-pressed="'+(S.state===x[0])+'">'+esc(x[1])+'</button>'}).join('')
-   + '</span><span class="sep"></span><span class="seg" role="group" aria-label="详情样本">'
+   + '</span><span class="sep"></span><span class="seg" role="group" aria-label="样本数据">'
    + DETAIL_SAMPLES.map(function(n){
       return '<button type="button" data-detail="'+esc(n)+'" aria-pressed="'+(S.detail===n)+'">'+esc(n)+'</button>'}).join('')
    + '</span></div>';
@@ -1788,6 +2134,80 @@ document.addEventListener('click', function(e){
 
   if(el.dataset.act === 'prev') return cycle(-1);
   if(el.dataset.act === 'next') return cycle(1);
+  if(el.dataset.act === 'set-preset'){
+    var p = el.dataset.path;
+    S.navDir = p;
+    if(S.roots.indexOf(p) < 0) S.roots.push(p);
+    rerender(el); return;
+  }
+  if(el.dataset.act === 'nav-dir'){
+    S.navDir = el.dataset.path;
+    rerender(el); return;
+  }
+  if(el.dataset.act === 'set-root' || el.dataset.act === 'toggle-root'){
+    var p2 = el.dataset.path;
+    var idx = S.roots.indexOf(p2);
+    if(idx >= 0){
+      if(S.roots.length > 1) S.roots.splice(idx, 1);
+    } else {
+      S.roots.push(p2);
+    }
+    rerender(el); return;
+  }
+  if(el.dataset.act === 'toggle-exclude'){
+    var ep = el.dataset.path;
+    var idx = S.excludes.indexOf(ep);
+    if(idx >= 0) S.excludes.splice(idx, 1);
+    else S.excludes.push(ep);
+    rerender(el); return;
+  }
+  if(el.dataset.act === 'jump-nav-dir'){
+    var inp = document.getElementById('scan-path-in');
+    var v = ((inp && inp.value)||'').trim();
+    if(v){
+      S.navDir = v;
+      S.roots = [v];
+    }
+    rerender(el); return;
+  }
+  if(el.dataset.act === 'toggle-explorer'){
+    S.explorerOpen = !S.explorerOpen;
+    rerender(el); return;
+  }
+  if(el.dataset.act === 'scan-run'){
+    el.setAttribute('aria-live','polite');
+    el.classList.add('pulse');
+    setTimeout(function(){ el.classList.remove('pulse'); }, 900);
+    return;
+  }
+  if(el.dataset.act === 'scan-all'){
+    var allPicked = SCAN_GROUPS.length > 0 && SCAN_GROUPS.every(function(g, gi){ return !!S.picked[gi]; });
+    if(allPicked) S.picked = {};
+    else SCAN_GROUPS.forEach(function(g, gi){ S.picked[gi] = true; });
+    rerender(el); return;
+  }
+  if(el.dataset.act === 'create-tasks' || el.dataset.act === 'batch-rerun' || el.dataset.act === 'cancel-task' || el.dataset.act === 'skip-cancel' || el.dataset.act === 'submit-rerun'){
+    el.setAttribute('aria-live','polite');
+    el.classList.add('pulse');
+    setTimeout(function(){ el.classList.remove('pulse'); }, 900);
+    return;
+  }
+  if(el.dataset.act === 'clear-filter'){
+    set({state:'normal'}); return;
+  }
+  if(el.dataset.act === 'page-prev'){
+    if(S.page > 1){ S.page--; rerender(el); }
+    return;
+  }
+  if(el.dataset.act === 'page-next'){
+    if(S.page < 7){ S.page++; rerender(el); }
+    return;
+  }
+  if(el.dataset.act === 'page-num'){
+    var p = parseInt(el.dataset.page, 10);
+    if(p && p !== S.page){ S.page = p; rerender(el); }
+    return;
+  }
   if(el.dataset.view){
     var v = el.dataset.view;
     if(v==='detail' && S.view!=='detail') return set({view:'detail'});
