@@ -4,6 +4,8 @@
   不是产品代码：没有构建、没有依赖、没有测试、假数据在内存里。
   打开方式：浏览器直接打开本文件（file:// 也能用），或 `python3 -m http.server` 后访问。
   URL 参数：?variant=A|B|C&view=scan|tasks|detail|numbers&state=normal|loading|empty|error
+  打开方式：双击本文件即可（无构建、无依赖、无网络）。file:// 下浏览器会禁掉 history.replaceState，
+  所以那种情况下地址栏不会跟着变（交互不受影响）；要可分享的带参 URL 就 `python3 -m http.server` 起个服务。
   底部的浮动条是原型专用的（生产里会按 NODE_ENV 关掉）。
   结构取向：A 密集表格运维台 / B 海报卡片墙 / C 深色流程看板 —— 三者结构不同，不是换配色。
 
@@ -622,9 +624,17 @@ function readURL(){
   for(var i=0;i<VIEWS.length;i++) if(VIEWS[i][0]===q.get('view')) S.view = q.get('view');
   for(var j=0;j<STATES.length;j++) if(STATES[j][0]===q.get('state')) S.state = q.get('state');
 }
+var urlOK = true;
 function writeURL(){
+  if(!urlOK) return;
   var q = '?variant='+S.variant+'&view='+S.view+'&state='+S.state;
-  history.replaceState(null,'',location.pathname+q);
+  try{
+    history.replaceState(null,'',location.pathname+q);
+  }catch(e){
+    // file:// 下 Chrome/Firefox 会禁掉 replaceState（origin 为 null）——
+    // 双击打开时放弃写 URL，交互照常（想分享带参数的 URL 就起个 http 服务）
+    urlOK = false;
+  }
 }
 
 /* ================= A · 运维台 ================= */
