@@ -1,341 +1,563 @@
 <!doctype html>
 <!--
-  PROTOTYPE — throwaway. Answers one question: 三视图（扫描预览 / 任务列表 / 任务详情）长什么样。
-  不是产品代码：没有构建、没有依赖、没有测试、假数据在内存里。
-  打开方式：浏览器直接打开本文件（file:// 也能用），或 `python3 -m http.server` 后访问。
+  PROTOTYPE — throwaway. 回答一个问题：三视图（扫描预览 / 任务列表 / 任务详情）长什么样。
+  不是产品代码：没有构建、没有依赖、没有测试，假数据在内存里。
+  打开方式：双击本文件（无构建、无依赖、无网络请求）。file:// 下浏览器会禁掉 history.replaceState，
+  所以那种情况地址栏不跟着变（交互不受影响）；要可分享的带参 URL 就 `python3 -m http.server`。
   URL 参数：?variant=A|B|C&view=scan|tasks|detail|numbers&state=normal|loading|empty|error
-  打开方式：双击本文件即可（无构建、无依赖、无网络）。file:// 下浏览器会禁掉 history.replaceState，
-  所以那种情况下地址栏不会跟着变（交互不受影响）；要可分享的带参 URL 就 `python3 -m http.server` 起个服务。
-  底部的浮动条是原型专用的（生产里会按 NODE_ENV 关掉）。
-  结构取向：A 密集表格运维台 / B 海报卡片墙 / C 深色流程看板 —— 三者结构不同，不是换配色。
+  底部的浮动条是原型专用的（生产里按 NODE_ENV 关掉）。
 
-  【已裁决，见 issue #11 结票评论】基线 = 变体 A（运维台表格）；扫描预览跑到 `--until parse`（修正 #2）；
-  图片走 API 缩放端点（视频不抽帧）；生产样式 = Tailwind v4（本文件手写 CSS 只是为了让原型无构建即开）；
+  【已裁决，见 issue #11】基线 = 变体 A（运维台表格）；扫描预览跑到 `--until parse`（修正 #2）；
+  图片走 API 缩放端点（视频不抽帧）；生产样式 = Tailwind v4（本文件手写 CSS 只为无构建即开）；
   分页 = 页码 + 每页；搜索只搜番号；批量只做重跑；批次只做筛选项；详情页不放日志（只用 step_runs/source_runs）；
-  填号两处都能填（待补号页 + 详情页）；「打开输出目录」= 复制路径 + 落盘台账；默认排序 = 创建时间倒序。
+  填号两处都能填；「打开输出目录」= 复制路径 + 落盘台账；默认排序 = 创建时间倒序。
+  根目录/排除 = 容器内目录选择器（弹窗 + 面包屑 + 子目录列表 + 手输路径 + 两个动作），
+  可浏览范围 = `browse_roots` 白名单（默认 ["/media"]），路径只显示容器内绝对路径 + 挂载点标签。
 
-  【补充裁决·目录选择】产品跑在容器里，所以根目录/排除都是**容器内**目录选择器：
-  弹窗式浏览器（面包屑 + 子目录列表 + 手输路径 + 「设为根目录」/「加入排除」两个动作）；
-  可浏览范围 = 进程级 `browse_roots` 白名单（默认 `["/media"]`，修正 #8 配置面），越界即报错；
-  路径展示 = 容器内绝对路径 + 挂载点标签，不做宿主路径映射；不做浏览器本地目录拖放。
+  【质量通道，见 audit 报告】七个命令跑过一遍，改动都在这份文件里：
+  · colorize：7 状态色收敛成一处 token（ink/mark/tint 三档），浅底全部 ≥4.5:1、深底 ≥5.5:1，
+    紫罗兰 tell 换成品红；来源列/侧栏/浮动条的对比度补齐；彩色底上的次级文字取自同色相而非灰。
+  · layout：4 基间距刻度 token 化；触控目标 ≥24px（coarse 指针 ≥44px）；密度与节奏分档。
+  · typeset：角色字阶 token 化，功能性文字地板 12px（原 10/11.5px 全部抬掉）；表格数字 tabular-nums；
+    标题 text-wrap:balance、正文 pretty；深底补偿行高与字重。
+  · animate：动效 token（时长/缓动）+ 一个作者化的入场（对话框/灯箱）；prefers-reduced-motion 走「减动不减状态」。
+  · adapt：内容驱动断点 640/768/1024；窄屏表格转记录卡（data-label）、看板横向滚动、弹窗变底部抽屉；
+    pointer:coarse 抬触控目标；safe-area + viewport-fit。
+  · harden：可点元素改真 button/a（键盘可达）、每个控件有可访问名称、对话框焦点陷阱与焦点归还、
+    aria-live 播报选中数、长文本截断/换行、esc() 转义、逻辑属性（RTL）、错误文案给出恢复动作。
+  · polish：灯箱按需渲染 <img> 并带 alt、th scope/caption、标题层级修正、图标改作者化 SVG（去 emoji）、
+    C 变体的嵌套卡片与 3px 左边条去掉、原型标记在界面里可见。
 -->
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>mdc-lite 三视图原型</title>
 <style>
-/* ---------- 共享基础 ---------- */
-*{box-sizing:border-box}
-html,body{margin:0;height:100%}
-body{font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
-  -webkit-font-smoothing:antialiased}
-button{font:inherit;cursor:pointer}
-input,select{font:inherit}
-a{cursor:pointer;text-decoration:none}
-#app{min-height:100%;display:flex;flex-direction:column}
-.ph{display:block;background-size:cover;background-position:center;background-color:#2a2f38}
-.sk{background:linear-gradient(90deg,#e9ecf1 25%,#f4f6f9 37%,#e9ecf1 63%);background-size:400% 100%;
-  animation:sk 1.2s ease-in-out infinite;border-radius:4px}
-@keyframes sk{0%{background-position:100% 50%}100%{background-position:0 50%}}
+/* ============================================================
+   1. tokens —— 颜色/间距/字阶/圆角/动效，只在这一处定义
+   ============================================================ */
+:root{
+  color-scheme:light;
+  --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+
+  /* 间距（4 基刻度） */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:24px; --sp-7:32px; --sp-8:48px;
+  /* 字阶（功能性文字地板 12px） */
+  --fs-micro:12px; --fs-body:13px; --fs-lead:15px; --fs-title:19px; --fs-display:24px;
+  --lh-body:1.45; --lh-prose:1.62;
+  /* 圆角 */
+  --r-1:4px; --r-2:6px; --r-3:8px; --r-4:12px; --r-5:16px; --r-pill:999px;
+  /* 动效 */
+  --dur-fast:120ms; --dur-base:200ms; --dur-slow:320ms; --ease-out:cubic-bezier(.16,1,.3,1);
+
+  /* 表面与文本（浅） */
+  --bg:#f4f5f7; --surface:#ffffff; --surface-2:#fafbfc; --surface-3:#eef1f5;
+  --line:#e3e6ec; --line-strong:#cfd5de;
+  --text:#14181d;            /* 17.8:1 on surface */
+  --text-2:#59626f;          /* 6.2:1 on surface · 5.7:1 on bg */
+  --text-3:#6b7480;          /* 4.7:1 on surface（只在白底用，不上画布） */
+  --accent:#1b4fcc; --accent-ink:#ffffff; --accent-soft:#eaf1fe;
+  --focus:#1b4fcc;
+
+  /* 状态色：一处定义，三处（A 表格 / B 色条 / C 看板）都引用这里
+     ink = 文本（浅底 ≥4.5:1）· mark = 图形/色条（≥3:1）· tint = 极浅底 */
+  --st-succeeded-ink:#116b31;    --st-succeeded-mark:#15803d;    --st-succeeded-tint:#eaf6ee;
+  --st-partial-ink:#8f4406;      --st-partial-mark:#b45309;      --st-partial-tint:#fdf3e3;
+  --st-failed-ink:#9c1b1b;       --st-failed-mark:#b91c1c;       --st-failed-tint:#fdecec;
+  --st-running-ink:#1b4fcc;      --st-running-mark:#2563eb;      --st-running-tint:#eaf1fe;
+  --st-queued-ink:#4f5a67;       --st-queued-mark:#64748b;       --st-queued-tint:#eef1f5;
+  --st-needs_number-ink:#9c1cae; --st-needs_number-mark:#c026d3; --st-needs_number-tint:#fbeefc;
+  --st-cancelled-ink:#59606b;    --st-cancelled-mark:#8b95a3;    --st-cancelled-tint:#f1f3f6;
+
+  /* 深底用的状态 ink：深色主题与「图片叠加区」两处共用同一套原语 */
+  --st-succeeded-ink-dk:#4ade80; --st-partial-ink-dk:#fbbf24; --st-failed-ink-dk:#f87171;
+  --st-running-ink-dk:#7cb0ff; --st-queued-ink-dk:#a3b1c2; --st-needs_number-ink-dk:#f0a6e8;
+  --st-cancelled-ink-dk:#98a5b4;
+
+  /* 原型壳（浮动条）：与产品配色分离，避免被当成产品的一部分 */
+  --shell-bg:#2b3340; --shell-text:#f2f5f9; --shell-text-2:#b8c2cf; --shell-line:#3d4757;
+
+  --shadow-1:0 1px 2px rgba(20,24,29,.05);
+  --shadow-2:0 6px 18px rgba(20,24,29,.09);
+  --shadow-3:0 24px 60px rgba(10,12,16,.32);
+}
+/* 深色是「组合」出来的，不是把浅色反转：表面分级、文本层级、状态 ink 各自重定 */
+.theme-dark{
+  color-scheme:dark;
+  --bg:#0e1116; --surface:#161b22; --surface-2:#1b222b; --surface-3:#212a34;
+  --line:#262f3a; --line-strong:#37424f;
+  --text:#e8eef5; --text-2:#a9b6c4; --text-3:#8b98a8;
+  --accent:#7cb0ff; --accent-ink:#0b1220; --accent-soft:#17233a;
+  --focus:#7cb0ff;
+  --st-succeeded-ink:#4ade80;    --st-succeeded-mark:#4ade80;    --st-succeeded-tint:#12271c;
+  --st-partial-ink:#fbbf24;      --st-partial-mark:#fbbf24;      --st-partial-tint:#2a2114;
+  --st-failed-ink:#f87171;       --st-failed-mark:#f87171;       --st-failed-tint:#2a1616;
+  --st-running-ink:#7cb0ff;      --st-running-mark:#7cb0ff;      --st-running-tint:#17233a;
+  --st-queued-ink:#a3b1c2;       --st-queued-mark:#a3b1c2;       --st-queued-tint:#1e2733;
+  --st-needs_number-ink:#f0a6e8; --st-needs_number-mark:#f0a6e8; --st-needs_number-tint:#2a1a2c;
+  --st-cancelled-ink:#98a5b4;    --st-cancelled-mark:#98a5b4;    --st-cancelled-tint:#1e2733;
+  --shadow-1:0 1px 2px rgba(0,0,0,.45);
+  --shadow-2:0 6px 18px rgba(0,0,0,.5);
+  --shadow-3:0 24px 60px rgba(0,0,0,.6);
+}
+/* 图片叠加区（不是整块深色主题，只是局部深底）：只重映状态 ink + 文本色 */
+.on-dark{
+  --st-succeeded-ink:var(--st-succeeded-ink-dk); --st-partial-ink:var(--st-partial-ink-dk);
+  --st-failed-ink:var(--st-failed-ink-dk);       --st-running-ink:var(--st-running-ink-dk);
+  --st-queued-ink:var(--st-queued-ink-dk);       --st-needs_number-ink:var(--st-needs_number-ink-dk);
+  --st-cancelled-ink:var(--st-cancelled-ink-dk);
+  color:#f4f7fb;
+}
+
+/* ============================================================
+   2. 基础 + 浏览器表面（选区/光标/滚动条/焦点环都从调色板来）
+   ============================================================ */
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{
+  font:var(--fs-body)/var(--lh-body) var(--font-ui);
+  background:var(--bg); color:var(--text);
+  -webkit-font-smoothing:antialiased; caret-color:var(--accent);
+  overflow-wrap:break-word;
+}
+::selection{background:var(--accent-soft);color:var(--text)}
+*{scrollbar-color:var(--line-strong) transparent;scrollbar-width:thin}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:var(--r-1)}
+h1,h2,h3{text-wrap:balance;letter-spacing:-.01em;margin:0}
+p{text-wrap:pretty;margin:0}
+a{color:var(--accent);text-underline-offset:3px}
+table{border-collapse:collapse;width:100%}
+caption{text-align:start;color:var(--text-3);font-size:var(--fs-micro);padding-block-end:var(--sp-2)}
+th{text-align:start;font-size:var(--fs-micro);font-weight:600;color:var(--text-2);
+   background:var(--surface-2);border-block-end:1px solid var(--line);padding:var(--sp-2) var(--sp-3);white-space:nowrap}
+td{padding:var(--sp-2) var(--sp-3);border-block-end:1px solid var(--line);vertical-align:middle}
+tbody tr:last-child td{border-block-end:0}
+
+/* 工具类 */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.skip{position:absolute;inset-inline-start:var(--sp-3);top:-56px;z-index:300;background:var(--surface);
+  color:var(--text);padding:var(--sp-2) var(--sp-3);border-radius:var(--r-2);box-shadow:var(--shadow-2);
+  transition:top var(--dur-fast) var(--ease-out)}
+.skip:focus{top:var(--sp-3)}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.tnum{font-variant-numeric:tabular-nums}
+.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ic{width:16px;height:16px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:1.5;
+  stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px}
+[dir="rtl"] .ic-dir{transform:scaleX(-1)}
+
+/* 控件（三变体共用） */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-1);min-height:28px;
+  padding:0 var(--sp-3);background:var(--surface);color:var(--text);
+  border:1px solid var(--line-strong);border-radius:var(--r-2);font:inherit;cursor:pointer;
+  transition:background var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out)}
+.btn:hover:not([disabled]){background:var(--surface-3)}
+.btn:active:not([disabled]){transform:translateY(1px)}
+.btn[disabled]{background:var(--surface-2);color:var(--text-3);border-color:var(--line);cursor:not-allowed}
+.btn-pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn-pri:hover:not([disabled]){background:var(--accent);filter:brightness(1.08)}
+.btn-quiet{background:transparent;border-color:transparent;color:var(--text-2)}
+.btn-quiet:hover:not([disabled]){background:var(--surface-3);color:var(--text)}
+.btn-sm{min-height:24px;padding:0 var(--sp-2);font-size:var(--fs-micro)}
+.btn-danger{color:var(--st-failed-ink);border-color:var(--st-failed-tint)}
+.btn-danger:hover:not([disabled]){background:var(--st-failed-tint)}
+input,select,textarea{font:inherit;color:var(--text);background:var(--surface);
+  border:1px solid var(--line-strong);border-radius:var(--r-2);padding:0 var(--sp-2);min-height:28px}
+input::placeholder{color:var(--text-3)}
+input[type=checkbox]{width:16px;height:16px;min-height:0;padding:0;accent-color:var(--accent)}
+input[type=search]{-webkit-appearance:none;appearance:none}
+.ckwrap{display:inline-flex;align-items:center;justify-content:center;padding:var(--sp-2);cursor:pointer;border-radius:var(--r-1)}
+@media (pointer:coarse){
+  .btn{min-height:44px;padding:var(--sp-2) var(--sp-4)}
+  .btn-sm{min-height:40px}
+  input,select,textarea{min-height:44px;font-size:16px}   /* 16px：避免 iOS 聚焦缩放 */
+  input[type=checkbox]{width:22px;height:22px}
+  .ckwrap{padding:var(--sp-3)}
+}
+.chips{display:flex;gap:var(--sp-1);flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:var(--sp-1);min-height:26px;padding:0 var(--sp-2);
+  border:1px solid var(--line-strong);border-radius:var(--r-pill);background:var(--surface);
+  color:var(--text-2);font-size:var(--fs-micro);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--text);border-color:var(--text);color:var(--surface);font-weight:600}
+.tag{display:inline-flex;align-items:center;gap:var(--sp-1);padding:1px var(--sp-2);border-radius:var(--r-1);
+  background:var(--surface-3);color:var(--text-2);font-size:var(--fs-micro)}
+.tag-mono{font-family:var(--font-mono);font-size:var(--fs-micro);padding:1px var(--sp-2);
+  border-radius:var(--r-1);background:var(--surface-3);color:var(--text-2)}
+.notice{display:flex;gap:var(--sp-2);align-items:flex-start;padding:var(--sp-2) var(--sp-3);
+  border-radius:var(--r-2);font-size:var(--fs-micro);line-height:var(--lh-body)}
+.notice .ic{margin-block-start:2px}
+.notice-error{background:var(--st-failed-tint);color:var(--st-failed-ink)}
+.notice-warn{background:var(--st-partial-tint);color:var(--st-partial-ink)}
+.notice-info{background:var(--accent-soft);color:var(--st-running-ink)}
+.notice .act{margin-inline-start:auto;flex:0 0 auto}
+.empty{padding:var(--sp-8) var(--sp-4);text-align:center;color:var(--text-2)}
+.empty .big{font-size:var(--fs-lead);font-weight:600;color:var(--text);margin-block-end:var(--sp-1)}
+.sk{background:var(--surface-3);border-radius:var(--r-1);
+  animation:shimmer 1.4s ease-in-out infinite}
+@keyframes shimmer{0%,100%{opacity:1}50%{opacity:.55}}
 .pulse{animation:pulse 1.4s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.ph{display:block;background-size:cover;background-position:center;background-color:var(--surface-3)}
+.phbtn{border:0;padding:0;cursor:zoom-in;appearance:none;-webkit-appearance:none}
+.phbtn:hover{filter:brightness(1.06)}
 
-/* ---------- 状态色（三变体共用语义） ---------- */
-.st{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
-.st i{width:7px;height:7px;border-radius:50%;display:inline-block}
-.st.s-queued i{background:#94a3b8}.st.s-queued{color:#64748b}
-.st.s-running i{background:#2563eb}.st.s-running{color:#2563eb}
-.st.s-succeeded i{background:#16a34a}.st.s-succeeded{color:#15803d}
-.st.s-partial i{background:#d97706}.st.s-partial{color:#b45309}
-.st.s-failed i{background:#dc2626}.st.s-failed{color:#b91c1c}
-.st.s-needs_number i{background:#7c3aed}.st.s-needs_number{color:#6d28d9}
-.st.s-cancelled i{background:#9ca3af}.st.s-cancelled{color:#6b7280}
-.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+/* 状态（唯一来源：上面的 --st-* token） */
+.st{display:inline-flex;align-items:center;gap:var(--sp-1);white-space:nowrap;
+  font-size:var(--fs-micro);font-weight:600}
+.st .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:0 0 auto}
+.st-succeeded{color:var(--st-succeeded-ink)} .st-partial{color:var(--st-partial-ink)}
+.st-failed{color:var(--st-failed-ink)} .st-running{color:var(--st-running-ink)}
+.st-queued{color:var(--st-queued-ink)} .st-needs_number{color:var(--st-needs_number-ink)}
+.st-cancelled{color:var(--st-cancelled-ink)}
+.mark{width:4px;border-radius:var(--r-pill);flex:0 0 auto}
+.mark-succeeded{background:var(--st-succeeded-mark)} .mark-partial{background:var(--st-partial-mark)}
+.mark-failed{background:var(--st-failed-mark)} .mark-running{background:var(--st-running-mark)}
+.mark-queued{background:var(--st-queued-mark)} .mark-needs_number{background:var(--st-needs_number-mark)}
+.mark-cancelled{background:var(--st-cancelled-mark)}
 
-/* ---------- 浮动原型控制条 ---------- */
-#bar{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:999;
-  display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:999px;
-  background:#11151b;color:#e6edf3;box-shadow:0 8px 28px rgba(0,0,0,.42);border:1px solid #2b333d;
-  font-size:12px;max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:center}
-#bar .seg{display:flex;align-items:center;gap:4px;background:#1b212a;border-radius:999px;padding:3px}
-#bar button{background:transparent;border:0;color:#c3ccd7;padding:3px 9px;border-radius:999px;font-size:12px}
-#bar button.on{background:#3b82f6;color:#fff}
-#bar .arrow{font-size:14px;padding:3px 8px}
-#bar .lbl{min-width:112px;text-align:center;font-weight:600;color:#fff}
-#bar .sep{width:1px;height:20px;background:#2b333d}
-#bar .tag{color:#7d8894;letter-spacing:.08em;font-size:10px;text-transform:uppercase}
+/* ============================================================
+   3. 原型控制条（原型专用，不进产品）
+   ============================================================ */
+#bar{position:fixed;inset-inline:0;bottom:0;z-index:900;display:flex;justify-content:center;
+  padding:var(--sp-3) var(--sp-3) max(var(--sp-3),env(safe-area-inset-bottom));pointer-events:none}
+#bar .inner{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;justify-content:center;
+  padding:var(--sp-1) var(--sp-2);border-radius:var(--r-pill);background:var(--shell-bg);
+  border:1px solid var(--shell-line);box-shadow:var(--shadow-2);pointer-events:auto;max-width:100%}
+#bar .seg{display:flex;align-items:center;gap:2px;background:#232a35;border-radius:var(--r-pill);padding:2px}
+#bar button{background:transparent;border:0;color:var(--shell-text-2);font:inherit;font-size:var(--fs-micro);
+  min-height:26px;padding:0 var(--sp-2);border-radius:var(--r-pill);cursor:pointer;
+  transition:background var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out)}
+#bar button:hover{background:#39424f;color:var(--shell-text)}
+#bar button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);font-weight:600}
+#bar .lbl{min-width:104px;text-align:center;color:var(--shell-text);font-weight:600;font-size:var(--fs-micro)}
+#bar .tag{background:#39424f;color:var(--shell-text-2);letter-spacing:.08em;text-transform:uppercase;font-size:var(--fs-micro)}
+#bar .sep{width:1px;align-self:stretch;background:var(--shell-line)}
+@media (pointer:coarse){#bar button{min-height:40px;padding:0 var(--sp-3)}}
 
-/* ================= A · 运维台（密集表格 + 左侧导航） ================= */
-.vA{--bg:#f5f6f8;--panel:#fff;--line:#e2e6ec;--text:#161a1f;--muted:#6b7280;--accent:#2f6fed;
-  background:var(--bg);color:var(--text)}
-.vA .top{display:flex;align-items:center;gap:14px;height:46px;padding:0 14px;background:#fff;border-bottom:1px solid var(--line)}
-.vA .brand{font-weight:700;letter-spacing:-.01em}
-.vA .brand span{color:var(--accent)}
-.vA .top select{border:1px solid var(--line);border-radius:6px;padding:4px 6px;background:#fff}
-.vA .grow{flex:1}
-.vA .tagline{color:var(--muted);font-size:12px}
+/* ============================================================
+   4. 对话框（目录选择器 + 灯箱）：入场是这一版的作者化瞬间
+   ============================================================ */
+.dlg{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;
+  background:rgba(10,12,16,.55);padding:var(--sp-6);
+  animation:fade var(--dur-base) var(--ease-out)}
+.dlg .box{width:min(640px,100%);background:var(--surface);color:var(--text);border-radius:var(--r-4);
+  box-shadow:var(--shadow-3);overflow:hidden;display:flex;flex-direction:column;max-height:min(88vh,720px);
+  animation:rise var(--dur-base) var(--ease-out)}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.dlg h2{margin:0;padding:var(--sp-3) var(--sp-4);border-block-end:1px solid var(--line);
+  font-size:var(--fs-lead);display:flex;align-items:center;gap:var(--sp-2)}
+.dlg .crumb{display:flex;align-items:center;gap:var(--sp-1);flex-wrap:wrap;
+  padding:var(--sp-2) var(--sp-4);border-block-end:1px solid var(--line);font-size:var(--fs-micro)}
+.dlg .crumb .sep{color:var(--text-3)}
+.dlg .jump{display:flex;gap:var(--sp-2);padding:var(--sp-2) var(--sp-4);border-block-end:1px solid var(--line)}
+.dlg .jump input{flex:1;font-family:var(--font-mono)}
+.dlg .list{overflow:auto;padding:var(--sp-1)}
+.dlg .item{display:flex;align-items:center;gap:var(--sp-3);width:100%;text-align:start;background:transparent;
+  border:0;font:inherit;color:var(--text);padding:var(--sp-2) var(--sp-3);border-radius:var(--r-2);cursor:pointer;
+  min-height:34px;transition:background var(--dur-fast) var(--ease-out)}
+.dlg .item:hover{background:var(--surface-3)}
+.dlg .item .n{flex:1;font-family:var(--font-mono);min-width:0}
+.dlg .item .c{color:var(--text-3);font-size:var(--fs-micro);flex:0 0 auto}
+.dlg .foot{display:flex;gap:var(--sp-2);align-items:center;padding:var(--sp-3) var(--sp-4);
+  border-block-start:1px solid var(--line);background:var(--surface-2);flex-wrap:wrap}
+.dlg .foot .path{font-family:var(--font-mono);font-size:var(--fs-micro);color:var(--text-2);
+  min-width:0;flex:1 1 140px}
+.dlg .err{margin:0 var(--sp-4) var(--sp-2)}
+#lb{position:fixed;inset:0;z-index:1100;display:grid;place-items:center;padding:var(--sp-6);
+  background:rgba(8,10,14,.94);cursor:zoom-out;animation:fade var(--dur-base) var(--ease-out)}
+#lb:empty{display:none}   /* 没内容时不占位、不遮住页面 */
+#lb img{max-width:100%;max-height:82vh;border-radius:var(--r-3);box-shadow:var(--shadow-3)}
+#lb .cap{position:absolute;inset-inline:0;bottom:var(--sp-6);text-align:center;color:#dbe3ec;font-size:var(--fs-micro)}
+#lb .close{position:absolute;top:var(--sp-4);inset-inline-end:var(--sp-4);background:#2b3340;color:#f2f5f9;
+  border:1px solid var(--shell-line);border-radius:var(--r-pill);min-height:32px;padding:0 var(--sp-3);cursor:pointer}
+@media (max-width:640px){
+  .dlg{align-items:flex-end;padding:0}
+  .dlg .box{width:100%;max-height:92vh;border-radius:var(--r-5) var(--r-5) 0 0}
+  .dlg .foot{padding-block-end:max(var(--sp-3),env(safe-area-inset-bottom))}
+}
+
+/* ============================================================
+   5. 变体 A · 运维台（基线）
+   ============================================================ */
+.vA{background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+.vA .top{display:flex;align-items:center;gap:var(--sp-3);min-height:48px;padding:var(--sp-2) var(--sp-4);
+  background:var(--surface);border-block-end:1px solid var(--line);flex-wrap:wrap}
+.brand{font-weight:700;letter-spacing:-.02em}
+.brand span{color:var(--accent)}
 .vA .layout{display:flex;flex:1;min-height:0}
-.vA .side{width:186px;flex:0 0 186px;background:#fff;border-right:1px solid var(--line);padding:10px 8px}
-.vA .side a{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;color:#374151;font-size:13px}
-.vA .side a:hover{background:#f1f3f7}
-.vA .side a.on{background:#eaf0fe;color:#1d4ed8;font-weight:600}
-.vA .side a.dim{color:#9aa2ad}
-.vA .side .n{margin-left:auto;background:#eef1f5;color:#5b6472;border-radius:9px;padding:0 6px;font-size:11px}
-.vA .side .n.warn{background:#f3ecfe;color:#6d28d9}
-.vA .side .sec{color:#98a1ac;font-size:11px;padding:12px 10px 4px;letter-spacing:.04em}
-.vA main{flex:1;min-width:0;padding:16px 18px 96px;overflow:auto}
-.vA h1{font-size:16px;margin:0 0 2px}
-.vA .sub{color:var(--muted);font-size:12px;margin-bottom:12px}
-.vA .card{background:#fff;border:1px solid var(--line);border-radius:8px}
-.vA table{width:100%;border-collapse:collapse;font-size:12.5px}
-.vA th{text-align:left;font-weight:600;color:#5b6472;background:#fafbfc;border-bottom:1px solid var(--line);
-  padding:7px 9px;white-space:nowrap;font-size:11.5px}
-.vA td{padding:6px 9px;border-bottom:1px solid #eef1f5;vertical-align:middle}
-.vA tbody tr:hover{background:#fafcff}
-.vA tbody tr.sel{background:#f2f7ff}
-.vA .filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
-.vA .chips{display:flex;gap:4px;flex-wrap:wrap}
-.vA .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:3px 10px;color:#4b5563;font-size:12px}
-.vA .chip.on{background:#111827;color:#fff;border-color:#111827}
-.vA input[type=search],.vA input[type=text]{border:1px solid var(--line);border-radius:6px;padding:5px 8px;background:#fff}
-.vA .btn{background:#fff;border:1px solid var(--line);border-radius:6px;padding:5px 11px;color:#374151}
-.vA .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
-.vA .btn.pri[disabled]{background:#c7d3ea;border-color:#c7d3ea;cursor:not-allowed}
-.vA .btn.sm{padding:2px 7px;font-size:11.5px}
-.vA .pg{display:flex;align-items:center;gap:6px;padding:9px;color:var(--muted);font-size:12px}
-.vA .pg .pn{border:1px solid var(--line);border-radius:5px;background:#fff;min-width:26px;padding:2px 0;text-align:center}
-.vA .pg .pn.on{background:#111827;color:#fff;border-color:#111827}
-.vA .thumb{width:30px;height:42px;border-radius:3px}
-.vA .ico{width:26px;height:26px;border-radius:4px;display:grid;place-items:center;background:#eef1f5;color:#5b6472;font-size:11px}
-.vA .muted{color:var(--muted)}
-.vA .pill{display:inline-block;border-radius:4px;padding:1px 6px;font-size:11px;background:#eef1f5;color:#4b5563}
-.vA .pill.v{background:#f3ecfe;color:#6d28d9}
-.vA .pill.r{background:#fdeaea;color:#b91c1c}
-.vA .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.vA .field{display:grid;grid-template-columns:132px 1fr 92px;gap:8px;padding:6px 9px;border-bottom:1px solid #eef1f5;font-size:12.5px}
-.vA .field .k{color:#5b6472}
-.vA .field .v{min-width:0;overflow-wrap:anywhere}
-.vA .field .s{color:#94a3b8;font-size:11.5px;text-align:right}
-.vA .field.miss .v{color:#b91c1c}
-.vA .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:12px 0 0}
-.vA .tabs button{background:transparent;border:0;border-bottom:2px solid transparent;padding:7px 11px;color:#5b6472}
-.vA .tabs button.on{color:#1d4ed8;border-bottom-color:var(--accent);font-weight:600}
-.vA .head{display:flex;gap:14px;align-items:flex-start}
-.vA .head .poster{width:96px;height:144px;border-radius:6px;flex:0 0 auto}
-.vA .strip{display:flex;gap:6px;overflow:auto;padding-bottom:4px}
-.vA .strip .f16{width:150px;height:84px;border-radius:4px;flex:0 0 auto}
-.vA .bar16{width:100%;aspect-ratio:16/9;border-radius:6px}
-.vA .stickybar{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--line);padding:9px 12px;
-  display:flex;align-items:center;gap:12px;border-radius:0 0 8px 8px}
-.vA .prog{display:flex;gap:10px;align-items:center;color:#4b5563;font-size:12px;padding:10px 12px;border-bottom:1px solid #eef1f5}
-.vA .prog .done{color:#15803d}
-.vA .prog .now{color:#1d4ed8;font-weight:600}
-.vA .empty{padding:44px;text-align:center;color:var(--muted)}
-.vA .empty .big{font-size:15px;color:#374151;margin-bottom:4px}
-.vA .err{background:#fdeaea;border:1px solid #f6c9c9;color:#8f1d1d;padding:10px 12px;border-radius:8px;
-  display:flex;gap:10px;align-items:center;margin-bottom:10px}
-.vA .grp td:first-child{border-left:2px solid transparent}
-.vA .grp.primary td{background:#fbfdff}
-.vA .part td:first-child{padding-left:26px}
-.vA .numin{border:1px solid #cbd5e1;border-radius:5px;padding:3px 6px;width:118px;font-family:ui-monospace,monospace}
-.vA .cand{display:inline-flex;gap:4px}
-.vA .cand button{border:1px solid #ddd6fe;background:#f7f4ff;color:#6d28d9;border-radius:5px;padding:1px 7px;font-size:11.5px}
-.vA .cand button.on{background:#7c3aed;border-color:#7c3aed;color:#fff}
-.vA .fillrow{display:grid;grid-template-columns:1fr 220px 170px 168px;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid #eef1f5}
-#lb{position:fixed;inset:0;background:rgba(8,10,14,.93);display:none;place-items:center;z-index:1000;padding:36px;cursor:zoom-out}
-#lb.on{display:grid}
-#lb img{max-width:92vw;max-height:84vh;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
-#lb .hint{position:absolute;bottom:16px;left:0;right:0;text-align:center;color:#9aa4b0;font-size:12px}
-/* 容器内目录选择器（弹窗） */
-.modal{position:fixed;inset:0;background:rgba(10,12,16,.55);display:grid;place-items:center;z-index:1100;padding:24px}
-.modal .box{width:min(620px,94vw);background:#fff;color:#161a1f;border-radius:12px;
-  box-shadow:0 24px 60px rgba(0,0,0,.4);overflow:hidden}
-.modal h3{margin:0;padding:12px 14px;border-bottom:1px solid #e6e9ee;font-size:14px}
-.modal .crumb{padding:9px 14px;border-bottom:1px solid #eef1f5;display:flex;gap:4px;flex-wrap:wrap;align-items:center;font-size:12.5px}
-.modal .crumb a{color:#2f6fed}
-.modal .crumb .sep{color:#c3c9d2}
-.modal .jump{display:flex;gap:8px;padding:9px 14px;border-bottom:1px solid #eef1f5}
-.modal .jump input{flex:1;border:1px solid #dfe3e9;border-radius:7px;padding:6px 9px;font-family:ui-monospace,monospace;font-size:12.5px}
-.modal .list{max-height:300px;overflow:auto;padding:6px 8px}
-.modal .item{display:flex;gap:10px;align-items:center;padding:7px 8px;border-radius:7px;cursor:pointer}
-.modal .item:hover{background:#f4f7fc}
-.modal .item .n{flex:1;font-family:ui-monospace,monospace;font-size:12.5px}
-.modal .item .c{color:#8b95a3;font-size:11.5px}
-.modal .foot{display:flex;gap:8px;align-items:center;padding:11px 14px;border-top:1px solid #e6e9ee;background:#fafbfc}
-.modal .foot .btn{border:1px solid #dfe3e9;background:#fff;border-radius:7px;padding:5px 12px;color:#374151}
-.modal .foot .btn.pri{background:#2f6fed;border-color:#2f6fed;color:#fff;font-weight:600}
-.modal .err{margin:0 14px 8px;background:#fdeaea;color:#8f1d1d;border:1px solid #f6c9c9;border-radius:7px;padding:7px 10px;font-size:12px}
+.vA .side{flex:0 0 196px;background:var(--surface);border-inline-end:1px solid var(--line);padding:var(--sp-2)}
+.vA .side .navlink{display:flex;align-items:center;gap:var(--sp-2);min-height:32px;padding:0 var(--sp-2);
+  border-radius:var(--r-2);color:var(--text-2);font-size:var(--fs-body)}
+.vA .side .navlink:hover{background:var(--surface-3);color:var(--text)}
+.vA .side .navlink[aria-current="page"]{background:var(--accent-soft);color:var(--st-running-ink);font-weight:600}
+.vA .side .navlink .n{margin-inline-start:auto;background:var(--surface-3);color:var(--text-2);
+  border-radius:var(--r-pill);padding:0 var(--sp-2);font-size:var(--fs-micro)}
+.vA .side .navlink .n.warn{background:var(--st-needs_number-tint);color:var(--st-needs_number-ink)}
+.vA .side .sec{color:var(--text-3);font-size:var(--fs-micro);padding:var(--sp-3) var(--sp-2) var(--sp-1);
+  letter-spacing:.04em}
+.vA .side .dead{color:var(--text-2);font-size:var(--fs-body);padding:var(--sp-1) var(--sp-2);
+  display:block;min-height:28px}
+.vA main{flex:1;min-width:0;padding:var(--sp-5) var(--sp-6) 104px;overflow:auto}
+.vA .page-h{font-size:var(--fs-title);font-weight:700;margin-block-end:var(--sp-2)}
+.vA .sub{color:var(--text-2);font-size:var(--fs-micro);margin-block-end:var(--sp-5)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);box-shadow:var(--shadow-1)}
+.card + .card{margin-block-start:var(--sp-4)}
+.filters{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;padding:var(--sp-3)}
+.filters .field{display:flex;align-items:center;gap:var(--sp-1)}
+.filters .flabel{color:var(--text-2);font-size:var(--fs-micro)}
+.row{display:flex;align-items:center;gap:var(--sp-2)}
+.grow{flex:1;min-width:0}
+.pg{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);color:var(--text-2);
+  font-size:var(--fs-micro);flex-wrap:wrap}
+.pg .pn{min-width:28px;min-height:26px;padding:0 var(--sp-1)}
+.pg .pn[aria-current="page"]{background:var(--text);border-color:var(--text);color:var(--surface);font-weight:600}
+.stickybar{position:sticky;bottom:0;display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;
+  padding:var(--sp-3);background:var(--surface);border-block-start:1px solid var(--line);border-radius:0 0 var(--r-3) var(--r-3)}
+.stickybar .sum{font-size:var(--fs-micro);color:var(--text-2)}
+.thumb{width:32px;height:44px;border-radius:var(--r-1);flex:0 0 auto}
+.tabs{display:flex;gap:2px;border-block-end:1px solid var(--line);margin-block-start:var(--sp-5);flex-wrap:wrap}
+.tabs [role=tab]{background:transparent;border:0;border-block-end:2px solid transparent;padding:var(--sp-2) var(--sp-3);
+  color:var(--text-2);font:inherit;cursor:pointer;min-height:36px}
+.tabs [role=tab][aria-selected="true"]{color:var(--st-running-ink);border-block-end-color:var(--accent);font-weight:600}
+.tabpanel{border:1px solid var(--line);border-block-start:0;border-radius:0 0 var(--r-3) var(--r-3);background:var(--surface)}
+.fields .frow{display:grid;grid-template-columns:132px minmax(0,1fr) 104px;gap:var(--sp-2);
+  padding:var(--sp-2) var(--sp-3);border-block-end:1px solid var(--line);font-size:var(--fs-body)}
+.fields .frow:last-child{border-block-end:0}
+.fields .k{color:var(--text-2);font-family:var(--font-mono);font-size:var(--fs-micro)}
+.fields .v{min-width:0}
+.fields .s{color:var(--text-3);font-size:var(--fs-micro);text-align:end}
+.fields .frow.miss .v{color:var(--st-failed-ink)}
+.fields .head{background:var(--surface-2);font-weight:600}
+.dhead{display:flex;gap:var(--sp-4);align-items:flex-start;padding:var(--sp-3);flex-wrap:wrap}
+.dhead .poster{width:104px;height:156px;border-radius:var(--r-2);flex:0 0 auto}
+.strip{display:flex;gap:var(--sp-2);overflow:auto;padding-block-end:var(--sp-1)}
+.strip .f16{width:160px;aspect-ratio:16/9;border-radius:var(--r-2);flex:0 0 auto}
+.prog{display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;padding:var(--sp-3);color:var(--text-2);
+  font-size:var(--fs-micro);border-block-end:1px solid var(--line)}
+.prog .done{color:var(--st-succeeded-ink)}
+.prog .now{color:var(--st-running-ink);font-weight:600}
+.filtered{padding:0 var(--sp-3) var(--sp-3)}
+.filtered .frow{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:var(--sp-2);
+  padding:var(--sp-1) 0;border-block-end:1px solid var(--line);font-size:var(--fs-micro)}
+.filtered .r{color:var(--text-2)}
+.fillrow{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:var(--sp-2);align-items:center;
+  padding:var(--sp-2) 0;border-block-end:1px solid var(--line)}
+.cand{display:inline-flex;gap:var(--sp-1);flex-wrap:wrap}
+.cand button{min-height:26px;padding:0 var(--sp-2);border-radius:var(--r-2);cursor:pointer;
+  border:1px solid var(--st-needs_number-tint);background:var(--st-needs_number-tint);
+  color:var(--st-needs_number-ink);font:inherit;font-size:var(--fs-micro)}
+.cand button[aria-pressed="true"]{background:var(--st-needs_number-mark);border-color:var(--st-needs_number-mark);color:#fff}
+.numin{width:130px;font-family:var(--font-mono)}
+.occ{color:var(--st-needs_number-ink);font-size:var(--fs-micro)}
 
-/* ================= B · 卡片墙（海报为主 + 顶部导航） ================= */
-.vB{--bg:#fbfaf7;--panel:#fff;--line:#ece7dd;--text:#1a1a1a;--muted:#78716c;--accent:#111;
-  background:var(--bg);color:var(--text)}
-.vB .top{display:flex;align-items:center;gap:20px;padding:16px 28px;background:rgba(251,250,247,.92);
-  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;backdrop-filter:blur(8px)}
-.vB .brand{font-size:17px;font-weight:700;letter-spacing:-.02em}
-.vB .nav{display:flex;gap:4px;background:#f1eee7;border-radius:999px;padding:4px}
-.vB .nav a{padding:6px 15px;border-radius:999px;color:#57534e;font-size:13px}
-.vB .nav a.on{background:#fff;color:#111;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.07)}
-.vB .grow{flex:1}
-.vB input[type=search]{border:1px solid var(--line);border-radius:999px;padding:8px 15px;background:#fff;width:230px}
-.vB main{padding:22px 28px 110px;max-width:1360px;margin:0 auto;width:100%}
-.vB h1{font-size:22px;margin:0 0 4px;letter-spacing:-.02em}
-.vB .sub{color:var(--muted);font-size:13px;margin-bottom:18px}
-.vB .filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
-.vB .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 13px;color:#57534e}
-.vB .chip.on{background:#111;color:#fff;border-color:#111}
-.vB .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(196px,1fr));gap:18px}
-.vB .card{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;
-  box-shadow:0 1px 2px rgba(28,25,23,.04);transition:transform .12s ease,box-shadow .12s ease}
-.vB .card:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(28,25,23,.10)}
-.vB .card .poster{width:100%;aspect-ratio:2/3;position:relative}
-.vB .card .strip{position:absolute;left:0;right:0;bottom:0;height:5px}
-.vB .s-succeeded .strip{background:#16a34a}.vB .s-partial .strip{background:#d97706}
-.vB .s-failed .strip{background:#dc2626}.vB .s-running .strip{background:#2563eb}
-.vB .s-queued .strip{background:#94a3b8}.vB .s-needs_number .strip{background:#7c3aed}
-.vB .s-cancelled .strip{background:#9ca3af}
-.vB .card .meta{padding:11px 13px 13px}
-.vB .card .num{font-family:ui-monospace,monospace;font-weight:600;font-size:13px;letter-spacing:.01em}
-.vB .card .ti{color:#57534e;font-size:12.5px;margin:3px 0 8px;height:34px;overflow:hidden}
-.vB .card .foot{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:11.5px}
-.vB .btn{background:#fff;border:1px solid var(--line);border-radius:999px;padding:7px 16px;color:#44403c}
-.vB .btn.pri{background:#111;border-color:#111;color:#fff;font-weight:600}
-.vB .btn.pri[disabled]{background:#d6d3d1;border-color:#d6d3d1;cursor:not-allowed}
-.vB .drop{border:2px dashed #d6d3d1;border-radius:20px;padding:30px;text-align:center;background:#fff;margin-bottom:20px}
-.vB .drop .big{font-size:17px;font-weight:600;margin-bottom:6px}
-.vB .drop .hint{color:var(--muted)}
-.vB .roots{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:14px}
-.vB .root{background:#f5f5f4;border-radius:999px;padding:5px 13px;font-family:ui-monospace,monospace;font-size:12px}
-.vB .root b{font-weight:600}
-.vB .cand{background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px;display:flex;gap:14px;margin-bottom:11px;align-items:center}
-.vB .cand .f16{width:190px;aspect-ratio:16/9;border-radius:10px;flex:0 0 auto}
-.vB .cand .info{flex:1;min-width:0}
-.vB .cand .num{font-family:ui-monospace,monospace;font-size:17px;font-weight:700}
-.vB .cand .files{color:var(--muted);font-size:12px;margin-top:4px}
-.vB .cand .mk{display:inline-block;background:#f5f5f4;border-radius:6px;padding:1px 7px;font-size:11px;color:#57534e;margin-top:6px}
-.vB .pick{width:22px;height:22px;flex:0 0 auto}
-.vB .hero{position:relative;border-radius:20px;overflow:hidden;margin-bottom:18px}
-.vB .hero .bg{width:100%;aspect-ratio:21/9;filter:saturate(.85)}
-.vB .hero .ov{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.05),rgba(0,0,0,.78))}
-.vB .hero .in{position:absolute;left:22px;right:22px;bottom:18px;display:flex;gap:16px;align-items:flex-end;color:#fff}
-.vB .hero .poster{width:104px;aspect-ratio:2/3;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.4);flex:0 0 auto}
-.vB .hero h2{margin:0 0 4px;font-size:23px;letter-spacing:-.02em}
-.vB .hero .m{font-size:12.5px;opacity:.9}
-.vB .cols{display:grid;grid-template-columns:1.35fr .95fr;gap:20px}
-.vB .panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:15px 17px}
-.vB .panel h3{margin:0 0 10px;font-size:13px;color:#57534e;letter-spacing:.02em;text-transform:uppercase}
-.vB .fld{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid #f5f3ef;font-size:13px}
-.vB .fld .k{width:104px;flex:0 0 auto;color:#78716c}
-.vB .fld .v{flex:1;min-width:0;overflow-wrap:anywhere}
-.vB .fld .s{color:#a8a29e;font-size:11.5px}
-.vB .fld.miss .v{color:#b91c1c}
-.vB .wall{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
-.vB .wall .f16{width:100%;aspect-ratio:16/9;border-radius:8px}
-.vB .wall .p23{width:100%;aspect-ratio:2/3;border-radius:8px}
-.vB .tl{font-size:12.5px}
-.vB .tl .row{display:flex;gap:9px;padding:6px 0;align-items:baseline}
-.vB .tl .dot{width:7px;height:7px;border-radius:50%;background:#d6d3d1;flex:0 0 auto;position:relative;top:-2px}
-.vB .tl .row.ok .dot{background:#16a34a}.vB .tl .row.bad .dot{background:#dc2626}
-.vB .tl .nm{width:62px;flex:0 0 auto;color:#57534e}
-.vB .tl .ms{margin-left:auto;color:#a8a29e;font-variant-numeric:tabular-nums}
-.vB .srcrow{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #f5f3ef;font-size:12.5px}
-.vB .empty{padding:60px;text-align:center;color:var(--muted)}
-.vB .empty .big{font-size:19px;font-weight:600;color:#44403c;margin-bottom:6px}
-.vB .err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:12px 16px;border-radius:14px;margin-bottom:16px}
-.vB .skeleton{border-radius:16px;height:322px}
-.vB .loadmore{display:flex;justify-content:center;margin-top:22px;color:var(--muted);font-size:12.5px;gap:12px;align-items:center}
-.vB .cand .chips{display:flex;gap:5px;margin-top:8px}
-.vB .cand .chips button{border:1px solid #ddd6fe;background:#f7f4ff;color:#6d28d9;border-radius:999px;padding:2px 10px}
-.vB .cand .chips button.on{background:#7c3aed;color:#fff;border-color:#7c3aed}
+/* ============================================================
+   6. 变体 B · 卡片墙
+   ============================================================ */
+.vB{background:var(--bg);color:var(--text);min-height:100vh}
+.vB .top{display:flex;align-items:center;gap:var(--sp-4);padding:var(--sp-3) var(--sp-6);
+  background:var(--surface);border-block-end:1px solid var(--line);position:sticky;top:0;z-index:10;flex-wrap:wrap}
+.vB .nav{display:flex;gap:2px;background:var(--surface-3);border-radius:var(--r-pill);padding:2px}
+.vB .nav a{display:inline-flex;align-items:center;min-height:30px;padding:0 var(--sp-4);border-radius:var(--r-pill);
+  color:var(--text-2);font-size:var(--fs-body)}
+.vB .nav a[aria-current="page"]{background:var(--surface);color:var(--text);font-weight:600;box-shadow:var(--shadow-1)}
+.vB main{max-width:1400px;margin:0 auto;padding:var(--sp-6) var(--sp-6) 112px}
+.vB .page-h{font-size:var(--fs-title);font-weight:700}
+.vB .sub{color:var(--text-2);font-size:var(--fs-micro);margin-block-end:var(--sp-5)}
+.vB .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--sp-5)}
+.vB .tcard{display:block;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-4);
+  overflow:hidden;color:inherit;box-shadow:var(--shadow-1);text-decoration:none;
+  transition:transform var(--dur-base) var(--ease-out),box-shadow var(--dur-base) var(--ease-out)}
+.vB .tcard:hover{transform:translateY(-3px);box-shadow:var(--shadow-2)}
+.vB .tcard .poster{width:100%;aspect-ratio:2/3}
+.vB .tcard .meta{padding:var(--sp-3)}
+.vB .tcard .num{font-family:var(--font-mono);font-weight:600;font-size:var(--fs-body);font-variant-numeric:tabular-nums}
+.vB .tcard .ti{color:var(--text-2);font-size:var(--fs-micro);margin-block:var(--sp-1) var(--sp-2);min-height:34px}
+.vB .tcard .foot{display:flex;align-items:center;justify-content:space-between;color:var(--text-3);font-size:var(--fs-micro)}
+.vB .drop{border:2px dashed var(--line-strong);border-radius:var(--r-5);padding:var(--sp-6);text-align:center;
+  background:var(--surface);margin-block-end:var(--sp-5)}
+.vB .drop .big{font-size:var(--fs-lead);font-weight:600;margin-block-end:var(--sp-1)}
+.vB .drop .hint{color:var(--text-2);font-size:var(--fs-micro);max-width:62ch;margin:0 auto}
+.vB .roots{display:flex;gap:var(--sp-2);flex-wrap:wrap;justify-content:center;margin-block:var(--sp-4)}
+.vB .candrow{display:flex;gap:var(--sp-4);align-items:center;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-4);padding:var(--sp-3);margin-block-end:var(--sp-3);flex-wrap:wrap}
+.vB .candrow .f16{width:200px;aspect-ratio:16/9;border-radius:var(--r-3);flex:0 0 auto}
+.vB .candrow .info{flex:1;min-width:200px}
+.vB .candrow .num{font-family:var(--font-mono);font-size:var(--fs-title);font-weight:700}
+.vB .hero{position:relative;border-radius:var(--r-5);overflow:hidden;margin-block-end:var(--sp-4)}
+.vB .hero .bg{width:100%;aspect-ratio:21/9;filter:saturate(.9)}
+.vB .hero .ov{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.08),rgba(0,0,0,.8))}
+.vB .hero .in{position:absolute;inset-inline:var(--sp-5);bottom:var(--sp-4);display:flex;gap:var(--sp-4);
+  align-items:flex-end;color:#fff;flex-wrap:wrap}
+.vB .hero .poster{width:104px;aspect-ratio:2/3;border-radius:var(--r-2);flex:0 0 auto;box-shadow:var(--shadow-2)}
+.vB .hero h1{font-size:var(--fs-display);color:#fff}
+.vB .hero .m{font-size:var(--fs-micro);opacity:.95;margin-block-start:var(--sp-1)}
+.vB .cols{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,.9fr);gap:var(--sp-5)}
+.vB .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-4);padding:var(--sp-4);
+  box-shadow:var(--shadow-1)}
+.vB .panel h2,.vB .panel h3{font-size:var(--fs-micro);color:var(--text-2);letter-spacing:.04em;margin-block-end:var(--sp-2)}
+.vB .fld{display:flex;gap:var(--sp-3);padding:var(--sp-2) 0;border-block-end:1px solid var(--line);font-size:var(--fs-body)}
+.vB .fld:last-child{border-block-end:0}
+.vB .fld .k{width:104px;flex:0 0 auto;color:var(--text-2);font-family:var(--font-mono);font-size:var(--fs-micro)}
+.vB .fld .v{flex:1;min-width:0}
+.vB .fld .s{color:var(--text-3);font-size:var(--fs-micro)}
+.vB .fld.miss .v{color:var(--st-failed-ink)}
+.vB .wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--sp-2);margin-block-start:var(--sp-2)}
+.vB .wall .f16{aspect-ratio:16/9;border-radius:var(--r-2);width:100%}
+.vB .wall .p23{aspect-ratio:2/3;border-radius:var(--r-2);width:100%;grid-row:span 2}
+.vB .tl .trow{display:flex;gap:var(--sp-2);align-items:baseline;padding:var(--sp-1) 0;font-size:var(--fs-body)}
+.vB .tl .dot{width:7px;height:7px;border-radius:50%;background:var(--line-strong);flex:0 0 auto}
+.vB .tl .trow.ok .dot{background:var(--st-succeeded-mark)}
+.vB .tl .trow.bad .dot{background:var(--st-failed-mark)}
+.vB .tl .nm{width:64px;flex:0 0 auto;color:var(--text-2);font-family:var(--font-mono);font-size:var(--fs-micro)}
+.vB .tl .ms{margin-inline-start:auto;color:var(--text-3);font-size:var(--fs-micro);font-variant-numeric:tabular-nums}
+.vB .srcrow{display:flex;gap:var(--sp-2);align-items:center;padding:var(--sp-2) 0;
+  border-block-end:1px solid var(--line);font-size:var(--fs-body)}
+.vB .srcrow:last-child{border-block-end:0}
+.vB .srcrow .id{width:56px;flex:0 0 auto;font-family:var(--font-mono);font-size:var(--fs-micro)}
+.vB .srcrow .ms{margin-inline-start:auto;color:var(--text-3);font-size:var(--fs-micro)}
 
-/* ================= C · 流程看板（深色 + 步骤时间线） ================= */
-.vC{--bg:#0e1116;--panel:#161b22;--panel2:#1b222b;--line:#232b36;--text:#e6edf3;--muted:#8b949e;--accent:#4c8dff;
-  background:var(--bg);color:var(--text)}
-.vC .top{display:flex;align-items:center;gap:16px;padding:11px 20px;background:#0b0e13;border-bottom:1px solid var(--line)}
-.vC .brand{font-weight:700;color:#fff}
-.vC .steps{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
-.vC .steps a{padding:5px 11px;border-radius:7px;color:#a7b1bd;border:1px solid transparent}
-.vC .steps a.on{background:#182234;color:#cfe0ff;border-color:#24344e}
-.vC .steps .n{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:#243040;
-  color:#9fb3cc;font-size:10.5px;margin-right:6px}
-.vC .steps a.on .n{background:#2f6fed;color:#fff}
-.vC .grow{flex:1}
-.vC .live{color:#8b949e;font-size:11.5px;display:flex;align-items:center;gap:6px}
-.vC main{padding:16px 20px 110px;flex:1;min-width:0;overflow:auto}
-.vC h1{font-size:15px;margin:0 0 12px;color:#fff}
-.vC .board{display:grid;grid-template-columns:repeat(4,minmax(210px,1fr));gap:12px;align-items:start}
-.vC .col{background:#12171e;border:1px solid var(--line);border-radius:10px;padding:9px}
-.vC .col h4{margin:0 0 9px;font-size:12px;color:#9aa7b4;display:flex;align-items:center;gap:7px}
-.vC .col h4 .n{margin-left:auto;background:#1e2733;border-radius:8px;padding:0 7px;font-size:11px;color:#8b949e}
-.vC .tc{background:var(--panel);border:1px solid var(--line);border-left:3px solid #64748b;border-radius:8px;
-  padding:8px 10px;margin-bottom:8px}
-.vC .tc.b-running{border-left-color:#3b82f6}.vC .tc.b-succeeded{border-left-color:#22c55e}
-.vC .tc.b-partial{border-left-color:#f59e0b}.vC .tc.b-failed{border-left-color:#ef4444}
-.vC .tc.b-needs_number{border-left-color:#a78bfa}.vC .tc.b-cancelled{border-left-color:#64748b}
-.vC .tc .num{font-family:ui-monospace,monospace;font-weight:600;font-size:12.5px;color:#fff}
-.vC .tc .ti{color:#93a1b0;font-size:11.5px;margin-top:2px;height:32px;overflow:hidden}
-.vC .tc .ft{display:flex;justify-content:space-between;color:#6f7b88;font-size:11px;margin-top:6px}
-.vC .tc .thumb{width:100%;aspect-ratio:16/9;border-radius:6px;margin-bottom:7px;opacity:.9}
-.vC .tl{position:relative;padding-left:22px}
-.vC .tl:before{content:'';position:absolute;left:6px;top:6px;bottom:6px;width:1px;background:#26303c}
-.vC .tl .row{position:relative;padding:7px 0 7px 4px;display:flex;gap:10px;align-items:baseline;font-size:12.5px}
-.vC .tl .row:before{content:'';position:absolute;left:-19px;top:13px;width:9px;height:9px;border-radius:50%;
-  background:#2b3644;border:1px solid #3a4757}
-.vC .tl .row.ok:before{background:#166534;border-color:#22c55e}
-.vC .tl .row.bad:before{background:#7f1d1d;border-color:#ef4444}
-.vC .tl .row.now:before{background:#1d4ed8;border-color:#60a5fa;animation:pulse 1.4s infinite}
-.vC .tl .nm{width:70px;flex:0 0 auto;color:#cbd5e1;font-weight:600}
-.vC .tl .sum{color:#8b949e}
-.vC .tl .ms{margin-left:auto;color:#6f7b88;font-variant-numeric:tabular-nums}
-.vC .panels{display:grid;grid-template-columns:1.5fr 1fr;gap:12px;margin-top:14px}
-.vC .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
-.vC .panel h3{margin:0 0 9px;font-size:11.5px;color:#8b949e;letter-spacing:.06em;text-transform:uppercase}
-.vC .kv{display:grid;grid-template-columns:118px 1fr 84px;gap:8px;padding:5px 0;border-bottom:1px solid #1d242e;font-size:12.5px}
-.vC .kv .k{color:#8b949e}.vC .kv .s{color:#6f7b88;text-align:right;font-size:11.5px}
-.vC .kv.miss .v{color:#fca5a5}
-.vC .src{display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #1d242e;font-size:12px}
-.vC .src .reason{color:#f59e0b;font-size:11px}
-.vC .btn{background:#1b222b;border:1px solid #2b3644;border-radius:7px;color:#cbd5e1;padding:5px 12px}
-.vC .btn.pri{background:#2f6fed;border-color:#2f6fed;color:#fff;font-weight:600}
-.vC .btn.pri[disabled]{background:#26313f;border-color:#26313f;color:#6f7b88;cursor:not-allowed}
-.vC .wiz{display:flex;gap:10px;align-items:center;margin-bottom:14px;color:#8b949e;font-size:12px}
-.vC .wiz .s{display:flex;gap:8px;align-items:center;background:#161b22;border:1px solid var(--line);
-  border-radius:8px;padding:7px 12px}
-.vC .wiz .s.on{border-color:#2f6fed;color:#cfe0ff;background:#141d2c}
-.vC .wiz .s b{display:grid;place-items:center;width:17px;height:17px;border-radius:50%;background:#243040;color:#9fb3cc;font-size:10.5px}
-.vC .wiz .s.on b{background:#2f6fed;color:#fff}
-.vC .scanrow{display:flex;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);
-  border-radius:8px;margin-bottom:6px;background:#12171e;font-size:12.5px}
-.vC .scanrow.primary{background:#141c28;border-color:#26364d}
-.vC .scanrow.part{margin-left:22px}
-.vC .scanrow .num{font-family:ui-monospace,monospace;color:#cfe0ff;min-width:96px}
-.vC .scanrow .badge{font-size:11px;border-radius:5px;padding:1px 7px;background:#1e2733;color:#9aa7b4}
-.vC .scanrow .badge.warn{background:#2a2114;color:#f59e0b}
-.vC .scanrow .badge.err{background:#2a1616;color:#fca5a5}
-.vC .scanrow .sz{margin-left:auto;color:#6f7b88;font-variant-numeric:tabular-nums}
-.vC .empty{padding:50px;text-align:center;color:#6f7b88}
-.vC .empty .big{font-size:15px;color:#cbd5e1;margin-bottom:6px}
-.vC .err{background:#2a1616;border:1px solid #7f1d1d;color:#fca5a5;padding:10px 13px;border-radius:9px;margin-bottom:12px}
-.vC .sk{background:linear-gradient(90deg,#1a212a 25%,#212a35 37%,#1a212a 63%);background-size:400% 100%}
-.vC .fill{display:flex;gap:6px;align-items:center}
-.vC .fill input{border:1px solid #2b3644;background:#0e1116;color:#e6edf3;border-radius:6px;padding:3px 7px;
-  width:118px;font-family:ui-monospace,monospace}
-.vC .fill button{border:1px solid #3b2f63;background:#211a35;color:#c4b5fd;border-radius:6px;padding:2px 9px;font-size:11.5px}
-.vC .fill button.on{background:#7c3aed;border-color:#7c3aed;color:#fff}
-.vC .ck{width:15px;height:15px;accent-color:#2f6fed}
-.vC .sub{color:#6f7b88;font-size:12px;margin:-6px 0 12px}
+/* ============================================================
+   7. 变体 C · 流程看板（深色；列是「区域」不是卡片，任务卡不再嵌套）
+   ============================================================ */
+.vC{background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;
+  line-height:1.5;letter-spacing:.004em}       /* 浅字压深底：行高与字距各补一点 */
+.vC .top{display:flex;align-items:center;gap:var(--sp-4);padding:var(--sp-3) var(--sp-5);
+  background:var(--surface-2);border-block-end:1px solid var(--line);flex-wrap:wrap}
+.vC .steps{display:flex;align-items:center;gap:var(--sp-1);flex-wrap:wrap}
+.vC .steps a{display:inline-flex;align-items:center;gap:var(--sp-2);min-height:30px;padding:0 var(--sp-3);
+  border-radius:var(--r-2);color:var(--text-2);font-size:var(--fs-body);border:1px solid transparent}
+.vC .steps a[aria-current="page"]{background:var(--accent-soft);color:var(--st-running-ink);border-color:var(--line-strong)}
+.vC .steps .n{display:grid;place-items:center;width:18px;height:18px;border-radius:50%;
+  background:var(--surface-3);color:var(--text-2);font-size:var(--fs-micro);font-variant-numeric:tabular-nums}
+.vC .steps a[aria-current="page"] .n{background:var(--accent);color:var(--accent-ink)}
+.vC main{padding:var(--sp-5) var(--sp-6) 112px;flex:1;min-width:0}
+.vC .page-h{font-size:var(--fs-title);font-weight:700}
+.vC .sub{color:var(--text-2);font-size:var(--fs-micro);margin-block-end:var(--sp-5)}
+.vC .board{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:var(--sp-5)}
+.vC .col{border-block-start:1px solid var(--line-strong);padding-block-start:var(--sp-2);min-width:0}
+.vC .col h2{font-size:var(--fs-micro);color:var(--text-2);display:flex;align-items:center;gap:var(--sp-2);
+  letter-spacing:.04em;margin-block-end:var(--sp-2)}
+.vC .col h2 .n{margin-inline-start:auto;color:var(--text-3);font-variant-numeric:tabular-nums}
+.vC .tcard{display:block;width:100%;text-align:start;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-3);padding:var(--sp-3);margin-block-end:var(--sp-2);color:var(--text);
+  font:inherit;cursor:pointer;box-shadow:var(--shadow-1);
+  transition:border-color var(--dur-fast) var(--ease-out),transform var(--dur-fast) var(--ease-out)}
+.vC .tcard:hover{border-color:var(--line-strong);transform:translateY(-1px)}
+.vC .tcard .hd{display:flex;align-items:center;gap:var(--sp-2);margin-block-end:var(--sp-1)}
+.vC .tcard .num{font-family:var(--font-mono);font-weight:600;font-size:var(--fs-body);font-variant-numeric:tabular-nums}
+.vC .tcard .ti{color:var(--text-2);font-size:var(--fs-micro)}
+.vC .tcard .ft{display:flex;justify-content:space-between;gap:var(--sp-2);color:var(--text-3);
+  font-size:var(--fs-micro);margin-block-start:var(--sp-2)}
+.vC .tl{position:relative;padding-inline-start:var(--sp-5)}
+.vC .tl::before{content:"";position:absolute;inset-inline-start:5px;top:var(--sp-2);bottom:var(--sp-2);
+  width:1px;background:var(--line-strong)}
+.vC .tl .trow{position:relative;display:flex;gap:var(--sp-3);align-items:baseline;padding:var(--sp-2) 0;font-size:var(--fs-body)}
+.vC .tl .trow::before{content:"";position:absolute;inset-inline-start:calc(-1 * var(--sp-5) + 1px);top:14px;
+  width:9px;height:9px;border-radius:50%;background:var(--surface);border:2px solid var(--line-strong)}
+.vC .tl .trow.ok::before{border-color:var(--st-succeeded-mark)}
+.vC .tl .trow.bad::before{border-color:var(--st-failed-mark)}
+.vC .tl .nm{width:72px;flex:0 0 auto;font-family:var(--font-mono);font-size:var(--fs-micro);color:var(--text-2)}
+.vC .tl .sum{color:var(--text-2);min-width:0}
+.vC .tl .ms{margin-inline-start:auto;color:var(--text-3);font-size:var(--fs-micro);font-variant-numeric:tabular-nums}
+.vC .panels{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:var(--sp-5);margin-block-start:var(--sp-5)}
+.vC .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);padding:var(--sp-4)}
+.vC .panel h2,.vC .panel h3{font-size:var(--fs-micro);color:var(--text-2);letter-spacing:.04em;margin-block-end:var(--sp-2)}
+.vC .kv{display:grid;grid-template-columns:120px minmax(0,1fr) 88px;gap:var(--sp-2);padding:var(--sp-1) 0;
+  border-block-end:1px solid var(--line);font-size:var(--fs-body)}
+.vC .kv:last-child{border-block-end:0}
+.vC .kv .k{color:var(--text-2);font-family:var(--font-mono);font-size:var(--fs-micro)}
+.vC .kv .s{color:var(--text-3);text-align:end;font-size:var(--fs-micro)}
+.vC .kv.miss .v{color:var(--st-failed-ink)}
+.vC .src{display:flex;gap:var(--sp-2);align-items:center;padding:var(--sp-1) 0;
+  border-block-end:1px solid var(--line);font-size:var(--fs-body)}
+.vC .src:last-child{border-block-end:0}
+.vC .src .id{width:52px;flex:0 0 auto;font-family:var(--font-mono);font-size:var(--fs-micro)}
+.vC .src .reason{color:var(--st-partial-ink);font-size:var(--fs-micro)}
+.vC .src .ms{margin-inline-start:auto;color:var(--text-3);font-size:var(--fs-micro)}
+.vC .wiz{display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap;margin-block-end:var(--sp-4)}
+.vC .wiz .s{display:flex;gap:var(--sp-2);align-items:center;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-2);padding:var(--sp-2) var(--sp-3);color:var(--text-2);font-size:var(--fs-micro)}
+.vC .wiz .s[aria-current="step"]{border-color:var(--accent);color:var(--st-running-ink);background:var(--accent-soft)}
+.vC .wiz .s b{display:grid;place-items:center;width:18px;height:18px;border-radius:50%;
+  background:var(--surface-3);color:var(--text-2);font-size:var(--fs-micro)}
+.vC .wiz .s[aria-current="step"] b{background:var(--accent);color:var(--accent-ink)}
+.vC .scanrow{display:flex;gap:var(--sp-3);align-items:center;padding:var(--sp-2) 0;
+  border-block-end:1px solid var(--line);background:transparent;font-size:var(--fs-body);flex-wrap:wrap}
+.vC .scanrow .num{font-family:var(--font-mono);color:var(--st-running-ink);min-width:96px;font-variant-numeric:tabular-nums}
+.vC .scanrow .sz{margin-inline-start:auto;color:var(--text-3);font-variant-numeric:tabular-nums}
+
+/* ============================================================
+   8. 适配：内容驱动断点 640 / 768 / 1024
+   ============================================================ */
+@media (max-width:1023px){
+  .vA .layout{flex-direction:column}
+  .vA .side{flex:0 0 auto;display:flex;gap:var(--sp-1);overflow-x:auto;border-inline-end:0;
+    border-block-end:1px solid var(--line);padding:var(--sp-2)}
+  .vA .side .sec,.vA .side .dead{display:none}
+  .vA .side .navlink{white-space:nowrap}
+  .vC .board{grid-template-columns:repeat(2,minmax(220px,1fr))}
+  .vC .panels{grid-template-columns:1fr}
+  .vB .cols{grid-template-columns:1fr}
+}
+@media (max-width:767px){
+  /* 表格 → 记录卡：表头留给读屏，每个单元格带上自己的标签 */
+  .rec thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .rec tr{display:block;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);
+    margin-block-end:var(--sp-3);padding:var(--sp-2) var(--sp-3)}
+  .rec td{display:grid;grid-template-columns:7.5rem minmax(0,1fr);gap:var(--sp-2);border:0;padding:3px 0}
+  .rec td::before{content:attr(data-label);color:var(--text-3);font-size:var(--fs-micro)}
+  .rec td.plain{grid-template-columns:minmax(0,1fr)}
+  .rec td.plain::before{content:none}
+  .rec .stickybar,.rec .pg{border-radius:0}
+  .vA main{padding:var(--sp-3) var(--sp-3) 112px}
+  .vA .top{padding:var(--sp-2) var(--sp-3)}
+  .vB .top,.vB main{padding-inline:var(--sp-3)}
+  .vC main{padding:var(--sp-3) var(--sp-3) 112px}
+  .vC .board{grid-template-columns:minmax(0,1fr)}
+  .vB .hero .in{inset-inline:var(--sp-3);bottom:var(--sp-3)}
+  .vB .hero h1{font-size:var(--fs-title)}
+  .dhead .poster{width:84px;height:126px}
+  .fields .frow{grid-template-columns:minmax(0,1fr);gap:2px}
+  .fields .s{text-align:start}
+  .fillrow{grid-template-columns:minmax(0,1fr);gap:var(--sp-1)}
+  .filtered .frow{grid-template-columns:minmax(0,1fr)}
+  .vC .kv{grid-template-columns:104px minmax(0,1fr);gap:2px var(--sp-2)}
+  .vC .kv .s{grid-column:2;text-align:start}
+}
+@media (max-width:480px){
+  .vA .side .navlink{padding:0 var(--sp-1);font-size:var(--fs-micro)}
+  .vB .grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .vB .candrow .f16{width:100%}
+}
+
+/* ============================================================
+   9. 减动不减状态：去掉空间位移与闪烁，保留不透明度与颜色反馈
+   ============================================================ */
+@media (prefers-reduced-motion:reduce){
+  .sk{animation:none;background:var(--surface-3)}
+  .pulse{animation:pulse 2.4s ease-in-out infinite}   /* 只改不透明度，不位移 */
+  .dlg,.dlg .box,#lb{animation:none}
+  .vB .tcard,.vC .tcard,.btn,.chip{transition:none}
+  .vB .tcard:hover,.vC .tcard:hover,.btn:active:not([disabled]){transform:none}
+}
 </style>
 </head>
 <body>
+<a class="skip" href="#main">跳到主内容</a>
 <div id="app"></div>
 <div id="bar"></div>
-<div id="lb"><img alt=""><div class="hint">点击任意处或按 Esc 关闭 · 灯箱（原型演示）</div></div>
+<div id="lb"></div>
 <script>
-/* ================= 假数据（内存，无持久化） ================= */
+/* ============================================================
+   数据（内存假数据；只用于讨论形状，不是真实状态）
+   ============================================================ */
 var PIPELINES = [{id:'default', name:'默认流水线'}, {id:'vr', name:'VR 专用'}];
 var ROOTS = ['/media', '/media/vr'];
 var EXCLUDES = ['/media/ignore'];
-/* 容器内可浏览白名单（= config.yaml 的 browse_roots，默认 ["/media"]）与一棵假文件树 */
 var BROWSER_ROOTS = [{path:'/media', label:'媒体库'}];
 var FS = {
   '/media':[['2024','12 个目录 · 386 个文件'],['vr','4 个目录 · 62 个文件'],
@@ -346,16 +568,12 @@ var FS = {
   '/media/fc2':[['3336019','1 个文件']],
   '/media/misc':[['sample','2 个文件']]
 };
-function fsDirs(p){ return FS[p] || []; }
-function mountOf(p){
-  var m = null;
-  BROWSER_ROOTS.forEach(function(r){ if(p===r.path || p.indexOf(r.path+'/')===0) m = r; });
-  return m;
-}
-function labelOf(p){ var m = mountOf(p); return m ? m.label : '容器'; }
+/* 长标题 / 特殊字符用来验证截断与转义（harden） */
+var LONG_TITLE = '【4K】【独占配信】新人NO.1STYLE 専属デビュー 初撮り完全版 〜誰にも言えない秘密の関係〜 スペシャルエディション（特典映像付き・本編118分）';
+var PUNCT_TITLE = '「夫の上司」<b>テスト</b> & 記号 🎬 の扱い';
 
 var TASKS = [
-  {num:'SSIS-001', title:'新人NO.1STYLE 専属デビュー', status:'succeeded', stage:'—', batch:'b-1042',
+  {num:'SSIS-001', title:LONG_TITLE, status:'succeeded', stage:'—', batch:'b-1042',
    trigger:'manual', updated:'10-27 14:02', sources:3, missing:0, files:1, out:'/media/SSIS-001', hue:200},
   {num:'ABP-123', title:'夫の上司に犯され続けて7日目、私は理性を失った', status:'partial', stage:'—', batch:'b-1042',
    trigger:'manual', updated:'10-27 13:58', sources:2, missing:2, files:2, out:'/media/ABP-123', hue:24},
@@ -363,11 +581,11 @@ var TASKS = [
    trigger:'monitor', updated:'10-27 14:05', sources:0, missing:0, files:3, out:'/media/MIDE-456', hue:300},
   {num:'IPX-777', title:'新人 19歳 敏感すぎて…', status:'queued', stage:'—', batch:'b-1043',
    trigger:'monitor', updated:'10-27 14:05', sources:0, missing:0, files:1, out:'/media/IPX-777', hue:150},
-  {num:'SSVR-122', title:'（待补号：解析出 SSVR-122 / SSVR-123 两个候选）', status:'needs_number', stage:'parse', batch:'b-1043',
-   trigger:'monitor', updated:'10-27 14:04', sources:0, missing:0, files:2, out:'—', hue:265},
-  {num:'FC2-3336019', title:'個人撮影 素人 20歳 はじめての…', status:'failed', stage:'—', batch:'b-1041',
-   trigger:'manual', updated:'10-27 11:20', sources:1, missing:1, files:1, out:'—', hue:8,
-   err:'必选字段 fanart 缺失（4 个源都未给出可解码字节）'},
+  {num:'SSVR-122', title:'（待补号：解析出 SSVR-122 / SSVR-123 两个候选）', status:'needs_number', stage:'parse',
+   batch:'b-1043', trigger:'monitor', updated:'10-27 14:04', sources:0, missing:0, files:2, out:'—', hue:265},
+  {num:'FC2-3336019', title:PUNCT_TITLE, status:'failed', stage:'—', batch:'b-1041', trigger:'manual',
+   updated:'10-27 11:20', sources:1, missing:1, files:1, out:'—', hue:8,
+   err:'必选字段 fanart 缺失：4 个源都没有返回可解码的图片字节。改配置放宽必选字段，或换一个源再重跑。'},
   {num:'STARS-888', title:'生意気な後輩と会社で…', status:'cancelled', stage:'—', batch:'b-1040',
    trigger:'manual', updated:'10-26 22:10', sources:0, missing:0, files:1, out:'—', hue:40}
 ];
@@ -393,14 +611,13 @@ var SCAN_FILTERED = [
   {p:'/media/misc/cover.jpg', r:'规则 3 · 后缀不在 [.mp4 .mkv .wmv .srt .ass]'}
 ];
 
-function fields(spec){ return spec; }
 var DETAILS = {
   'SSIS-001': {
-    number:'SSIS-001', status:'succeeded', title:'新人NO.1STYLE 専属デビュー', hue:200,
+    number:'SSIS-001', status:'succeeded', title:LONG_TITLE, hue:200,
     out:'/media/SSIS-001', batch:'b-1042', trigger:'manual', updated:'10-27 14:02',
     parts:1, link:'hardlink', pipeline:'default',
     fields:[
-      ['title','新人NO.1STYLE 専属デビュー','javdb',0],
+      ['title',LONG_TITLE,'javdb',0],
       ['plot','大手メーカーS1専属・河北彩花の専属デビュー作。…（简介正文，可多行）','javdb',0],
       ['fanart','fanart.jpg · 1920×1080 · 412 KB','dmm',1],
       ['extrafanarts','6 张 · extrafanart/fanart1…6.jpg','javbus',1],
@@ -426,9 +643,7 @@ var DETAILS = {
       ['nfo','ok',3,'gonja · 1 文件'],
       ['output','ok',120,'写 8 · 跳过 0 · 硬链 1']
     ],
-    srcs:[
-      ['javdb','ok','',9,820],['dmm','ok','',3,1240],['javbus','ok','',2,640],['fc2','notfound','',0,210]
-    ],
+    srcs:[['javdb','ok','',9,820],['dmm','ok','',3,1240],['javbus','ok','',2,640],['fc2','notfound','',0,210]],
     rows:[
       ['video','—','—','/media/SSIS-001.mp4','SSIS-001/SSIS-001.mp4','6.1 GiB','hardlink'],
       ['image','poster','0','dmm','SSIS-001/poster.jpg','268 KB','write'],
@@ -468,23 +683,21 @@ var DETAILS = {
       ['nfo','ok',2,'gonja · 1 文件'],
       ['output','ok',88,'写 5 · 跳过 0 · 硬链 2']
     ],
-    srcs:[
-      ['javdb','ok','',7,1400],['javbus','ok','',2,900],['dmm','failed','cooldown',0,60],['fc2','notfound','',0,180]
-    ],
+    srcs:[['javdb','ok','',7,1400],['javbus','ok','',2,900],['dmm','failed','cooldown',0,60],['fc2','notfound','',0,180]],
     rows:[
-      ['video','—','—','/media/ABP-123-A.mp4','ABP-123/ABP-123-cd1.mp4','2.1 GiB','hardlink'],
-      ['video','—','—','/media/ABP-123-B.mp4','ABP-123/ABP-123-cd2.mp4','2.1 GiB','hardlink'],
+      ['video','—','—','/media/2024/ABP-123-A.mp4','ABP-123/ABP-123-cd1.mp4','2.1 GiB','hardlink'],
+      ['video','—','—','/media/2024/ABP-123-B.mp4','ABP-123/ABP-123-cd2.mp4','2.1 GiB','hardlink'],
       ['image','poster','0','javdb','ABP-123/poster.jpg','241 KB','write'],
       ['image','fanart','0','javdb','ABP-123/fanart.jpg','380 KB','write'],
       ['nfo','—','—','—','ABP-123/movie.nfo','2.7 KB','write']
     ]
   },
   'FC2-3336019': {
-    number:'FC2-3336019', status:'failed', title:'個人撮影 素人 20歳 はじめての…', hue:8,
+    number:'FC2-3336019', status:'failed', title:PUNCT_TITLE, hue:8,
     out:'—', batch:'b-1041', trigger:'manual', updated:'10-27 11:20',
     parts:1, link:'hardlink', pipeline:'default',
     fields:[
-      ['title','個人撮影 素人 20歳 はじめての…','fc2',0],
+      ['title',PUNCT_TITLE,'fc2',0],
       ['plot','…','fc2',0],
       ['fanart','—（4 个源都未返回可解码的图片字节）','',1],
       ['extrafanarts','—','',1],
@@ -510,9 +723,7 @@ var DETAILS = {
       ['nfo','ok',2,'gonja · 1 文件'],
       ['output','failed',4,'必选字段缺失：fanart（判定按字节到手）']
     ],
-    srcs:[
-      ['fc2','ok','',5,1400],['javdb','notfound','',0,320],['javbus','notfound','',0,240],['dmm','notfound','',0,180]
-    ],
+    srcs:[['fc2','ok','',5,1400],['javdb','notfound','',0,320],['javbus','notfound','',0,240],['dmm','notfound','',0,180]],
     rows:[]
   },
   'SSVR-122': {
@@ -550,8 +761,33 @@ var NUMBERS = [
   ]}
 ];
 
-/* ================= 小工具 ================= */
-function svg(seed, w, h, label){
+/* ============================================================
+   工具：转义、图标、占位图、状态、格式化
+   ============================================================ */
+function esc(s){
+  return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+/* 图标：作者化 SVG，统一 16px / 1.5 描边（替代原来的 emoji 与字符图标） */
+var ICON = {
+  folder:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.75 4.5A1.25 1.25 0 0 1 3 3.25h3.1l1.3 1.6H13A1.25 1.25 0 0 1 14.25 6.1v5.65A1.25 1.25 0 0 1 13 13H3a1.25 1.25 0 0 1-1.25-1.25z"/></svg>',
+  up:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.5V4M4.5 7.5 8 4l3.5 3.5"/></svg>',
+  close:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg>',
+  plus:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"/></svg>',
+  check:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5 6.5 11.5l6-6.5"/></svg>',
+  left:'<svg class="ic ic-dir" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5"/></svg>',
+  right:'<svg class="ic ic-dir" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg>',
+  warn:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.2 14 13H2z"/><path d="M8 6.8v3M8 11.4v.4"/></svg>',
+  video:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.25" y="4.25" width="11.5" height="7.5" rx="1.25"/><path d="M6.8 6.6 9.9 8l-3.1 1.4z"/></svg>',
+  copy:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.75" y="5.75" width="7.5" height="7.5" rx="1.25"/><path d="M10.25 5.75V4a1.25 1.25 0 0 0-1.25-1.25H4A1.25 1.25 0 0 0 2.75 4v5a1.25 1.25 0 0 0 1.25 1.25h1.75"/></svg>',
+  rerun:'<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13 2.8V5h-2.2"/></svg>'
+};
+/* 占位图：一次生成后缓存，避免每次渲染重造 data URI */
+var _imgCache = {};
+function svgURI(seed, w, h, label){
+  var key = seed+'|'+w+'|'+h+'|'+label;
+  if(_imgCache[key]) return _imgCache[key];
   var hue = (seed*37)%360;
   var s = '<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'">'
    + '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
@@ -561,779 +797,1079 @@ function svg(seed, w, h, label){
    + '<circle cx="'+(w*0.74)+'" cy="'+(h*0.28)+'" r="'+(h*0.3)+'" fill="hsl('+((hue+190)%360)+',60%,62%)" opacity="0.18"/>'
    + '<circle cx="'+(w*0.22)+'" cy="'+(h*0.8)+'" r="'+(h*0.2)+'" fill="#ffffff" opacity="0.07"/>'
    + '<text x="50%" y="53%" text-anchor="middle" font-family="system-ui,sans-serif" font-size="'+Math.round(h*0.12)
-   + '" fill="#ffffff" opacity="0.9">'+label+'</text></svg>';
-  return 'data:image/svg+xml;utf8,'+encodeURIComponent(s);
+   + '" fill="#ffffff" opacity="0.9">'+esc(label)+'</text></svg>';
+  _imgCache[key] = 'data:image/svg+xml;utf8,'+encodeURIComponent(s);
+  return _imgCache[key];
 }
-function posterImg(hue, num, cls){ return '<div class="ph '+(cls||'')+'" style="background-image:url(\''+svg(hue,400,600,num)+'\')"></div>'; }
-function fanImg(hue, label, cls){ return '<div class="ph '+(cls||'')+'" style="background-image:url(\''+svg(hue,640,360,label)+'\')"></div>'; }
-function stLabel(s){ return {queued:'排队',running:'运行中',succeeded:'成功',partial:'部分',failed:'失败',
-  needs_number:'待补号',cancelled:'已取消'}[s] || s; }
-function stepBadge(s){
-  if(s==='ok') return '<span class="st s-succeeded"><i></i>ok</span>';
-  if(s==='failed') return '<span class="st s-failed"><i></i>failed</span>';
-  return '<span class="muted">待跑</span>';
+/* 占位图不是 <img>，而是 CSS 背景 → 用 role=img + aria-label 给读屏一个说法 */
+function posterImg(hue, num, cls, label){
+  return '<div class="ph '+(cls||'')+'" role="img" aria-label="'+esc(label||('海报占位图 '+num))+'" '
+   + 'style="background-image:url(\''+svgURI(hue,400,600,num)+'\')"></div>';
 }
-function stepCls(s){ return s==='ok' ? 'ok' : (s==='failed' ? 'bad' : ''); }
-function chipHTML(kind, p){
-  return '<span class="pill mono">'+labelOf(p)+' · '+p
-   + ' <a data-chip="'+kind+'" data-chip-path="'+p+'" style="color:#b91c1c;cursor:pointer">✕</a></span>';
+function fanImg(hue, label, cls){
+  return '<div class="ph '+(cls||'')+'" role="img" aria-label="'+esc(label+' 占位图')+'" '
+   + 'style="background-image:url(\''+svgURI(hue,640,360,label)+'\')"></div>';
 }
-function pickHTML(){
-  if(!S.picker.open) return '';
-  var p = S.picker.path, dirs = fsDirs(p), segs = [], acc = '';
-  p.split('/').filter(function(x){return x!==''}).forEach(function(x){
-    acc += '/'+x;
-    segs.push('<a data-pk="go" data-pk-path="'+acc+'">'+x+'</a>');
-  });
-  var h = '<div class="modal"><div class="box"><h3>选择目录 · '
-   + (S.picker.mode==='exclude'?'加入排除':'设为根目录') + '（容器内）</h3>'
-   + '<div class="crumb"><a data-pk="mount" data-pk-path="'+BROWSER_ROOTS[0].path+'">'
-   + BROWSER_ROOTS[0].label+'</a><span class="sep">/</span>'+segs.join('<span class="sep">/</span>')+'</div>'
-   + '<div class="jump"><input id="pkpath" value="'+p+'" placeholder="/media/2024">'
-   + '<button class="btn" data-pk="jump">前往</button></div>';
-  if(S.picker.err) h += '<div class="err">'+S.picker.err+'</div>';
-  h += '<div class="list">';
-  if(p!==BROWSER_ROOTS[0].path) h += '<div class="item" data-pk="up"><span>⬆</span><span class="n">..</span>'
-   + '<span class="c">上一级</span></div>';
-  if(!dirs.length) h += '<div class="item" style="cursor:default;color:#8b95a3">（没有子目录）</div>';
-  dirs.forEach(function(d){
-    h += '<div class="item" data-pk="go" data-pk-path="'+p+'/'+d[0]+'"><span>📁</span>'
-     + '<span class="n">'+d[0]+'/</span><span class="c">'+d[1]+'</span></div>';
-  });
-  h += '</div><div class="foot"><span class="mono" style="font-size:12px">'+p+'</span>'
-   + '<span style="flex:1"></span><button class="btn" data-pk="close">取消</button>'
-   + '<button class="btn" data-pk="apply" data-pk-mode="root">设为根目录</button>'
-   + '<button class="btn pri" data-pk="apply" data-pk-mode="exclude">加入排除</button></div></div></div>';
-  return h;
+/* 可放大的图：用真 <button>，键盘能到、可聚焦、有可访问名称 */
+function zoomBtn(hue, label, cls, w, h){
+  return '<button type="button" class="ph phbtn '+(cls||'')+'" data-zoom="'+esc(label)+'" '
+   + 'aria-label="放大：'+esc(label)+'" '
+   + 'style="background-image:url(\''+svgURI(hue,w||640,h||360,label)+'\')"></button>';
 }
-function st(st){ return '<span class="st s-'+st+'"><i></i>'+stLabel(st)+'</span>'; }
-function reasonLabel(r){ return {egress_unavailable:'出口不可用',timeout:'超时',blocked:'被拦',
-  cooldown:'冷却中',http_5xx:'5xx',parse:'解析失败'}[r] || r; }
-function taskByNum(n){ for(var i=0;i<TASKS.length;i++) if(TASKS[i].num===n) return TASKS[i]; return null; }
+var ST_LABEL = {queued:'排队',running:'运行中',succeeded:'成功',partial:'部分',failed:'失败',
+  needs_number:'待补号',cancelled:'已取消'};
+/* 状态永远「点 + 文字」：颜色不是唯一编码 */
+function stBadge(s){
+  return '<span class="st st-'+s+'"><span class="dot" aria-hidden="true"></span>'+esc(ST_LABEL[s]||s)+'</span>';
+}
+function markBar(s, cls){ return '<span class="mark mark-'+s+' '+(cls||'')+'" aria-hidden="true"></span>'; }
+function reasonLabel(r){
+  return {egress_unavailable:'出口不可用',timeout:'超时',blocked:'被拦',
+    cooldown:'冷却中',http_5xx:'服务端 5xx',parse:'解析失败'}[r] || r;
+}
+function stepState(s){
+  if(s==='ok') return {cls:'ok', label:'完成'};
+  if(s==='failed') return {cls:'bad', label:'失败'};
+  return {cls:'', label:'待跑'};
+}
+function mountOf(p){
+  var m = null;
+  BROWSER_ROOTS.forEach(function(r){ if(p===r.path || p.indexOf(r.path+'/')===0) m = r; });
+  return m;
+}
+/* 重渲染后把焦点放回去：整树 innerHTML 重建会把焦点丢给 body */
+function selectorFor(el){
+  if(!el || !el.dataset) return null;
+  var d = el.dataset;
+  if(el.id) return '#'+el.id;
+  if(d.num) return '[data-num="'+d.num+'"]';
+  if(d.zoom) return '[data-zoom="'+d.zoom+'"]';
+  if(d.tab) return '[data-tab="'+d.tab+'"]';
+  if(d.row) return '[data-row="'+d.row+'"]';
+  if(d.g !== undefined) return '[data-g="'+d.g+'"]';
+  if(d.chip) return '[data-chip="'+d.chip+'"][data-chip-path="'+d.chipPath+'"]';
+  if(d.pkOpen) return '[data-pk-open="'+d.pkOpen+'"]';
+  if(d.detail) return '[data-detail="'+d.detail+'"]';
+  if(d.view) return '[data-view="'+d.view+'"]';
+  if(d.state) return '[data-state="'+d.state+'"]';
+  if(d.act) return '[data-act="'+d.act+'"]';
+  if(d.clearRows) return '[data-clear-rows]';
+  return null;
+}
+function labelOf(p){ var m = mountOf(p); return m ? m.label : '容器'; }
 
-/* ================= 状态 ================= */
-var S = {variant:'A', view:'scan', state:'normal', detail:'SSIS-001', picked:{}, nums:{}, rows:{}, tab:'overview', page:1,
-  roots:ROOTS.slice(), excludes:EXCLUDES.slice(), picker:{open:false, path:'/media', mode:'root', err:''}};
+/* ============================================================
+   状态
+   ============================================================ */
+var S = {
+  variant:'A', view:'scan', state:'normal', detail:'SSIS-001',
+  picked:{}, nums:{}, rows:{}, tab:'overview',
+  roots:ROOTS.slice(), excludes:EXCLUDES.slice(),
+  picker:{open:false, path:'/media', mode:'root', err:''},
+  lb:null, focusBack:null
+};
 var VIEWS = [['scan','扫描预览'],['tasks','任务列表'],['detail','任务详情'],['numbers','待补号']];
 var STATES = [['normal','正常'],['loading','加载中'],['empty','空'],['error','出错']];
 var VARIANTS = [['A','运维台'],['B','卡片墙'],['C','流程看板']];
+var DETAIL_SAMPLES = ['SSIS-001','ABP-123','FC2-3336019','SSVR-122'];
 
 function readURL(){
   var q = new URLSearchParams(location.search);
   if(['A','B','C'].indexOf(q.get('variant'))>=0) S.variant = q.get('variant');
-  for(var i=0;i<VIEWS.length;i++) if(VIEWS[i][0]===q.get('view')) S.view = q.get('view');
-  for(var j=0;j<STATES.length;j++) if(STATES[j][0]===q.get('state')) S.state = q.get('state');
+  VIEWS.forEach(function(v){ if(v[0]===q.get('view')) S.view = q.get('view'); });
+  STATES.forEach(function(v){ if(v[0]===q.get('state')) S.state = q.get('state'); });
 }
 var urlOK = true;
 function writeURL(){
   if(!urlOK) return;
-  var q = '?variant='+S.variant+'&view='+S.view+'&state='+S.state;
   try{
-    history.replaceState(null,'',location.pathname+q);
-  }catch(e){
-    // file:// 下 Chrome/Firefox 会禁掉 replaceState（origin 为 null）——
-    // 双击打开时放弃写 URL，交互照常（想分享带参数的 URL 就起个 http 服务）
-    urlOK = false;
-  }
+    history.replaceState(null,'',location.pathname+'?variant='+S.variant+'&view='+S.view+'&state='+S.state);
+  }catch(e){ urlOK = false; }   /* file:// 下浏览器禁掉 replaceState：放弃写 URL，交互照常 */
+}
+function hrefFor(o){
+  var q = {variant:o.variant||S.variant, view:o.view||S.view, state:o.state||S.state};
+  return '?'+Object.keys(q).map(function(k){return k+'='+q[k]}).join('&');
 }
 
-/* ================= A · 运维台 ================= */
+/* ============================================================
+   变体 A · 运维台
+   ============================================================ */
 function aShell(view){
-  var nav = [['scan','扫描预览',''],['tasks','任务','137'],['numbers','待补号','2w']];
-  var html = '<div class="top"><div class="brand">mdc<span>·lite</span></div>'
-   + '<div class="tagline">配置文件 <select>'
-   + PIPELINES.map(function(p){return '<option>'+p.id+'</option>'}).join('')
-   + '</select></div><div class="grow"></div>'
-   + '<div class="tagline mono">SQLite · 单副本 · 端口 9208</div></div>';
-  html += '<div class="layout"><nav class="side">';
-  nav.forEach(function(n){
-    html += '<a data-view="'+n[0]+'" class="'+(view===n[0]?'on':'')+'">'+n[1]
-      + (n[2]?'<span class="n'+(n[2]==='2w'?' warn':'')+'">'+(n[2]==='2w'?'2':'137')+'</span>':'')+'</a>';
-  });
-  html += '<div class="sec">留痕</div><a class="dim">批次</a><a class="dim">步骤运行</a><a class="dim">源运行</a>'
-   + '<a class="dim">落盘台账</a><div class="sec">设置</div><a class="dim">流水线</a><a class="dim">模板</a></nav>'
-   + '<main>'+aView(view)+'</main></div>';
-  return html;
-}
-function aView(view){
-  if(S.state==='error') return '<div class="err"><b>请求失败</b><span class="mono">GET /api/tasks?status=all → 500</span>'
-    + '<span class="grow"></span><button class="btn">重试</button></div>' + aBody(view);
-  return aBody(view);
+  var nav = [['scan','扫描预览',''],['tasks','任务','137'],['numbers','待补号','2']];
+  return ''
+  + '<div class="top">'
+  +   '<span class="brand">mdc<span>·lite</span></span>'
+  +   '<span class="tag">PROTOTYPE</span>'
+  +   '<span class="row"><label class="flabel" for="pipe">配置文件</label>'
+  +     '<select id="pipe">'+PIPELINES.map(function(p){
+          return '<option value="'+p.id+'">'+esc(p.id)+' — '+esc(p.name)+'</option>'}).join('')+'</select></span>'
+  +   '<span class="grow"></span>'
+  +   '<span class="flabel mono">SQLite · 单副本 · 端口 9208</span>'
+  + '</div>'
+  + '<div class="layout"><nav class="side" aria-label="视图">'
+  +   nav.map(function(n){
+        var label = n[0]==='tasks' ? '任务' : (n[0]==='numbers' ? '待补号' : n[1]);
+        return '<a class="navlink" href="'+hrefFor({view:n[0]})+'" data-view="'+n[0]+'"'
+        + (view===n[0]?' aria-current="page"':'')+'>'+esc(label)
+        + (n[2]?'<span class="n'+(n[0]==='numbers'?' warn':'')+'">'+esc(n[2])+'</span>':'')+'</a>';
+      }).join('')
+  +   '<p class="sec">留痕（只读）</p>'
+  +   ['批次','步骤运行','源运行','落盘台账'].map(function(t){return '<span class="dead">'+t+'</span>'}).join('')
+  +   '<p class="sec">设置</p>'
+  +   ['流水线','模板'].map(function(t){return '<span class="dead">'+t+'</span>'}).join('')
+  + '</nav><main id="main" tabindex="-1">'+aBody(view)+'</main></div>';
 }
 function aBody(view){
+  var err = S.state==='error'
+    ? '<div class="notice notice-error" role="alert">'+ICON.warn
+      + '<span><b>任务列表加载失败</b>：服务端返回 500。可以先重试，或稍后再看；'
+      + '若持续失败，用 <span class="mono">docker logs mdc-lite</span> 查后台日志。</span>'
+      + '<button class="btn btn-sm act" type="button">重试</button></div>'
+    : '';
   if(view==='scan') return aScan();
-  if(view==='tasks') return aTasks();
+  if(view==='tasks') return err + aTasks();
   if(view==='detail') return aDetail();
   return aNumbers();
 }
+function rootChips(kind, list){
+  var empty = kind==='exclude' && !list.length;
+  return list.map(function(p){
+    return '<span class="tag-mono">'+esc(labelOf(p))+' · '+esc(p)+' '
+     + '<button class="btn-quiet btn-sm" type="button" data-chip="'+kind+'" data-chip-path="'+esc(p)+'" '
+     + 'aria-label="移除'+esc(kind==='root'?'根目录 ':'排除目录 ')+esc(p)+'">'+ICON.close+'</button></span>';
+  }).join('') + (empty ? '<span class="flabel">（无）</span>' : '');
+}
 function aScan(){
   var loading = S.state==='loading';
-  var h = '<h1>扫描预览</h1><div class="sub">手动模式 · 全量扫描 · 预览与建任务共用同一条前缀（scan → filter'
-   + (loading?' → …':'')+'）</div>';
-  h += '<div class="card" style="padding:12px"><div class="filters">'
-   + '<span class="muted">根目录</span>'
-   + S.roots.map(function(r){return chipHTML('root',r)}).join('')
-   + '<button class="btn sm" data-pk="open" data-pk-mode="root">+ 添加</button>'
-   + '<span class="muted">排除</span>'
-   + (S.excludes.length ? S.excludes.map(function(r){return chipHTML('exclude',r)}).join('')
-      : '<span class="muted" style="font-size:11.5px">（无）</span>')
-   + '<button class="btn sm" data-pk="open" data-pk-mode="exclude">+ 添加</button>'
-   + '<span style="flex:1"></span>'
-   + '<button class="btn pri">'+(loading?'扫描中…':'开始扫描')+'</button>'
-   + '<div class="muted" style="flex-basis:100%;font-size:11.5px">目录选择器浏览的是 <b>容器内</b>文件系统，'
-   + '白名单由 <span class="mono">config.yaml</span> 的 <span class="mono">browse_roots</span> 决定（默认 '
-   + '<span class="mono">/media</span>）；不做本机目录拖放</div>'
+  var h = '<h1 class="page-h">扫描预览</h1>'
+   + '<p class="sub">手动模式 · 全量扫描 · 预览与建任务共用同一条前缀（scan → filter'
+   + (loading?' → …':' → group → parse')+'）</p>';
+  h += '<div class="card"><div class="filters">'
+   + '<span class="flabel">根目录</span>'+rootChips('root', S.roots)
+   + '<button class="btn btn-sm" type="button" data-pk-open="root">'+ICON.plus+'添加目录</button>'
+   + '<span class="flabel">排除</span>'+rootChips('exclude', S.excludes)
+   + '<button class="btn btn-sm" type="button" data-pk-open="exclude">'+ICON.plus+'添加排除</button>'
+   + '<span class="grow"></span>'
+   + '<button class="btn btn-pri" type="button" '+(loading?'disabled aria-busy="true"':'')+'>'
+   + (loading?'扫描中…':'开始扫描')+'</button>'
+   + '<p class="flabel" style="flex-basis:100%">目录选择器浏览的是 <b>容器内</b>文件系统，白名单由 '
+   + '<span class="mono">config.yaml</span> 的 <span class="mono">browse_roots</span> 决定（默认 '
+   + '<span class="mono">/media</span>）；不做本机目录拖放。</p>'
    + '</div></div>';
   if(loading){
-    h += '<div class="card" style="margin-top:12px"><div class="prog"><span class="done">✓ scan 41ms</span>'
-     + '<span class="done">✓ filter 2ms</span><span class="now pulse">● group 运行中…</span>'
-     + '<span class="muted">parse 待跑</span><span class="grow" style="flex:1"></span>'
-     + '<span class="muted">预览停在哪一步，是本票要定的事</span></div>'
-     + '<table><thead><tr><th style="width:34px"></th><th style="width:34px"></th><th>文件</th><th>番号</th>'
-     + '<th>分组标记</th><th>大小</th></tr></thead><tbody>'
-     + Array(5).join().split(',').map(function(){return '<tr><td><div class="sk" style="height:14px;width:14px"></div></td>'
-       + '<td><div class="sk" style="height:26px;width:26px"></div></td><td><div class="sk" style="height:12px;width:190px"></div></td>'
-       + '<td><div class="sk" style="height:12px;width:80px"></div></td><td><div class="sk" style="height:12px;width:120px"></div></td>'
-       + '<td><div class="sk" style="height:12px;width:52px"></div></td></tr>'}).join('')
-     + '</tbody></table></div>';
+    h += '<div class="card"><div class="prog">'
+     + '<span class="done">'+ICON.check+' scan 41ms</span>'
+     + '<span class="done">'+ICON.check+' filter 2ms</span>'
+     + '<span class="now">group 运行中…</span><span>parse 待跑</span><span class="grow"></span>'
+     + '<span>预览停在哪一步，是本票要定的事</span></div>'
+     + '<table class="rec"><caption class="sr-only">扫描中的候选文件</caption>'
+     + '<thead><tr><th scope="col">选择</th><th scope="col">类型</th><th scope="col">文件</th>'
+     + '<th scope="col">番号</th><th scope="col">分组依据</th><th scope="col">大小</th></tr></thead><tbody>'
+     + Array(5).join().split(',').map(function(){
+        return '<tr><td class="plain"><span class="sk" style="display:block;height:16px;width:16px"></span></td>'
+        + '<td class="plain"><span class="sk" style="display:block;height:26px;width:26px"></span></td>'
+        + '<td class="plain"><span class="sk" style="display:block;height:12px;width:60%"></span></td>'
+        + '<td class="plain"><span class="sk" style="display:block;height:12px;width:72px"></span></td>'
+        + '<td class="plain"><span class="sk" style="display:block;height:12px;width:140px"></span></td>'
+        + '<td class="plain"><span class="sk" style="display:block;height:12px;width:56px"></span></td></tr>'
+      }).join('')+'</tbody></table></div>';
     return h;
   }
   if(S.state==='empty'){
-    h += '<div class="card" style="margin-top:12px"><div class="empty"><div class="big">此目录下没有可进入候选的文件</div>'
-     + '<div>scan 命中 12 个文件，filter 全部排除；被排除的原因见下方</div></div>'
-     + '<div style="padding:0 12px 12px">'+aFiltered()+'</div></div>';
-    return h;
+    return h + '<div class="card"><div class="empty"><p class="big">此目录下没有可进入候选的文件</p>'
+     + '<p>scan 命中 12 个文件，filter 全部排除；原因见下方列表。</p>'
+     + '<p style="margin-block-start:var(--sp-4)"><button class="btn" type="button">换一个根目录</button></p>'
+     + '</div>' + filteredBlock() + '</div>';
   }
   var sel = Object.keys(S.picked).length;
-  h += '<div class="card" style="margin-top:12px"><table><thead><tr>'
-   + '<th style="width:34px"><input type="checkbox" class="ck"></th><th style="width:34px"></th>'
-   + '<th>候选文件（按分组）</th><th style="width:120px">解析番号</th><th style="width:230px">分组依据</th>'
-   + '<th style="width:92px">大小</th><th style="width:100px">分辨率</th><th style="width:120px">占用</th></tr></thead><tbody>';
+  var selFiles = SCAN_GROUPS.reduce(function(a,g,i){ return a + (S.picked[i]?g.parts.length:0); }, 0);
+  h += '<div class="card"><table class="rec"><caption class="sr-only">扫描候选：按分组列出文件、番号与占用情况</caption>'
+   + '<thead><tr><th scope="col">选择</th><th scope="col">类型</th><th scope="col">候选文件（按分组）</th>'
+   + '<th scope="col">解析番号</th><th scope="col">分组依据</th><th scope="col">大小</th>'
+   + '<th scope="col">分辨率</th><th scope="col">占用</th></tr></thead><tbody>';
   SCAN_GROUPS.forEach(function(g,gi){
     g.parts.forEach(function(p,pi){
-      var isP = pi===0;
+      var isP = pi===0, gid = 'g'+gi;
       var numCell = isP
-        ? (g.number ? '<b class="mono">'+g.number+'</b>'
-            : '<span class="cand">'+g.cands.map(function(c){return '<button>'+c+'</button>'}).join('')
-              + '</span><div class="muted" style="font-size:11px">解析分歧 → 建任务后进「待补号」</div>')
-        : '<span class="muted">随组</span>';
-      h += '<tr class="grp '+(isP?'primary':'part')+'" data-g="'+gi+'">'
-       + (isP?'<td><input type="checkbox" class="ck pick" data-g="'+gi+'" '+(S.picked[gi]?'checked':'')+'></td>':'<td></td>')
-       + '<td><span class="ico">'+(p.indexOf('.mp4')>0?'MP4':'MKV')+'</span></td>'
-       + '<td><span class="mono">'+p+'</span>'+(isP?' <span class="pill">primary</span>':' <span class="pill">分片 '+(pi+1)+'</span>')
-       + '<div class="muted mono" style="font-size:11px">'+g.dir+'</div></td>'
-       + '<td>'+numCell+'</td>'
-       + '<td>'+(isP?'<span class="muted" style="font-size:11.5px">'+g.marker+'</span>':'')+'</td>'
-       + '<td class="mono">'+(isP?g.size:'')+'</td><td class="mono">'+(isP?g.res:'')+'</td>'
-       + '<td>'+(isP?(g.occupied?'<span class="pill v">已有活跃任务</span>':'<span class="muted">—</span>'):'')+'</td></tr>';
+        ? (g.number ? '<b class="mono">'+esc(g.number)+'</b>'
+            : '<span class="cand">'+g.cands.map(function(c){
+                return '<button type="button" aria-pressed="false">'+esc(c)+'</button>'}).join('')+'</span>'
+              + '<p class="occ">解析分歧 → 建任务后进「待补号」</p>')
+        : '<span class="flabel">随组</span>';
+      h += '<tr>'
+       + '<td class="plain">' + (isP
+            ? '<label class="ckwrap"><input type="checkbox" data-g="'+gi+'" '
+              + (S.picked[gi]?'checked':'')+' aria-label="选择分组 '+esc(g.primary)+'（'+g.parts.length+' 个文件）"></label>'
+            : '<span class="sr-only">随组</span>')
+       + '</td>'
+       + '<td class="plain">'+ICON.video+'</td>'
+       + '<td data-label="文件"><span class="mono">'+esc(p)+'</span> '
+       + '<span class="tag">'+(isP?'primary':'分片 '+(pi+1))+'</span>'
+       + '<p class="flabel mono truncate">'+esc(g.dir)+'</p></td>'
+       + '<td data-label="番号">'+numCell+'</td>'
+       + '<td data-label="分组依据">'+(isP?'<span class="flabel">'+esc(g.marker)+'</span>':'')+'</td>'
+       + '<td data-label="大小" class="mono">'+(isP?esc(g.size):'')+'</td>'
+       + '<td data-label="分辨率" class="mono">'+(isP?esc(g.res):'')+'</td>'
+       + '<td data-label="占用">'+(isP?(g.occupied?'<span class="occ">已有活跃任务</span>':'<span class="flabel">—</span>'):'')+'</td>'
+       + '</tr>';
     });
   });
-  h += '</tbody></table><div class="stickybar"><span>已选 <b>'+sel+'</b> 组 / '
-   + SCAN_GROUPS.filter(function(g,i){return S.picked[i]}).reduce(function(a,g){return a+g.parts.length},0)
-   + ' 个文件</span><span class="muted">建任务后进入流水线；解析分歧的组会落到「待补号」</span>'
-   + '<span style="flex:1"></span><button class="btn">全选</button><button class="btn pri" '+(sel?'':'disabled')+'>建任务</button></div></div>';
-  h += '<div class="card" style="margin-top:12px;padding:0 12px 12px">'+aFiltered()+'</div>';
+  h += '</tbody></table>'
+   + '<div class="stickybar">'
+   + '<p class="sum" aria-live="polite">已选 <b>'+sel+'</b> 组 / '+selFiles+' 个文件'
+   + '<br>建任务后进入流水线；解析分歧的组会落到「待补号」</p>'
+   + '<span class="grow"></span>'
+   + '<button class="btn btn-sm" type="button">全选</button>'
+   + '<button class="btn btn-pri" type="button" '+(sel?'':'disabled')+'>建任务</button>'
+   + '</div></div>';
+  h += '<div class="card">'+filteredBlock()+'</div>';
   return h;
 }
-function aFiltered(){
-  return '<div style="padding:10px 0 4px"><b>被过滤的 '+SCAN_FILTERED.length+' 个文件</b>'
-   + '<span class="muted">（filter 步骤的摘要，不进候选）</span></div>'
-   + SCAN_FILTERED.map(function(f){return '<div class="field" style="grid-template-columns:1fr 260px">'
-     + '<span class="v mono">'+f.p+'</span><span class="s" style="text-align:left">'+f.r+'</span></div>'}).join('');
+function filteredBlock(){
+  return '<div class="filtered"><h2 class="sec" style="padding:var(--sp-3) 0 var(--sp-1)">'
+   + '被过滤的 '+SCAN_FILTERED.length+' 个文件 <span class="flabel">（filter 步骤摘要，不进候选）</span></h2>'
+   + SCAN_FILTERED.map(function(f){
+      return '<div class="frow"><span class="mono truncate">'+esc(f.p)+'</span>'
+       + '<span class="r">'+esc(f.r)+'</span></div>'}).join('')+'</div>';
 }
 function aTasks(){
   if(S.state==='loading'){
-    return '<h1>任务列表</h1><div class="sub">加载中…</div><div class="card"><table><tbody>'
-     + Array(8).join().split(',').map(function(){return '<tr><td><div class="sk" style="height:12px;width:96%"></div></td></tr>'}).join('')
-     + '</tbody></table></div>';
+    return '<h1 class="page-h">任务列表</h1><p class="sub">加载中…</p><div class="card">'
+     + Array(8).join().split(',').map(function(){
+        return '<p style="padding:var(--sp-2) var(--sp-3)"><span class="sk" style="display:block;height:14px"></span></p>'
+      }).join('')+'</div>';
   }
   if(S.state==='empty'){
-    return '<h1>任务列表</h1><div class="card"><div class="empty"><div class="big">没有符合条件的任务</div>'
-     + '<div>试试放宽状态筛选，或清空搜索词</div><div style="margin-top:12px"><button class="btn">清空筛选</button></div></div></div>';
+    return '<h1 class="page-h">任务列表</h1><div class="card"><div class="empty">'
+     + '<p class="big">没有符合条件的任务</p><p>当前筛选下 137 条任务都不匹配。放宽状态筛选，或清空搜索词。</p>'
+     + '<p style="margin-block-start:var(--sp-4)"><button class="btn" type="button">清空筛选</button></p>'
+     + '</div></div>';
   }
-  var h = '<h1>任务列表</h1><div class="sub">共 137 条 · 每页 20 · 按创建时间倒序</div>';
-  h += '<div class="filters"><div class="chips">'
-   + [['all','全部 137'],['running','运行中 1'],['queued','排队 3'],['succeeded','成功 96'],['partial','部分 21'],
-      ['failed','失败 12'],['needs_number','待补号 2'],['cancelled','已取消 2']]
-     .map(function(c,i){return '<button class="chip '+(i===0?'on':'')+'">'+c[1]+'</button>'}).join('')
-   + '</div><span style="flex:1"></span>'
-   + '<select class="btn"><option>批次：全部</option><option>批次 b-1043</option></select>'
-   + '<select class="btn"><option>触发：全部</option><option>manual</option><option>monitor</option></select>'
-   + '<select class="btn"><option>时间：全部</option><option>最近 24h</option><option>最近 7 天</option></select>'
-   + '<input type="search" placeholder="搜番号" style="width:150px"></div>';
-  h += '<div class="card"><table><thead><tr>'
-   + '<th style="width:30px"><input type="checkbox" class="ck"></th><th style="width:44px"></th><th>番号</th><th>标题</th>'
-   + '<th style="width:96px">状态</th><th style="width:132px">阶段</th><th style="width:84px">源 / 缺</th>'
-   + '<th style="width:92px">批次</th><th style="width:76px">触发</th><th style="width:104px">更新</th>'
-   + '<th style="width:104px"></th></tr></thead><tbody>';
+  var h = '<h1 class="page-h">任务列表</h1><p class="sub">共 137 条 · 每页 20 · 按创建时间倒序</p>';
+  h += '<div class="card"><div class="filters">'
+   + '<div class="chips" role="group" aria-label="按状态筛选">'
+   + [['all','全部 137'],['running','运行中 1'],['queued','排队 3'],['succeeded','成功 96'],
+      ['partial','部分 21'],['failed','失败 12'],['needs_number','待补号 2'],['cancelled','已取消 2']]
+     .map(function(c,i){return '<button class="chip" type="button" aria-pressed="'+(i===0)+'">'+esc(c[1])+'</button>'}).join('')
+   + '</div><span class="grow"></span>'
+   + '<span class="field"><label class="flabel" for="f-batch">批次</label>'
+   + '<select id="f-batch"><option>全部</option><option>b-1043</option><option>b-1042</option></select></span>'
+   + '<span class="field"><label class="flabel" for="f-trig">触发</label>'
+   + '<select id="f-trig"><option>全部</option><option>manual</option><option>monitor</option></select></span>'
+   + '<span class="field"><label class="flabel" for="f-time">时间</label>'
+   + '<select id="f-time"><option>全部</option><option>最近 24h</option><option>最近 7 天</option></select></span>'
+   + '<span class="field"><label class="flabel" for="f-q">搜番号</label>'
+   + '<input id="f-q" type="search" placeholder="SSIS-001" style="width:132px"></span>'
+   + '</div>';
+  h += '<table class="rec"><caption class="sr-only">任务列表：番号、标题、状态、阶段、批次与操作</caption>'
+   + '<thead><tr><th scope="col">选择</th><th scope="col">海报</th><th scope="col">番号</th>'
+   + '<th scope="col">标题</th><th scope="col">状态</th><th scope="col">阶段</th><th scope="col">源 / 缺字段</th>'
+   + '<th scope="col">批次</th><th scope="col">触发</th><th scope="col">更新</th><th scope="col">操作</th></tr></thead><tbody>';
   TASKS.forEach(function(t){
-    h += '<tr'+(S.rows[t.num]?' class="sel"':'')+'><td><input type="checkbox" class="ck rowpick" data-row="'
-     + t.num+'" '+(S.rows[t.num]?'checked':'')+'></td>'
-     + '<td>'+posterImg(t.hue,t.num,'thumb')+'</td>'
-     + '<td class="mono"><b>'+t.num+'</b></td>'
-     + '<td>'+t.title+'</td><td>'+st(t.status)+'</td>'
-     + '<td class="muted">'+t.stage+'</td>'
-     + '<td class="muted">'+(t.sources?t.sources+' 源':'—')+(t.missing?' <span class="pill r">缺 '+t.missing+'</span>':'')+'</td>'
-     + '<td class="mono muted">'+t.batch+'</td><td class="muted">'+t.trigger+'</td><td class="muted">'+t.updated+'</td>'
-     + '<td><button class="btn sm" data-detail="'+t.num+'">详情</button>'
-     + '<button class="btn sm">重跑</button></td></tr>';
-    if(t.err) h += '<tr><td></td><td></td><td colspan="9" class="muted">'
-      + '<span class="pill r">'+t.err+'</span></td></tr>';
+    h += '<tr>'
+     + '<td class="plain"><label class="ckwrap"><input type="checkbox" data-row="'+esc(t.num)+'" '
+       + (S.rows[t.num]?'checked':'')+' aria-label="选择任务 '+esc(t.num)+'"></label></td>'
+     + '<td class="plain">'+posterImg(t.hue,t.num,'thumb','任务 '+t.num+' 的海报缩略图')+'</td>'
+     + '<td data-label="番号" class="mono"><b>'+esc(t.num)+'</b></td>'
+     + '<td data-label="标题"><span class="clamp2">'+esc(t.title)+'</span></td>'
+     + '<td data-label="状态">'+stBadge(t.status)+'</td>'
+     + '<td data-label="阶段" class="flabel">'+esc(t.stage)+'</td>'
+     + '<td data-label="源 / 缺字段" class="flabel">'+(t.sources?t.sources+' 源':'—')
+       + (t.missing?' <span class="st st-failed"><span class="dot" aria-hidden="true"></span>缺 '+t.missing+'</span>':'')+'</td>'
+     + '<td data-label="批次" class="mono flabel">'+esc(t.batch)+'</td>'
+     + '<td data-label="触发" class="flabel">'+esc(t.trigger)+'</td>'
+     + '<td data-label="更新" class="flabel">'+esc(t.updated)+'</td>'
+     + '<td data-label="操作"><span class="row">'
+       + '<a class="btn btn-sm" href="'+hrefFor({view:'detail'})+'" data-detail="'+esc(t.num)+'">详情</a>'
+       + '<button class="btn btn-sm" type="button" data-rerun="'+esc(t.num)+'">重跑</button>'
+     + '</span></td></tr>';
+    if(t.err){
+      h += '<tr><td class="plain" colspan="11"><div class="notice notice-error" role="alert">'+ICON.warn
+       + '<span>'+esc(t.err)+'</span></div></td></tr>';
+    }
   });
   h += '</tbody></table>';
   var selRows = Object.keys(S.rows).length;
-  if(selRows) h += '<div class="stickybar"><span>已选 <b>'+selRows+'</b> 个任务</span>'
-   + '<span class="muted">批量重跑 = 逐条任务级后缀重跑，返回逐条结果</span><span style="flex:1"></span>'
-   + '<button class="btn">清空选择</button><button class="btn pri">批量重跑</button></div>';
-  h += '<div class="pg"><span>显示 1–7 / 137</span><span style="flex:1"></span>'
-   + '<button class="btn sm">上一页</button>'
-   + [1,2,3,4,5,6,7].map(function(p){return '<button class="pn '+(p===1?'on':'')+'">'+p+'</button>'}).join('')
-   + '<button class="btn sm">下一页</button><select class="btn sm"><option>每页 20</option><option>每页 50</option>'
-   + '<option>每页 100</option></select></div></div>';
+  if(selRows){
+    h += '<div class="stickybar"><p class="sum" aria-live="polite">已选 <b>'+selRows+'</b> 个任务'
+     + '<br>批量重跑 = 逐条任务级后缀重跑，返回逐条结果</p><span class="grow"></span>'
+     + '<button class="btn btn-sm" type="button" data-clear-rows="1">清空选择</button>'
+     + '<button class="btn btn-pri" type="button">批量重跑</button></div>';
+  }
+  h += '<nav class="pg" aria-label="分页">'
+   + '<span>显示 1–7 / 137</span><span class="grow"></span>'
+   + '<button class="btn btn-sm" type="button" disabled>上一页</button>'
+   + [1,2,3,4,5,6,7].map(function(p){
+      return '<button class="btn btn-sm pn" type="button"'+(p===1?' aria-current="page"':'')+'>'+p+'</button>'}).join('')
+   + '<button class="btn btn-sm" type="button">下一页</button>'
+   + '<label class="flabel" for="per-page">每页</label>'
+   + '<select id="per-page"><option>20</option><option>50</option><option>100</option></select>'
+   + '</nav></div>';
   return h;
 }
 function aDetail(){
   var d = DETAILS[S.detail];
-  if(S.state==='loading') return '<h1>任务详情</h1><div class="card" style="padding:14px">'
-   + '<div class="sk" style="height:120px;width:100%"></div></div>';
-  if(S.state==='empty') return '<h1>任务详情</h1><div class="card"><div class="empty"><div class="big">任务不存在</div>'
-   + '<div>该任务可能已被清理（V1 不删任务，多半是链接过期）</div></div></div>';
-  var h = '<h1>'+d.number+' <span class="muted" style="font-weight:400">'+d.title+'</span></h1>';
-  h += '<div class="sub">'+st(d.status)+' · 批次 <span class="mono">'+d.batch+'</span> · 触发 '+d.trigger
-   + ' · 更新 '+d.updated+' · 流水线 <span class="mono">'+d.pipeline+'</span></div>';
-  h += '<div class="card" style="padding:12px"><div class="head">'+posterImg(d.hue,d.number,'poster')
-   + '<div style="flex:1;min-width:0">'
-   + '<div class="strip">'+fanImg(d.hue,d.number+' fanart','f16')
-   + [1,2,3,4].map(function(i){return fanImg(d.hue+i*9,'剧照 '+i,'f16')}).join('')+'</div>'
-   + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
-   + '<button class="btn pri">从 parse 起重跑</button><button class="btn">取消任务</button>'
-   + '<button class="btn">复制路径 <span class="mono">'+d.out+'</span></button>'
-   + '<span style="flex:1"></span><span class="muted">硬链 '+d.link+' · '+d.parts+' 个分片</span></div>'
-   + (d.missing.length?'<div style="margin-top:10px"><span class="pill r">缺字段 '+d.missing.length+' 个：'
-     + d.missing.join(' / ')+'</span> <span class="muted">Partial = 有缺失即为真</span></div>':'')
+  if(S.state==='loading') return '<h1 class="page-h">任务详情</h1><div class="card" style="padding:var(--sp-4)">'
+   + '<span class="sk" style="display:block;height:140px"></span></div>';
+  if(S.state==='empty') return '<h1 class="page-h">任务详情</h1><div class="card"><div class="empty">'
+   + '<p class="big">任务不存在</p><p>该任务可能已被清理（V1 不删任务，多半是链接过期）。</p></div></div>';
+  var h = '<h1 class="page-h">'+esc(d.number)+' <span class="flabel">'+esc(d.title)+'</span></h1>'
+   + '<p class="sub">'+stBadge(d.status)+' · 批次 <span class="mono">'+esc(d.batch)+'</span> · 触发 '
+   + esc(d.trigger)+' · 更新 '+esc(d.updated)+' · 流水线 <span class="mono">'+esc(d.pipeline)+'</span></p>';
+  h += '<div class="card"><div class="dhead">'
+   + zoomBtn(d.hue,'任务 '+d.number+' 的海报','poster',400,600)
+   + '<div class="grow">'
+   + '<div class="strip">'+zoomBtn(d.hue,d.number+' fanart','f16',640,360)
+   + [1,2,3,4].map(function(i){return zoomBtn(d.hue+i*9,'剧照 '+i,'f16',640,360)}).join('')+'</div>'
+   + '<div class="row" style="margin-block-start:var(--sp-3);flex-wrap:wrap">'
+   + '<button class="btn btn-pri" type="button" data-rerun="'+esc(d.number)+'">'+ICON.rerun+'从 parse 起重跑</button>'
+   + '<button class="btn" type="button">取消任务</button>'
+   + '<button class="btn" type="button" data-copy="'+esc(d.out)+'">'+ICON.copy+'复制路径</button>'
+   + '<span class="grow"></span>'
+   + '<span class="flabel">硬链 '+esc(d.link)+' · '+d.parts+' 个分片 · 输出 <span class="mono">'+esc(d.out)+'</span></span>'
+   + '</div>'
+   + (d.missing.length
+      ? '<div class="notice notice-warn" style="margin-block-start:var(--sp-3)">'+ICON.warn
+        + '<span>缺字段 '+d.missing.length+' 个：'+esc(d.missing.join(' / '))+' — 任务按 partial 收尾，'
+        + '要更严就在 <span class="mono">output.with.required_fields</span> 里加。</span></div>'
+      : '')
    + '</div></div></div>';
   var tabs = [['overview','字段与来源'],['steps','步骤留痕'],['sources','源留痕'],['files','落盘台账']];
-  h += '<div class="tabs">'+tabs.map(function(t){return '<button class="'+(S.tab===t[0]?'on':'')+'" data-tab="'+t[0]+'">'
-    + t[1]+'</button>'}).join('')+'</div>';
-  h += '<div class="card" style="border-radius:0 0 8px 8px;border-top:0">';
+  h += '<div class="tabs" role="tablist" aria-label="任务详情分区">'
+   + tabs.map(function(t){
+      return '<button role="tab" type="button" id="tab-'+t[0]+'" aria-selected="'+(S.tab===t[0])+'" '
+       + 'aria-controls="panel-'+t[0]+'" tabindex="'+(S.tab===t[0]?'0':'-1')+'" data-tab="'+t[0]+'">'
+       + esc(t[1])+'</button>'}).join('')+'</div>';
+  h += '<div class="tabpanel" role="tabpanel" id="panel-'+S.tab+'" aria-labelledby="tab-'+S.tab+'" tabindex="0">';
   if(S.tab==='overview'){
-    h += '<div class="field" style="grid-template-columns:132px 1fr 92px;background:#fafbfc;font-weight:600">'
-     + '<span class="k">字段</span><span class="v">值</span><span class="s">来源</span></div>';
-    d.fields.forEach(function(f){
-      var miss = f[1]==='—';
-      h += '<div class="field '+(miss?'miss':'')+'"><span class="k mono">'+f[0]+'</span>'
-       + '<span class="v">'+f[1]+(f[3]?' <span class="pill">图片</span>':'')+'</span>'
-       + '<span class="s">'+(f[2]||'—')+'</span></div>';
-    });
+    h += '<div class="fields"><div class="frow head"><span class="k">字段</span><span class="v">值</span>'
+     + '<span class="s">来源</span></div>'
+     + d.fields.map(function(f){
+        var miss = f[1]==='—';
+        return '<div class="frow'+(miss?' miss':'')+'"><span class="k">'+esc(f[0])+'</span>'
+         + '<span class="v">'+esc(f[1])+(f[3]?' <span class="tag">图片</span>':'')+'</span>'
+         + '<span class="s">'+esc(f[2]||'—')+'</span></div>'}).join('')+'</div>';
   } else if(S.tab==='steps'){
-    h += '<table><thead><tr><th style="width:110px">步骤</th><th style="width:90px">状态</th>'
-     + '<th style="width:90px">耗时</th><th>摘要</th></tr></thead><tbody>'
-     + d.steps.map(function(s){return '<tr><td class="mono">'+s[0]+'</td><td>'+stepBadge(s[1])
-       + '</td><td class="mono">'+(s[1]==='—'?'—':s[2]+' ms')+'</td><td class="muted">'+s[3]+'</td></tr>'}).join('')
-     + '</tbody></table>';
+    h += '<table><caption class="sr-only">步骤留痕：每步的状态、耗时与摘要</caption>'
+     + '<thead><tr><th scope="col">步骤</th><th scope="col">状态</th><th scope="col">耗时</th>'
+     + '<th scope="col">摘要</th></tr></thead><tbody>'
+     + d.steps.map(function(s){
+        var st = stepState(s[1]);
+        return '<tr><td class="mono">'+esc(s[0])+'</td><td>'+esc(st.label)+'</td>'
+         + '<td class="mono">'+(s[1]==='—'?'—':s[2]+' ms')+'</td>'
+         + '<td class="flabel">'+esc(s[3])+'</td></tr>'}).join('')+'</tbody></table>';
   } else if(S.tab==='sources'){
-    h += '<table><thead><tr><th style="width:110px">源</th><th style="width:110px">状态</th><th style="width:120px">原因码</th>'
-     + '<th style="width:100px">贡献字段</th><th style="width:90px">耗时</th></tr></thead><tbody>'
-     + d.srcs.map(function(s){return '<tr><td class="mono">'+s[0]+'</td><td>'+st(s[1]==='ok'?'succeeded':(s[1]==='failed'?'failed':'cancelled'))
-       + '</td><td>'+(s[2]?'<span class="pill r">'+reasonLabel(s[2])+'</span>':'<span class="muted">—</span>')
-       + '</td><td>'+s[3]+'</td><td class="mono">'+s[4]+' ms</td></tr>'}).join('')
+    h += '<table><caption class="sr-only">源留痕：每个刮削源的状态、原因码与贡献</caption>'
+     + '<thead><tr><th scope="col">源</th><th scope="col">状态</th><th scope="col">原因码</th>'
+     + '<th scope="col">贡献字段</th><th scope="col">耗时</th></tr></thead><tbody>'
+     + (d.srcs.length ? d.srcs.map(function(s){
+        return '<tr><td class="mono">'+esc(s[0])+'</td><td>'+stBadge(s[1]==='ok'?'succeeded':(s[1]==='failed'?'failed':'cancelled'))+'</td>'
+         + '<td>'+(s[2]?'<span class="st st-failed"><span class="dot" aria-hidden="true"></span>'+esc(reasonLabel(s[2]))+'</span>':'<span class="flabel">—</span>')+'</td>'
+         + '<td class="tnum">'+s[3]+'</td><td class="mono">'+s[4]+' ms</td></tr>'}).join('')
+      : '<tr><td colspan="5" class="flabel" style="padding:var(--sp-4);text-align:center">'
+        + '这个任务还没跑到 scrape（在等人补号）</td></tr>')
      + '</tbody></table>';
   } else {
-    h += '<table><thead><tr><th style="width:80px">kind</th><th style="width:110px">role</th><th style="width:70px">idx</th>'
-     + '<th>源</th><th>目标</th><th style="width:90px">大小</th><th style="width:90px">动作</th></tr></thead><tbody>'
-     + (d.rows.length? d.rows.map(function(r){return '<tr><td class="mono">'+r[0]+'</td><td class="mono">'+r[1]+'</td>'
-        + '<td class="mono">'+r[2]+'</td><td class="muted mono" style="font-size:11.5px">'+r[3]+'</td>'
-        + '<td class="mono" style="font-size:11.5px">'+r[4]+'</td><td class="mono">'+r[5]+'</td><td>'+r[6]+'</td></tr>'}).join('')
-       : '<tr><td colspan="7" class="muted" style="padding:18px;text-align:center">'
-         + '任务在 output 之前失败，未落任何产物</td></tr>')
+    h += '<table><caption class="sr-only">落盘台账：产物、来源、目标与动作</caption>'
+     + '<thead><tr><th scope="col">kind</th><th scope="col">role</th><th scope="col">idx</th>'
+     + '<th scope="col">源</th><th scope="col">目标</th><th scope="col">大小</th><th scope="col">动作</th></tr></thead><tbody>'
+     + (d.rows.length ? d.rows.map(function(r){
+        return '<tr><td class="mono">'+esc(r[0])+'</td><td class="mono">'+esc(r[1])+'</td>'
+         + '<td class="mono">'+esc(r[2])+'</td><td class="mono flabel truncate">'+esc(r[3])+'</td>'
+         + '<td class="mono truncate">'+esc(r[4])+'</td><td class="mono">'+esc(r[5])+'</td>'
+         + '<td>'+esc(r[6])+'</td></tr>'}).join('')
+      : '<tr><td colspan="7" class="flabel" style="padding:var(--sp-4);text-align:center">'
+        + '任务在 output 之前失败，未落任何产物</td></tr>')
      + '</tbody></table>';
   }
   h += '</div>';
-  if(d.status==='needs_number') h += aFillPanel(S.detail);
+  if(d.status==='needs_number') h += fillPanel(S.detail);
   return h;
 }
-function aFillPanel(taskNum){
+/* 填号面板：待补号页与详情页共用同一块（两处都能填） */
+function fillPanel(taskNum){
   var n = null;
   NUMBERS.forEach(function(x){ if(x.task===taskNum) n = x; });
   if(!n) return '';
-  var h = '<div class="card" style="margin-top:12px;padding:12px"><b>解析分歧，需要你填号</b>'
-   + '<span class="muted">（同一块面板在「待补号」页也有 —— 两处都能填）</span>'
-   + '<div class="muted" style="margin:6px 0 10px">填完 ⇒ 任务回 queued ⇒ 新 run 从 parse 起跑，不重扫目录；'
-   + '未填期间该路径仍被占用（重扫不会为它再建任务）</div>';
-  n.files.forEach(function(f){
-    var key = n.task+'|'+f.p;
-    h += '<div class="fillrow"><span class="mono">'+f.p
-     + (f.primary?' <span class="pill">primary</span>':' <span class="pill">分片</span>')+'</span>'
-     + '<span class="cand">'+f.cands.map(function(c){return '<button class="'+(S.nums[key]===c?'on':'')
-        + '" data-num="'+key+'|'+c+'">'+c+'</button>'}).join('')+'</span>'
-     + '<input class="numin" value="'+(S.nums[key]||'')+'" placeholder="或手填番号">'
-     + '<label class="muted"><input type="checkbox" class="ck" '+(f.part?'checked':'')+'> 同一作品的分片</label></div>';
-  });
-  h += '<div style="display:flex;gap:10px;margin-top:12px;align-items:center">'
-   + '<span class="muted">任务号取 primary 行填的号</span><span style="flex:1"></span>'
-   + '<button class="btn">跳过（取消任务）</button><button class="btn pri">提交并重跑</button></div></div>';
-  return h;
+  return '<div class="card"><div class="filters" style="display:block">'
+   + '<h2 style="font-size:var(--fs-lead)">解析分歧，需要你填号</h2>'
+   + '<p class="flabel" style="margin-block:var(--sp-1) var(--sp-3)">'
+   + '同一块面板在「待补号」页也有 —— 两处都能填。填完 ⇒ 任务回 queued ⇒ 新 run 从 parse 起跑，不重扫目录；'
+   + '未填期间该路径仍被占用（重扫不会为它再建任务）。</p>'
+   + n.files.map(function(f){
+      var key = n.task+'|'+f.p;
+      return '<div class="fillrow"><span class="mono truncate">'+esc(f.p)
+       + ' <span class="tag">'+(f.primary?'primary':'分片')+'</span></span>'
+       + '<span class="cand">'+f.cands.map(function(c){
+          return '<button type="button" aria-pressed="'+(S.nums[key]===c)+'" '
+           + 'data-num="'+esc(key)+'|'+esc(c)+'">'+esc(c)+'</button>'}).join('')+'</span>'
+       + '<span><label class="sr-only" for="num-'+esc(key)+'">'+esc(f.p)+' 的番号</label>'
+       + '<input class="numin" id="num-'+esc(key)+'" value="'+esc(S.nums[key]||'')+'" placeholder="或手填番号"></span>'
+       + '<label class="flabel"><input type="checkbox" '+(f.part?'checked':'')+' data-ispart="'+esc(key)+'"> 同一作品的分片</label>'
+       + '</div>'}).join('')
+   + '<div class="row" style="margin-block-start:var(--sp-3);flex-wrap:wrap">'
+   + '<span class="flabel grow">任务号取 primary 行填的号</span>'
+   + '<button class="btn" type="button">跳过（取消任务）</button>'
+   + '<button class="btn btn-pri" type="button">提交并重跑</button>'
+   + '</div></div></div>';
 }
 function aNumbers(){
-  if(S.state==='empty') return '<h1>待补号</h1><div class="card"><div class="empty"><div class="big">没有待补号的任务</div>'
-   + '<div>解析唯一的组不会出现在这里</div></div></div>';
-  var h = '<h1>待补号</h1><div class="sub">解析分歧或主干重复的任务停在这里；填完号 ⇒ 任务回 queued ⇒ 新 run 从 parse 起跑'
-   + '（不重扫目录）</div>';
+  if(S.state==='empty') return '<h1 class="page-h">待补号</h1><div class="card"><div class="empty">'
+   + '<p class="big">没有待补号的任务</p><p>解析唯一的组不会出现在这里。</p></div></div>';
+  var h = '<h1 class="page-h">待补号</h1><p class="sub">解析分歧或主干重复的任务停在这里；'
+   + '填完号 ⇒ 任务回 queued ⇒ 新 run 从 parse 起跑（不重扫目录）。</p>';
   NUMBERS.forEach(function(n){
-    h += '<div class="card" style="margin-bottom:12px"><div style="padding:11px 12px;border-bottom:1px solid var(--line)">'
-     + '<b class="mono">'+n.task+'</b> <span class="pill '+(n.kind==='ambiguous'?'v':'')+'">'
-     + (n.kind==='ambiguous'?'解析出多个候选番号':'主干相同、两侧无分片标记')+'</span>'
-     + ' <span class="muted mono">'+n.batch+' · '+n.dir+'</span></div>'
-     + '<table><thead><tr><th>文件</th><th style="width:230px">候选番号</th><th style="width:150px">填号</th>'
-     + '<th style="width:120px">同一作品的分片</th></tr></thead><tbody>';
-    n.files.forEach(function(f){
-      var key = n.task+'|'+f.p;
-      h += '<tr><td class="mono">'+f.p+(f.primary?' <span class="pill">primary</span>':'')+'</td>'
-       + '<td><span class="cand">'+f.cands.map(function(c){return '<button class="'+(S.nums[key]===c?'on':'')+'" data-num="'+key+'|'+c+'">'+c+'</button>'}).join('')+'</span></td>'
-       + '<td><input class="numin" value="'+(S.nums[key]||'')+'" placeholder="填入番号"></td>'
-       + '<td><input type="checkbox" class="ck" '+(f.part?'checked':'')+'></td></tr>';
-    });
-    h += '</tbody></table><div style="padding:10px 12px;display:flex;gap:10px;align-items:center">'
-     + '<span class="muted">任务号取 primary 行填的号；分片勾选决定改名与排序</span><span style="flex:1"></span>'
-     + '<button class="btn">跳过（取消任务）</button><button class="btn pri">提交并重跑</button></div></div>';
+    h += '<div class="card"><div class="filters" style="display:block">'
+     + '<h2 style="font-size:var(--fs-lead)"><span class="mono">'+esc(n.task)+'</span> '
+     + '<span class="tag">'+(n.kind==='ambiguous'?'解析出多个候选番号':'主干相同、两侧无分片标记')+'</span> '
+     + '<span class="flabel mono">'+esc(n.batch)+' · '+esc(n.dir)+'</span></h2>'
+     + '<table class="rec" style="margin-block-start:var(--sp-2)">'
+     + '<caption class="sr-only">待补号：逐文件填号并标记分片</caption>'
+     + '<thead><tr><th scope="col">文件</th><th scope="col">候选番号</th><th scope="col">填号</th>'
+     + '<th scope="col">同一作品的分片</th></tr></thead><tbody>'
+     + n.files.map(function(f){
+        var key = n.task+'|'+f.p;
+        return '<tr><td data-label="文件" class="mono">'+esc(f.p)+' '
+         + (f.primary?'<span class="tag">primary</span>':'')+'</td>'
+         + '<td data-label="候选番号"><span class="cand">'+f.cands.map(function(c){
+            return '<button type="button" aria-pressed="'+(S.nums[key]===c)+'" data-num="'+esc(key)+'|'+esc(c)+'">'+esc(c)+'</button>'}).join('')+'</span></td>'
+         + '<td data-label="填号"><label class="sr-only" for="n2-'+esc(key)+'">'+esc(f.p)+' 的番号</label>'
+         + '<input class="numin" id="n2-'+esc(key)+'" value="'+esc(S.nums[key]||'')+'" placeholder="填入番号"></td>'
+         + '<td data-label="同一作品的分片"><label class="ckwrap"><input type="checkbox" '+(f.part?'checked':'')
+         + ' data-ispart="'+esc(key)+'" aria-label="'+esc(f.p)+' 是同一作品的分片"></label></td></tr>'}).join('')
+     + '</tbody></table>'
+     + '<div class="row" style="margin-block-start:var(--sp-3);flex-wrap:wrap"><span class="grow"></span>'
+     + '<button class="btn" type="button">跳过（取消任务）</button>'
+     + '<button class="btn btn-pri" type="button">提交并重跑</button></div></div></div>';
   });
   return h;
 }
 
-/* ================= B · 卡片墙 ================= */
+/* ============================================================
+   变体 B · 卡片墙
+   ============================================================ */
 function bShell(view){
   var navView = view==='detail' ? 'tasks' : view;
-  var h = '<div class="top"><div class="brand">mdc·lite</div><nav class="nav">'
+  return '<div class="top"><span class="brand">mdc<span>·lite</span></span>'
+   + '<span class="tag">PROTOTYPE</span>'
+   + '<nav class="nav" aria-label="视图">'
    + [['scan','扫描'],['tasks','任务'],['numbers','待补号']].map(function(n){
-      return '<a data-view="'+n[0]+'" class="'+(navView===n[0]?'on':'')+'">'+n[1]+'</a>'}).join('')
+      return '<a href="'+hrefFor({view:n[0]})+'" data-view="'+n[0]+'"'
+       + (navView===n[0]?' aria-current="page"':'')+'>'+n[1]+'</a>'}).join('')
    + '</nav><span class="grow"></span>'
-   + '<input type="search" placeholder="搜索番号 / 标题…">'
-   + '<select class="btn"><option>默认流水线</option><option>VR 专用</option></select></div>'
-   + '<main>'+bView(view)+'</main>';
-  return h;
-}
-function bView(view){
-  var head = S.state==='error'
-    ? '<div class="err"><b>扫描失败</b> · 出口不可用（egress_unavailable）· <span class="mono">GET /api/scan/preview</span>'
-      + ' <button class="btn">重试</button></div>' : '';
-  return head + bBody(view);
+   + '<span class="field"><label class="sr-only" for="b-q">搜番号</label>'
+   + '<input id="b-q" type="search" placeholder="搜番号…" style="width:180px"></span>'
+   + '<span class="field"><label class="sr-only" for="b-pipe">配置文件</label>'
+   + '<select id="b-pipe">'+PIPELINES.map(function(p){return '<option>'+esc(p.name)+'</option>'}).join('')+'</select></span>'
+   + '</div><main id="main" tabindex="-1">'+bBody(view)+'</main>';
 }
 function bBody(view){
+  var err = S.state==='error'
+    ? '<div class="notice notice-error" role="alert">'+ICON.warn
+      + '<span><b>扫描失败</b>：出口不可用（egress_unavailable）。先重试；'
+      + '若一直失败，检查路由器那条按域名分流的出口规则。</span>'
+      + '<button class="btn btn-sm act" type="button">重试</button></div>' : '';
   if(view==='scan') return bScan();
-  if(view==='tasks') return bTasks();
+  if(view==='tasks') return err + bTasks();
   if(view==='numbers') return bNumbers();
   return bDetail();
 }
 function bScan(){
-  var h = '<h1>扫描预览</h1><div class="sub">选一个目录，看一眼能进候选的文件，勾选后建任务</div>';
-  h += '<div class="drop"><div class="big">选择容器内的目录</div>'
-   + '<div class="hint">选择器只能浏览 <span class="mono">browse_roots</span> 白名单（默认 /media）下的路径；'
-   + '不要选下载器正在写的目录（未静默的文件会被跳过）</div>'
-   + '<div class="roots">'+S.roots.map(function(r){return '<span class="root"><b>'+labelOf(r)+'</b> '+r+'</span>'}).join('')
-   + S.excludes.map(function(r){return '<span class="root" style="opacity:.6">排除 '+r+'</span>'}).join('')
-   + '<span class="root" data-pk="open" data-pk-mode="root" style="cursor:pointer">+ 添加目录</span>'
-   + '<span class="root" data-pk="open" data-pk-mode="exclude" style="cursor:pointer;opacity:.7">+ 添加排除</span></div>'
-   + '<div style="margin-top:16px"><button class="btn pri">'+(S.state==='loading'?'扫描中…':'扫描')+'</button></div></div>';
+  var h = '<h1 class="page-h">扫描预览</h1><p class="sub">选一个容器内目录，看一眼能进候选的文件，勾选后建任务</p>';
+  h += '<div class="drop"><p class="big">选择容器内的目录</p>'
+   + '<p class="hint">选择器只能浏览 <span class="mono">browse_roots</span> 白名单（默认 /media）下的路径；'
+   + '不要选下载器正在写的目录（未静默的文件会被跳过）。</p>'
+   + '<div class="roots">'+S.roots.map(function(r){
+      return '<span class="tag-mono">'+esc(labelOf(r))+' '+esc(r)+'</span>'}).join('')
+   + S.excludes.map(function(r){return '<span class="tag-mono">排除 '+esc(r)+'</span>'}).join('')
+   + '<button class="btn btn-sm" type="button" data-pk-open="root">'+ICON.plus+'添加目录</button>'
+   + '<button class="btn btn-sm" type="button" data-pk-open="exclude">'+ICON.plus+'添加排除</button>'
+   + '</div><p style="margin-block-start:var(--sp-4)"><button class="btn btn-pri" type="button" '
+   + (S.state==='loading'?'disabled aria-busy="true"':'')+'>'
+   + (S.state==='loading'?'扫描中…':'扫描')+'</button></p></div>';
   if(S.state==='loading'){
-    h += '<div class="cand"><div class="sk f16"></div><div class="info"><div class="sk" style="height:18px;width:180px"></div>'
-     + '<div class="sk" style="height:12px;width:300px;margin-top:10px"></div></div></div>'.repeat(3);
-    return h;
+    return h + Array(3).join().split(',').map(function(){
+      return '<div class="candrow"><span class="sk f16" style="display:block"></span>'
+       + '<div class="info"><span class="sk" style="display:block;height:20px;width:160px"></span>'
+       + '<span class="sk" style="display:block;height:12px;width:70%;margin-block-start:var(--sp-3)"></span></div></div>'
+    }).join('');
   }
   if(S.state==='empty'){
-    return h + '<div class="empty"><div class="big">没有候选文件</div><div>filter 把 12 个文件全排除了</div>'
-     + '<div style="margin-top:10px;font-size:12px">'+SCAN_FILTERED.map(function(f){return '<div class="mono">'+f.p+' · '+f.r+'</div>'}).join('')+'</div></div>';
+    return h + '<div class="empty"><p class="big">没有候选文件</p><p>filter 把 12 个文件全排除了：</p>'
+     + SCAN_FILTERED.map(function(f){
+        return '<p class="mono">'+esc(f.p)+' · '+esc(f.r)+'</p>'}).join('')+'</div>';
   }
   var sel = Object.keys(S.picked).length;
-  h += '<div class="filters"><span class="chip on">全部 '+SCAN_GROUPS.length+' 组</span>'
-   + '<span class="chip">可解析 '+SCAN_GROUPS.filter(function(g){return g.number}).length+'</span>'
-   + '<span class="chip">待补号 '+SCAN_GROUPS.filter(function(g){return !g.number}).length+'</span>'
-   + '<span class="chip">已占用 1</span><span style="flex:1"></span>'
-   + '<span class="chip">排序：目录</span></div>';
+  h += '<div class="filters" style="padding:0 0 var(--sp-4)"><span class="chip" aria-pressed="true">全部 '
+   + SCAN_GROUPS.length+' 组</span>'
+   + '<span class="chip" aria-pressed="false">可解析 '+SCAN_GROUPS.filter(function(g){return g.number}).length+'</span>'
+   + '<span class="chip" aria-pressed="false">待补号 '+SCAN_GROUPS.filter(function(g){return !g.number}).length+'</span>'
+   + '<span class="chip" aria-pressed="false">已占用 1</span></div>';
   SCAN_GROUPS.forEach(function(g,gi){
-    h += '<div class="cand">'+fanImg(g.hue,g.number||'?','f16')
-     + '<div class="info"><div class="num">'+(g.number||'待补号')+'</div>'
-     + '<div class="files">'+g.parts.map(function(p){return p}).join(' ＋ ')+'</div>'
-     + '<div class="mk">'+g.marker+' · '+g.size+' · '+g.res+'</div>'
-     + (!g.number?'<div class="chips">'+g.cands.map(function(c){return '<button>'+c+'</button>'}).join('')
-        + '<span style="color:#78716c;font-size:11.5px;align-self:center">解析分歧 → 建任务后进待补号</span></div>':'')
-     + (g.occupied?'<div class="chips"><span style="color:#6d28d9;font-size:11.5px">已有活跃任务占用该路径</span></div>':'')
-     + '</div><input type="checkbox" class="ck pick" data-g="'+gi+'" '+(S.picked[gi]?'checked':'')+'></div>';
+    h += '<div class="candrow">'+fanImg(g.hue,g.number||'待定')
+     + '<div class="info"><p class="num">'+esc(g.number||'待补号')+'</p>'
+     + '<p class="flabel mono truncate">'+g.parts.map(esc).join(' ＋ ')+'</p>'
+     + '<p class="flabel" style="margin-block-start:var(--sp-1)">'+esc(g.marker)+' · '+esc(g.size)+' · '+esc(g.res)+'</p>'
+     + (!g.number?'<span class="cand" style="margin-block-start:var(--sp-2)">'+g.cands.map(function(c){
+        return '<button type="button" aria-pressed="false">'+esc(c)+'</button>'}).join('')+'</span>':'')
+     + (g.occupied?'<p class="occ" style="margin-block-start:var(--sp-1)">已有活跃任务占用该路径</p>':'')
+     + '</div><label class="ckwrap"><input type="checkbox" data-g="'+gi+'" '+(S.picked[gi]?'checked':'')
+     + ' aria-label="选择分组 '+esc(g.primary)+'"></label></div>';
   });
-  h += '<div style="display:flex;align-items:center;gap:14px;margin-top:18px">'
-   + '<span>已选 <b>'+sel+'</b> 组</span><span class="grow" style="flex:1"></span>'
-   + '<button class="btn">全选</button><button class="btn pri" '+(sel?'':'disabled')+'>建任务</button></div>';
+  h += '<div class="row" style="margin-block-start:var(--sp-4);flex-wrap:wrap">'
+   + '<p class="sum" aria-live="polite">已选 <b>'+sel+'</b> 组</p><span class="grow"></span>'
+   + '<button class="btn" type="button">全选</button>'
+   + '<button class="btn btn-pri" type="button" '+(sel?'':'disabled')+'>建任务</button></div>';
   return h;
 }
 function bTasks(){
   if(S.state==='loading'){
-    return '<h1>任务</h1><div class="grid">'+'<div class="sk skeleton"></div>'.repeat(6)+'</div>';
+    return '<h1 class="page-h">任务</h1><div class="grid">'
+     + Array(7).join().split(',').map(function(){
+        return '<span class="sk" style="display:block;height:322px;border-radius:var(--r-4)"></span>'}).join('')+'</div>';
   }
   if(S.state==='empty'){
-    return '<h1>任务</h1><div class="empty"><div class="big">没有符合条件的任务</div>'
-     + '<div>试试别的状态</div><div style="margin-top:14px"><button class="btn">清空筛选</button></div></div>';
+    return '<h1 class="page-h">任务</h1><div class="empty"><p class="big">没有符合条件的任务</p>'
+     + '<p>换个状态试试。</p><p style="margin-block-start:var(--sp-4)">'
+     + '<button class="btn" type="button">清空筛选</button></p></div>';
   }
-  var h = '<h1>任务</h1><div class="sub">137 个任务 · 已显示 20 个</div>';
-  h += '<div class="filters"><span class="chip on">全部</span><span class="chip">运行中 1</span>'
-   + '<span class="chip">排队 3</span><span class="chip">成功 96</span><span class="chip">部分 21</span>'
-   + '<span class="chip">失败 12</span><span class="chip">待补号 2</span><span class="chip">已取消 2</span></div>';
+  var h = '<h1 class="page-h">任务</h1><p class="sub">137 个任务 · 已显示 20 个</p>';
+  h += '<div class="filters" style="padding:0 0 var(--sp-4)"><div class="chips" role="group" aria-label="按状态筛选">'
+   + ['全部','运行中 1','排队 3','成功 96','部分 21','失败 12','待补号 2','已取消 2'].map(function(c,i){
+      return '<button class="chip" type="button" aria-pressed="'+(i===0)+'">'+esc(c)+'</button>'}).join('')
+   + '</div></div>';
   h += '<div class="grid">'+TASKS.map(function(t){
-    return '<div class="card s-'+t.status+'" data-detail="'+t.num+'">'
-     + posterImg(t.hue,t.num,'poster')+'<div class="strip"></div>'
-     + '<div class="meta"><div class="num">'+t.num+'</div><div class="ti">'+t.title+'</div>'
-     + '<div class="foot"><span>'+st(t.status)+'</span><span>'+t.updated+'</span></div></div></div>';
+    return '<a class="tcard" href="'+hrefFor({view:'detail'})+'" data-detail="'+esc(t.num)+'" '
+     + 'aria-label="打开任务 '+esc(t.num)+' 详情">'
+     + posterImg(t.hue,t.num,'poster','任务 '+t.num+' 的海报')+markBar(t.status,'strip')
+     + '<div class="meta"><p class="num">'+esc(t.num)+'</p>'
+     + '<p class="ti clamp2">'+esc(t.title)+'</p>'
+     + '<p class="foot">'+stBadge(t.status)+'<span>'+esc(t.updated)+'</span></p></div></a>';
   }).join('')+'</div>';
-  h += '<div class="loadmore"><button class="btn">加载更多</button><span>已显示 20 / 137</span></div>';
+  h += '<div class="row" style="justify-content:center;margin-block-start:var(--sp-5)">'
+   + '<button class="btn" type="button">加载更多</button><span class="flabel">已显示 20 / 137</span></div>';
   return h;
 }
 function bDetail(){
   var d = DETAILS[S.detail];
-  if(S.state==='loading') return '<h1>任务详情</h1><div class="sk" style="height:240px;border-radius:20px"></div>';
-  if(S.state==='empty') return '<h1>任务详情</h1><div class="empty"><div class="big">任务不存在</div></div>';
-  var h = '<div class="hero"><div class="ph bg" style="background-image:url(\''+svg(d.hue+20,1200,514,d.number+' fanart')+'\')"></div>'
-   + '<div class="ov"></div><div class="in">'+posterImg(d.hue,d.number,'poster')
-   + '<div style="flex:1;min-width:0"><h2>'+d.title+'</h2>'
-   + '<div class="m">'+st(d.status)+' · '+d.number+' · '+d.parts+' 个分片 · 硬链 '+d.link+'</div></div>'
-   + '<button class="btn pri">从 parse 起重跑</button></div></div>';
-  if(d.missing.length) h += '<div class="err" style="background:#fffbeb;border-color:#fde68a;color:#92400e">'
-   + '<b>缺字段 '+d.missing.length+' 个</b> · '+d.missing.join(' / ')+' · 任务按 partial 收尾</div>';
-  h += '<div class="cols"><div><div class="panel"><h3>字段与来源</h3>'
-   + d.fields.map(function(f){return '<div class="fld '+(f[1]==='—'?'miss':'')+'"><span class="k mono">'+f[0]+'</span>'
-     + '<span class="v">'+f[1]+'</span><span class="s">'+(f[2]||'')+'</span></div>'}).join('')
-   + '</div><div class="panel" style="margin-top:16px"><h3>图片墙</h3><div class="wall">'
-   + '<div style="grid-row:span 2">'+posterImg(d.hue,d.number,'p23')+'</div>'
-   + fanImg(d.hue,'fanart','f16')+fanImg(d.hue+9,'剧照 1','f16')+fanImg(d.hue+18,'剧照 2','f16')
-   + fanImg(d.hue+27,'剧照 3','f16')+'</div></div></div>'
-   + '<div><div class="panel"><h3>步骤</h3><div class="tl">'
-   + d.steps.map(function(s){return '<div class="row '+stepCls(s[1])+'"><span class="dot"></span>'
-     + '<span class="nm mono">'+s[0]+'</span><span>'+s[3]+'</span><span class="ms">'
-     + (s[1]==='—'?'—':s[2]+'ms')+'</span></div>'}).join('')
-   + '</div></div><div class="panel" style="margin-top:16px"><h3>源留痕</h3>'
-   + d.srcs.map(function(s){return '<div class="srcrow"><span class="mono" style="width:56px">'+s[0]+'</span>'
-     + '<span>'+st(s[1]==='ok'?'succeeded':(s[1]==='failed'?'failed':'cancelled'))+'</span>'
-     + (s[2]?'<span class="s" style="color:#b45309">'+reasonLabel(s[2])+'</span>':'')
-     + '<span class="ms" style="margin-left:auto;color:#a8a29e">'+s[3]+' 字段 · '+s[4]+'ms</span></div>'}).join('')
-   + '</div><div class="panel" style="margin-top:16px"><h3>输出</h3>'
-   + '<div class="fld"><span class="k">目录</span><span class="v mono">'+d.out+'</span></div>'
+  if(S.state==='loading') return '<h1 class="page-h">任务详情</h1>'
+   + '<span class="sk" style="display:block;height:240px;border-radius:var(--r-5)"></span>';
+  if(S.state==='empty') return '<h1 class="page-h">任务详情</h1><div class="empty"><p class="big">任务不存在</p></div>';
+  var h = '<div class="hero on-dark"><div class="ph bg" role="img" aria-label="'+esc(d.number)+' 的横版背景图" '
+   + 'style="background-image:url(\''+svgURI(d.hue+20,1200,514,d.number+' fanart')+'\')"></div>'
+   + '<div class="ov"></div><div class="in">'+zoomBtn(d.hue,'任务 '+d.number+' 的海报','poster',400,600)
+   + '<div class="grow"><h1>'+esc(d.title)+'</h1>'
+   + '<p class="m">'+stBadge(d.status)+' · '+esc(d.number)+' · '+d.parts+' 个分片 · 硬链 '+esc(d.link)+'</p></div>'
+   + '<button class="btn btn-pri" type="button" data-rerun="'+esc(d.number)+'">'+ICON.rerun+'从 parse 起重跑</button></div></div>';
+  if(d.missing.length){
+    h += '<div class="notice notice-warn" role="alert">'+ICON.warn
+     + '<span>缺字段 '+d.missing.length+' 个：'+esc(d.missing.join(' / '))+' — 任务按 partial 收尾。</span></div>';
+  }
+  h += '<div class="cols"><div><div class="panel"><h2>字段与来源</h2>'
+   + d.fields.map(function(f){
+      return '<div class="fld'+(f[1]==='—'?' miss':'')+'"><span class="k">'+esc(f[0])+'</span>'
+       + '<span class="v">'+esc(f[1])+'</span><span class="s">'+esc(f[2]||'')+'</span></div>'}).join('')
+   + '</div><div class="panel" style="margin-block-start:var(--sp-4)"><h2>图片墙</h2><div class="wall">'
+   + zoomBtn(d.hue,'任务 '+d.number+' 的海报','p23',400,600)
+   + zoomBtn(d.hue,d.number+' fanart','f16',640,360)+zoomBtn(d.hue+9,'剧照 1','f16',640,360)
+   + zoomBtn(d.hue+18,'剧照 2','f16',640,360)+zoomBtn(d.hue+27,'剧照 3','f16',640,360)
+   + '</div></div></div>'
+   + '<div><div class="panel"><h2>步骤</h2><div class="tl">'
+   + d.steps.map(function(s){
+      var st = stepState(s[1]);
+      return '<div class="trow '+st.cls+'"><span class="dot" aria-hidden="true"></span>'
+       + '<span class="nm">'+esc(s[0])+'</span><span class="grow">'+esc(s[3])+'</span>'
+       + '<span class="ms">'+(s[1]==='—'?'—':s[2]+'ms')+'</span></div>'}).join('')
+   + '</div></div><div class="panel" style="margin-block-start:var(--sp-4)"><h2>源留痕</h2>'
+   + (d.srcs.length ? d.srcs.map(function(s){
+      return '<div class="srcrow"><span class="id">'+esc(s[0])+'</span>'
+       + stBadge(s[1]==='ok'?'succeeded':(s[1]==='failed'?'failed':'cancelled'))
+       + (s[2]?'<span class="s" style="color:var(--st-partial-ink)">'+esc(reasonLabel(s[2]))+'</span>':'')
+       + '<span class="ms">'+s[3]+' 字段 · '+s[4]+'ms</span></div>'}).join('')
+      : '<p class="flabel">这个任务还没跑到 scrape（在等人补号）。</p>')
+   + '</div><div class="panel" style="margin-block-start:var(--sp-4)"><h2>输出</h2>'
+   + '<div class="fld"><span class="k">目录</span><span class="v mono truncate">'+esc(d.out)+'</span></div>'
    + '<div class="fld"><span class="k">落盘</span><span class="v">'+d.rows.length+' 条台账</span></div>'
-   + '<div class="fld"><span class="k">批次</span><span class="v mono">'+d.batch+' · '+d.trigger+'</span></div>'
+   + '<div class="fld"><span class="k">批次</span><span class="v mono">'+esc(d.batch)+' · '+esc(d.trigger)+'</span></div>'
    + '</div></div></div>';
+  if(d.status==='needs_number') h += fillPanel(S.detail);
   return h;
 }
 function bNumbers(){
-  if(S.state==='empty') return '<h1>待补号</h1><div class="empty"><div class="big">没有待补号的任务</div></div>';
-  var h = '<h1>待补号</h1><div class="sub">解析分歧的组停在这里，填完号就接着跑</div>';
+  if(S.state==='empty') return '<h1 class="page-h">待补号</h1><div class="empty"><p class="big">没有待补号的任务</p></div>';
+  var h = '<h1 class="page-h">待补号</h1><p class="sub">解析分歧的组停在这里，填完号就接着跑</p>';
   NUMBERS.forEach(function(n){
-    h += '<div class="panel" style="margin-bottom:16px"><h3>'+n.task+' · '+(n.kind==='ambiguous'?'多个候选番号':'主干相同')+'</h3>';
+    h += '<div class="panel" style="margin-block-end:var(--sp-4)"><h2>'+esc(n.task)+' · '
+     + (n.kind==='ambiguous'?'多个候选番号':'主干相同')+'</h2>';
     n.files.forEach(function(f){
       var key = n.task+'|'+f.p;
-      h += '<div class="fld"><span class="k mono">'+f.p+'</span><span class="v">'
-       + '<div class="chips" style="display:flex;gap:6px">'+f.cands.map(function(c){
-          return '<button class="btn '+(S.nums[key]===c?'pri':'')+'" data-num="'+key+'|'+c+'">'+c+'</button>'}).join('')
-       + '<input type="text" value="'+(S.nums[key]||'')+'" placeholder="或手填" style="border:1px solid #ece7dd;border-radius:999px;padding:6px 12px;width:130px">'
-       + '<label style="align-self:center;color:#78716c"><input type="checkbox" class="ck" '+(f.part?'checked':'')+'> 同一作品的分片</label>'
-       + '</div></span></div>';
+      h += '<div class="fld"><span class="k mono">'+esc(f.p)+'</span><span class="v row" style="flex-wrap:wrap">'
+       + '<span class="cand">'+f.cands.map(function(c){
+          return '<button type="button" aria-pressed="'+(S.nums[key]===c)+'" data-num="'+esc(key)+'|'+esc(c)+'">'+esc(c)+'</button>'}).join('')+'</span>'
+       + '<label class="sr-only" for="bn-'+esc(key)+'">'+esc(f.p)+' 的番号</label>'
+       + '<input id="bn-'+esc(key)+'" value="'+esc(S.nums[key]||'')+'" placeholder="或手填">'
+       + '<label class="flabel"><input type="checkbox" '+(f.part?'checked':'')+' data-ispart="'+esc(key)+'"> 同一作品的分片</label>'
+       + '</span></div>';
     });
-    h += '<div style="display:flex;gap:10px;margin-top:12px"><span class="grow" style="flex:1"></span>'
-     + '<button class="btn">跳过（取消任务）</button><button class="btn pri">提交并重跑</button></div></div>';
+    h += '<div class="row" style="margin-block-start:var(--sp-3)"><span class="grow"></span>'
+     + '<button class="btn" type="button">跳过（取消任务）</button>'
+     + '<button class="btn btn-pri" type="button">提交并重跑</button></div></div>';
   });
   return h;
 }
 
-/* ================= C · 流程看板 ================= */
+/* ============================================================
+   变体 C · 流程看板（深色）
+   ============================================================ */
 function cShell(view){
-  var h = '<div class="top"><div class="brand">mdc-lite</div><nav class="steps">'
+  var on = function(v){ return view===v || (v==='tasks' && view==='numbers'); };
+  return '<div class="top"><span class="brand">mdc<span>·lite</span></span>'
+   + '<span class="tag">PROTOTYPE</span>'
+   + '<nav class="steps" aria-label="视图">'
    + [['scan','1','扫描'],['tasks','2','任务'],['detail','3','详情']].map(function(n){
-      return '<a data-view="'+n[0]+'" class="'+(view===n[0]||(n[0]==='tasks'&&view==='numbers')?'on':'')+'">'
-      + '<span class="n">'+n[1]+'</span>'+n[2]+'</a>'}).join('')
-   + '</nav><span class="grow"></span><span class="live"><span class="st s-running"><i></i></span>'
-   + '1 运行中 · 队列 3 · 并发 4/8/4</span></div><main>'+cView(view)+'</main>';
-  return h;
-}
-function cView(view){
-  var head = S.state==='error'
-    ? '<div class="err"><b>任务查询失败</b> · 503 · SQLite busy_timeout 已耗尽 <button class="btn">重试</button></div>' : '';
-  return head + cBody(view);
+      return '<a href="'+hrefFor({view:n[0]})+'" data-view="'+n[0]+'"'
+       + (on(n[0])?' aria-current="page"':'')+'><span class="n" aria-hidden="true">'+n[1]+'</span>'+n[2]+'</a>'}).join('')
+   + '</nav><span class="grow"></span>'
+   + '<span class="flabel"><span class="st st-running"><span class="dot" aria-hidden="true"></span></span>'
+   + '1 运行中 · 队列 3 · 并发 4/8/4</span></div>'
+   + '<main id="main" tabindex="-1">'+cBody(view)+'</main>';
 }
 function cBody(view){
+  var err = S.state==='error'
+    ? '<div class="notice notice-error" role="alert">'+ICON.warn
+      + '<span><b>任务查询失败</b>：503，SQLite 的 busy_timeout 已耗尽。重试通常就能过；'
+      + '若反复出现，检查是否把 <span class="mono">db_path</span> 放在了 NFS 上（不该放）。</span>'
+      + '<button class="btn btn-sm act" type="button">重试</button></div>' : '';
   if(view==='scan') return cScan();
-  if(view==='tasks') return cTasks();
+  if(view==='tasks') return err + cTasks();
   if(view==='numbers') return cNumbers();
   return cDetail();
 }
 function cScan(){
-  var h = '<h1>扫描预览</h1><div class="sub">手动模式 · 全量扫描 · 预览与建任务共用 scan → filter</div>'
-   + '<div class="wiz"><span class="s on"><b>1</b>选目录</span><span>→</span>'
-   + '<span class="s '+(S.state!=='loading'?'':'on')+'"><b>2</b>候选</span><span>→</span>'
-   + '<span class="s"><b>3</b>建任务</span></div>';
-  h += '<div class="panel" style="margin-bottom:12px"><h3>根目录（容器内路径）</h3>'
-   + S.roots.map(function(r){return '<div class="scanrow"><span class="mono">'+r+'</span>'
-     + '<span class="badge">'+labelOf(r)+'</span>'
-     + '<span class="sz"><a data-chip="root" data-chip-path="'+r+'" style="color:#fca5a5">移除</a></span></div>'}).join('')
-   + S.excludes.map(function(r){return '<div class="scanrow"><span class="mono">'+r+'</span>'
-     + '<span class="badge warn">排除子树</span>'
-     + '<span class="sz"><a data-chip="exclude" data-chip-path="'+r+'" style="color:#fca5a5">移除</a></span></div>'}).join('')
-   + '<div style="display:flex;gap:8px;margin-top:10px">'
-   + '<button class="btn" data-pk="open" data-pk-mode="root">+ 添加目录</button>'
-   + '<button class="btn" data-pk="open" data-pk-mode="exclude">+ 添加排除</button>'
-   + '<span style="flex:1"></span><button class="btn pri">'+(S.state==='loading'?'扫描中…':'扫描')+'</button></div>'
-   + '<div style="color:#6f7b88;font-size:11.5px;margin-top:8px">'
-   + '选择器只浏览容器内 <span class="mono">browse_roots</span> 白名单（默认 /media）下的路径</div></div>';
+  var h = '<h1 class="page-h">扫描预览</h1><p class="sub">手动模式 · 全量扫描 · 预览与建任务共用 scan → filter → group → parse</p>'
+   + '<div class="wiz" role="group" aria-label="扫描步骤">'
+   + '<span class="s" aria-current="step"><b aria-hidden="true">1</b>选目录</span>'
+   + '<span class="s"><b aria-hidden="true">2</b>候选</span>'
+   + '<span class="s"><b aria-hidden="true">3</b>建任务</span></div>';
+  h += '<div class="panel" style="margin-block-end:var(--sp-3)"><h2>根目录（容器内路径）</h2>'
+   + S.roots.map(function(r){
+      return '<div class="scanrow"><span class="mono truncate">'+esc(r)+'</span>'
+       + '<span class="tag">'+esc(labelOf(r))+'</span>'
+       + '<span class="sz"><button class="btn btn-sm btn-quiet" type="button" data-chip="root" '
+       + 'data-chip-path="'+esc(r)+'" aria-label="移除根目录 '+esc(r)+'">'+ICON.close+'移除</button></span></div>'}).join('')
+   + S.excludes.map(function(r){
+      return '<div class="scanrow"><span class="mono truncate">'+esc(r)+'</span>'
+       + '<span class="tag">排除子树</span>'
+       + '<span class="sz"><button class="btn btn-sm btn-quiet" type="button" data-chip="exclude" '
+       + 'data-chip-path="'+esc(r)+'" aria-label="移除排除目录 '+esc(r)+'">'+ICON.close+'移除</button></span></div>'}).join('')
+   + '<div class="row" style="margin-block-start:var(--sp-3);flex-wrap:wrap">'
+   + '<button class="btn" type="button" data-pk-open="root">'+ICON.plus+'添加目录</button>'
+   + '<button class="btn" type="button" data-pk-open="exclude">'+ICON.plus+'添加排除</button>'
+   + '<span class="grow"></span><button class="btn btn-pri" type="button" '
+   + (S.state==='loading'?'disabled aria-busy="true"':'')+'>'
+   + (S.state==='loading'?'扫描中…':'扫描')+'</button></div>'
+   + '<p class="flabel" style="margin-block-start:var(--sp-2)">选择器只浏览容器内 '
+   + '<span class="mono">browse_roots</span> 白名单（默认 /media）下的路径。</p></div>';
   if(S.state==='loading'){
-    h += '<div class="panel"><h3>候选（scan → filter → group…）</h3>'
-     + '<div class="scanrow"><div class="sk" style="height:14px;width:100%"></div></div>'.repeat(4)+'</div>';
-    return h;
+    return h + '<div class="panel"><h2>候选（scan → filter → group…）</h2>'
+     + Array(4).join().split(',').map(function(){
+        return '<p class="scanrow"><span class="sk" style="display:block;height:14px;width:100%"></span></p>'}).join('')
+     + '</div>';
   }
   if(S.state==='empty'){
-    return h + '<div class="panel"><div class="empty"><div class="big">没有候选文件</div>'
-     + '<div>'+SCAN_FILTERED.length+' 个文件被 filter 排除，原因记在步骤摘要里</div></div></div>';
+    return h + '<div class="panel"><div class="empty"><p class="big">没有候选文件</p>'
+     + '<p>'+SCAN_FILTERED.length+' 个文件被 filter 排除，原因记在步骤摘要里。</p></div></div>';
   }
   var sel = Object.keys(S.picked).length;
-  h += '<div class="panels"><div class="panel"><h3>候选 '+SCAN_GROUPS.length+' 组</h3>';
+  h += '<div class="panels"><div class="panel"><h2>候选 '+SCAN_GROUPS.length+' 组</h2>';
   SCAN_GROUPS.forEach(function(g,gi){
     g.parts.forEach(function(p,pi){
       var isP = pi===0;
-      h += '<div class="scanrow '+(isP?'primary':'part')+'">'
-       + (isP?'<input type="checkbox" class="ck pick" data-g="'+gi+'" '+(S.picked[gi]?'checked':'')+'>'
-            :'<input type="checkbox" class="ck" checked disabled>')
-       + '<span class="num">'+(isP?(g.number||'待补号'):'')+'</span>'
-       + '<span class="mono">'+p+'</span>'
-       + (isP?'<span class="badge">'+g.marker+'</span>':'<span class="badge">分片 '+(pi+1)+'</span>')
-       + (!isP||g.number?'':'<span class="badge warn">'+g.cands.join(' / ')+'</span>')
-       + (isP&&g.occupied?'<span class="badge err">占用</span>':'')
-       + '<span class="sz">'+(isP?g.size:'')+'</span></div>';
+      h += '<div class="scanrow">'
+       + (isP ? '<label class="ckwrap"><input type="checkbox" data-g="'+gi+'" '+(S.picked[gi]?'checked':'')
+              + ' aria-label="选择分组 '+esc(g.primary)+'"></label>'
+              : '<span class="sr-only">随组</span>')
+       + '<span class="num">'+(isP?esc(g.number||'待补号'):'')+'</span>'
+       + '<span class="mono truncate">'+esc(p)+'</span>'
+       + '<span class="tag">'+(isP?esc(g.marker):'分片 '+(pi+1))+'</span>'
+       + (isP&&!g.number?'<span class="tag" style="color:var(--st-needs_number-ink)">'+esc(g.cands.join(' / '))+'</span>':'')
+       + (isP&&g.occupied?'<span class="tag" style="color:var(--st-failed-ink)">占用</span>':'')
+       + '<span class="sz">'+(isP?esc(g.size):'')+'</span></div>';
     });
   });
-  h += '</div><div class="panel"><h3>将建</h3>'
+  h += '</div><div class="panel"><h2>将建</h2>'
    + '<div class="kv"><span class="k">组</span><span class="v">'+sel+'</span></div>'
    + '<div class="kv"><span class="k">文件</span><span class="v">'
-   + SCAN_GROUPS.filter(function(g,i){return S.picked[i]}).reduce(function(a,g){return a+g.parts.length},0)+'</span></div>'
+   + SCAN_GROUPS.reduce(function(a,g,i){return a+(S.picked[i]?g.parts.length:0)},0)+'</span></div>'
    + '<div class="kv"><span class="k">直接解析</span><span class="v">'
    + SCAN_GROUPS.filter(function(g,i){return S.picked[i]&&g.number}).length+'</span></div>'
    + '<div class="kv"><span class="k">进待补号</span><span class="v">'
    + SCAN_GROUPS.filter(function(g,i){return S.picked[i]&&!g.number}).length+'</span></div>'
    + '<div class="kv"><span class="k">已占用跳过</span><span class="v">1</span></div>'
-   + '<div style="margin-top:12px;display:flex;gap:8px"><button class="btn">全选</button>'
-   + '<button class="btn pri" '+(sel?'':'disabled')+'>建任务</button></div>'
-   + '<h3 style="margin-top:16px">被过滤 '+SCAN_FILTERED.length+'</h3>'
-   + SCAN_FILTERED.map(function(f){return '<div class="src"><span class="mono" style="flex:1;font-size:11px">'+f.p
-      + '</span><span class="reason">'+f.r+'</span></div>'}).join('')
+   + '<div class="row" style="margin-block-start:var(--sp-3);flex-wrap:wrap">'
+   + '<button class="btn" type="button">全选</button>'
+   + '<button class="btn btn-pri" type="button" '+(sel?'':'disabled')+'>建任务</button></div>'
+   + '<h2 style="margin-block-start:var(--sp-4)">被过滤 '+SCAN_FILTERED.length+'</h2>'
+   + SCAN_FILTERED.map(function(f){
+      return '<div class="src"><span class="mono truncate grow">'+esc(f.p)+'</span>'
+       + '<span class="reason">'+esc(f.r)+'</span></div>'}).join('')
    + '</div></div>';
   return h;
 }
 function cTasks(){
-  if(S.state==='loading') return '<h1>任务</h1><div class="board">'
-   + '<div class="col"><h4>队列</h4><div class="sk" style="height:76px;margin-bottom:8px"></div><div class="sk" style="height:76px"></div></div>'.repeat(3)
-   + '</div>';
-  if(S.state==='empty') return '<h1>任务</h1><div class="panel"><div class="empty"><div class="big">看板是空的</div>'
-   + '<div>当前筛选下没有任何任务</div></div></div>';
+  if(S.state==='loading'){
+    return '<h1 class="page-h">任务</h1><div class="board">'
+     + Array(4).join().split(',').map(function(){
+        return '<div class="col"><h2>加载中</h2>'
+         + '<span class="sk" style="display:block;height:84px;margin-block-end:var(--sp-2)"></span>'
+         + '<span class="sk" style="display:block;height:84px"></span></div>'}).join('')+'</div>';
+  }
+  if(S.state==='empty'){
+    return '<h1 class="page-h">任务</h1><div class="panel"><div class="empty"><p class="big">看板是空的</p>'
+     + '<p>当前筛选下没有任何任务。</p></div></div>';
+  }
   var cols = [['排队 / 运行 / 待补号',['queued','running','needs_number']],
               ['成功 / 部分',['succeeded','partial']],['失败',['failed']],['已取消',['cancelled']]];
-  var h = '<h1>任务看板 · 137 个任务</h1><div class="board">';
+  var h = '<h1 class="page-h">任务看板 · 137 个任务</h1><div class="board">';
   cols.forEach(function(c){
-    var list = TASKS.filter(function(t){return c[1].indexOf(t.status)>=0});
-    h += '<div class="col"><h4>'+c[0]+'<span class="n">'+list.length+'</span></h4>';
+    var list = TASKS.filter(function(t){ return c[1].indexOf(t.status)>=0; });
+    h += '<section class="col"><h2>'+esc(c[0])+'<span class="n">'+list.length+'</span></h2>';
     list.forEach(function(t){
-      h += '<div class="tc b-'+t.status+'" data-detail="'+t.num+'">'
-       + (t.status!=='queued'&&t.status!=='cancelled'?fanImg(t.hue,t.num,'thumb'):'')
-       + '<div class="num">'+t.num+'</div><div class="ti">'+t.title+'</div>'
-       + '<div class="ft"><span>'+st(t.status)+'</span><span>'+t.updated+'</span></div>'
-       + (t.err?'<div class="ft" style="color:#fca5a5">'+t.err+'</div>':'')
-       + (t.status==='needs_number'?'<div class="ft"><span class="badge">去填号 →</span></div>':'')
-       + '</div>';
+      h += '<button class="tcard" type="button" data-detail="'+esc(t.num)+'" '
+       + 'aria-label="打开任务 '+esc(t.num)+' 详情">'
+       + '<span class="hd">'+markBar(t.status)+'<span class="num">'+esc(t.num)+'</span></span>'
+       + '<span class="ti clamp2">'+esc(t.title)+'</span>'
+       + '<span class="ft">'+stBadge(t.status)+'<span>'+esc(t.updated)+'</span></span>'
+       + (t.status==='needs_number'?'<span class="ft"><span class="tag">去填号</span></span>':'')
+       + '</button>';
     });
-    h += '</div>';
+    h += '</section>';
   });
-  h += '</div><div class="panel" style="margin-top:12px;color:#8b949e;font-size:12px">'
-   + '看板按状态分列（每列只显示最近 5 个，更多进列表视图）；阶段来自最新一条 step_runs.type</div>';
+  h += '</div><div class="panel" style="margin-block-start:var(--sp-4)">'
+   + '<p class="flabel">看板按状态分列（每列只显示最近 5 个，更多进列表视图）；阶段来自最新一条 '
+   + '<span class="mono">step_runs.type</span>。</p></div>';
   return h;
 }
 function cDetail(){
   var d = DETAILS[S.detail];
-  if(S.state==='loading') return '<h1>任务详情</h1><div class="panel"><div class="sk" style="height:180px"></div></div>';
-  if(S.state==='empty') return '<h1>任务详情</h1><div class="panel"><div class="empty"><div class="big">任务不存在</div></div></div>';
-  var h = '<h1>'+d.number+' <span style="color:#6f7b88;font-weight:400">'+d.title+'</span></h1>'
-   + '<div class="sub">'+st(d.status)+' · 批次 '+d.batch+' · '+d.trigger+' · 硬链 '+d.link
-   + (d.missing.length?' · 缺字段 '+d.missing.length:'')+'</div>';
-  h += '<div class="panels"><div class="panel"><h3>步骤时间线（任务级后缀从 parse 起可重跑）</h3><div class="tl">'
-   + d.steps.map(function(s){return '<div class="row '+stepCls(s[1])+'"><span class="nm mono">'+s[0]+'</span>'
-     + '<span class="sum">'+s[3]+'</span><span class="ms">'+(s[1]==='—'?'—':s[2]+' ms')+'</span></div>'}).join('')
-   + '</div><div style="display:flex;gap:8px;margin-top:12px"><button class="btn pri">从 parse 起重跑</button>'
-   + '<button class="btn">取消任务</button><button class="btn">复制路径 '+d.out+'</button></div></div>'
-   + '<div><div class="panel"><h3>图片</h3><div class="wall" style="grid-template-columns:repeat(2,1fr)">'
-   + '<div style="grid-row:span 2">'+posterImg(d.hue,d.number,'p23')+'</div>'+fanImg(d.hue,'fanart','f16')
-   + fanImg(d.hue+9,'剧照 1','f16')+fanImg(d.hue+18,'剧照 2','f16')+'</div></div>'
-   + '<div class="panel" style="margin-top:12px"><h3>源留痕</h3>'
-   + d.srcs.map(function(s){return '<div class="src"><span class="mono" style="width:52px">'+s[0]+'</span>'
-     + '<span>'+st(s[1]==='ok'?'succeeded':(s[1]==='failed'?'failed':'cancelled'))+'</span>'
-     + (s[2]?'<span class="reason">'+reasonLabel(s[2])+'</span>':'')
-     + '<span style="margin-left:auto;color:#6f7b88">'+s[3]+' 字段 · '+s[4]+'ms</span></div>'}).join('')
+  if(S.state==='loading') return '<h1 class="page-h">任务详情</h1>'
+   + '<div class="panel"><span class="sk" style="display:block;height:200px"></span></div>';
+  if(S.state==='empty') return '<h1 class="page-h">任务详情</h1><div class="panel"><div class="empty">'
+   + '<p class="big">任务不存在</p></div></div>';
+  var h = '<h1 class="page-h">'+esc(d.number)+' <span class="flabel">'+esc(d.title)+'</span></h1>'
+   + '<p class="sub">'+stBadge(d.status)+' · 批次 '+esc(d.batch)+' · '+esc(d.trigger)+' · 硬链 '+esc(d.link)
+   + (d.missing.length?' · 缺字段 '+d.missing.length:'')+'</p>';
+  h += '<div class="panels"><div class="panel"><h2>步骤时间线（任务级后缀从 parse 起可重跑）</h2><div class="tl">'
+   + d.steps.map(function(s){
+      var st = stepState(s[1]);
+      return '<div class="trow '+st.cls+'"><span class="nm">'+esc(s[0])+'</span>'
+       + '<span class="sum">'+esc(s[3])+'</span>'
+       + '<span class="ms">'+(s[1]==='—'?'—':s[2]+' ms')+'</span></div>'}).join('')
+   + '</div><div class="row" style="margin-block-start:var(--sp-3);flex-wrap:wrap">'
+   + '<button class="btn btn-pri" type="button" data-rerun="'+esc(d.number)+'">'+ICON.rerun+'从 parse 起重跑</button>'
+   + '<button class="btn" type="button">取消任务</button>'
+   + '<button class="btn" type="button" data-copy="'+esc(d.out)+'">'+ICON.copy+'复制路径</button></div></div>'
+   + '<div><div class="panel"><h2>图片</h2><div class="wall" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr))">'
+   + zoomBtn(d.hue,'任务 '+d.number+' 的海报','p23',400,600)
+   + zoomBtn(d.hue,d.number+' fanart','f16',640,360)+zoomBtn(d.hue+9,'剧照 1','f16',640,360)
+   + zoomBtn(d.hue+18,'剧照 2','f16',640,360)+'</div></div>'
+   + '<div class="panel" style="margin-block-start:var(--sp-3)"><h2>源留痕</h2>'
+   + (d.srcs.length ? d.srcs.map(function(s){
+      return '<div class="src"><span class="id">'+esc(s[0])+'</span>'
+       + stBadge(s[1]==='ok'?'succeeded':(s[1]==='failed'?'failed':'cancelled'))
+       + (s[2]?'<span class="reason">'+esc(reasonLabel(s[2]))+'</span>':'')
+       + '<span class="ms">'+s[3]+' 字段 · '+s[4]+'ms</span></div>'}).join('')
+      : '<p class="flabel">还没跑到 scrape。</p>')
    + '</div></div></div>';
-  h += '<div class="panel" style="margin-top:12px"><h3>字段与来源（14 源级字段 + number）</h3>'
-   + d.fields.map(function(f){return '<div class="kv '+(f[1]==='—'?'miss':'')+'"><span class="k mono">'+f[0]+'</span>'
-     + '<span class="v">'+f[1]+'</span><span class="s">'+(f[2]||'—')+'</span></div>'}).join('')+'</div>';
+  h += '<div class="panel" style="margin-block-start:var(--sp-3)"><h2>字段与来源（14 源级字段 + number）</h2>'
+   + d.fields.map(function(f){
+      return '<div class="kv'+(f[1]==='—'?' miss':'')+'"><span class="k">'+esc(f[0])+'</span>'
+       + '<span class="v">'+esc(f[1])+'</span><span class="s">'+esc(f[2]||'—')+'</span></div>'}).join('')
+   + '</div>';
   if(d.rows.length){
-    h += '<div class="panel" style="margin-top:12px"><h3>落盘台账 '+d.rows.length+' 条</h3>'
-     + d.rows.map(function(r){return '<div class="src"><span class="mono" style="width:52px">'+r[0]+'</span>'
-       + '<span style="flex:1;font-size:11.5px" class="mono">'+r[4]+'</span>'
-       + '<span style="color:#6f7b88">'+r[5]+'</span><span class="badge" style="margin-left:8px">'+r[6]+'</span></div>'}).join('')
+    h += '<div class="panel" style="margin-block-start:var(--sp-3)"><h2>落盘台账 '+d.rows.length+' 条</h2>'
+     + d.rows.map(function(r){
+        return '<div class="src"><span class="id">'+esc(r[0])+'</span>'
+         + '<span class="mono truncate grow">'+esc(r[4])+'</span>'
+         + '<span class="flabel">'+esc(r[5])+'</span><span class="tag">'+esc(r[6])+'</span></div>'}).join('')
      + '</div>';
   }
+  if(d.status==='needs_number') h += fillPanel(S.detail);
   return h;
 }
 function cNumbers(){
-  var h = '<h1>待补号队列</h1><div class="sub">填号 ⇒ 任务回 queued ⇒ 新 task_run 从 parse 起跑；未填期间仍占路径</div>';
-  if(S.state==='empty') return h + '<div class="panel"><div class="empty"><div class="big">队列是空的</div></div></div>';
+  var h = '<h1 class="page-h">待补号队列</h1>'
+   + '<p class="sub">填号 ⇒ 任务回 queued ⇒ 新 task_run 从 parse 起跑；未填期间仍占路径。</p>';
+  if(S.state==='empty') return h + '<div class="panel"><div class="empty"><p class="big">队列是空的</p></div></div>';
   NUMBERS.forEach(function(n){
-    h += '<div class="panel" style="margin-bottom:12px"><h3>'+n.task+' · '
-     + (n.kind==='ambiguous'?'解析分歧':'主干相同（duplicate_stem）')+'</h3>';
+    h += '<div class="panel" style="margin-block-end:var(--sp-3)"><h2>'+esc(n.task)+' · '
+     + (n.kind==='ambiguous'?'解析分歧':'主干相同（duplicate_stem）')+'</h2>';
     n.files.forEach(function(f){
       var key = n.task+'|'+f.p;
-      h += '<div class="scanrow primary"><span class="num"></span><span class="mono">'+f.p+'</span>'
-       + '<span class="badge'+(f.primary?'':' warn')+'">'+(f.primary?'primary':'分片')+'</span>'
-       + '<span class="fill" style="margin-left:auto">'
-       + f.cands.map(function(c){return '<button class="'+(S.nums[key]===c?'on':'')+'" data-num="'+key+'|'+c+'">'+c+'</button>'}).join('')
-       + '<input value="'+(S.nums[key]||'')+'" placeholder="番号">'
-       + '<label style="color:#8b949e"><input type="checkbox" class="ck" '+(f.part?'checked':'')+'> 分片</label></span></div>';
+      h += '<div class="scanrow"><span class="mono truncate">'+esc(f.p)+'</span>'
+       + '<span class="tag">'+(f.primary?'primary':'分片')+'</span>'
+       + '<span class="row" style="margin-inline-start:auto;flex-wrap:wrap">'
+       + '<span class="cand">'+f.cands.map(function(c){
+          return '<button type="button" aria-pressed="'+(S.nums[key]===c)+'" data-num="'+esc(key)+'|'+esc(c)+'">'+esc(c)+'</button>'}).join('')+'</span>'
+       + '<label class="sr-only" for="cn-'+esc(key)+'">'+esc(f.p)+' 的番号</label>'
+       + '<input id="cn-'+esc(key)+'" value="'+esc(S.nums[key]||'')+'" placeholder="番号" style="width:120px">'
+       + '<label class="flabel"><input type="checkbox" '+(f.part?'checked':'')+' data-ispart="'+esc(key)+'"> 分片</label>'
+       + '</span></div>';
     });
-    h += '<div style="display:flex;gap:8px;margin-top:10px"><span style="flex:1"></span>'
-     + '<button class="btn">跳过（取消任务）</button><button class="btn pri">提交并重跑</button></div></div>';
+    h += '<div class="row" style="margin-block-start:var(--sp-3)"><span class="grow"></span>'
+     + '<button class="btn" type="button">跳过（取消任务）</button>'
+     + '<button class="btn btn-pri" type="button">提交并重跑</button></div></div>';
   });
   return h;
 }
 
-/* ================= 渲染与交互 ================= */
+/* ============================================================
+   目录选择器（容器内）与灯箱：对话框语义 + 焦点陷阱 + 焦点归还
+   ============================================================ */
+function pickHTML(){
+  if(!S.picker.open) return '';
+  var p = S.picker.path, dirs = FS[p] || [], segs = [], acc = '';
+  p.split('/').filter(function(x){return x!==''}).forEach(function(x){
+    acc += '/'+x;
+    segs.push('<a href="#" data-pk="go" data-pk-path="'+esc(acc)+'">'+esc(x)+'</a>');
+  });
+  var h = '<div class="dlg" data-dlg="picker">'
+   + '<div class="box" role="dialog" aria-modal="true" aria-labelledby="pk-title">'
+   + '<h2 id="pk-title">选择目录 · '+(S.picker.mode==='exclude'?'加入排除':'设为根目录')+'（容器内）</h2>'
+   + '<nav class="crumb" aria-label="当前路径">'
+   + '<a href="#" data-pk="mount" data-pk-path="'+esc(BROWSER_ROOTS[0].path)+'">'+esc(BROWSER_ROOTS[0].label)+'</a>'
+   + '<span class="sep">/</span>'+segs.join('<span class="sep">/</span>')+'</nav>'
+   + '<div class="jump"><label class="sr-only" for="pkpath">手输容器内路径</label>'
+   + '<input id="pkpath" value="'+esc(p)+'" placeholder="/media/2024">'
+   + '<button class="btn" type="button" data-pk="jump">前往</button></div>';
+  if(S.picker.err) h += '<div class="notice notice-error err" role="alert">'+ICON.warn+'<span>'+esc(S.picker.err)+'</span></div>';
+  h += '<div class="list">';
+  if(p!==BROWSER_ROOTS[0].path) h += '<button class="item" type="button" data-pk="up">'+ICON.up
+   + '<span class="n">..</span><span class="c">上一级</span></button>';
+  if(!dirs.length) h += '<p class="item" style="cursor:default;color:var(--text-3)">（没有子目录）</p>';
+  dirs.forEach(function(d){
+    h += '<button class="item" type="button" data-pk="go" data-pk-path="'+esc(p+'/'+d[0])+'">'+ICON.folder
+     + '<span class="n">'+esc(d[0])+'/</span><span class="c">'+esc(d[1])+'</span></button>';
+  });
+  h += '</div><div class="foot"><span class="path truncate">'+esc(p)+'</span>'
+   + '<button class="btn" type="button" data-pk="close">取消</button>'
+   + '<button class="btn" type="button" data-pk="apply" data-pk-mode="root">设为根目录</button>'
+   + '<button class="btn btn-pri" type="button" data-pk="apply" data-pk-mode="exclude">加入排除</button>'
+   + '</div></div></div>';
+  return h;
+}
+function lightboxHTML(){
+  if(!S.lb) return '';
+  return '<div role="dialog" aria-modal="true" aria-label="大图预览">'
+   + '<img src="'+esc(S.lb.src)+'" alt="'+esc(S.lb.alt)+'">'
+   + '<p class="cap">'+esc(S.lb.alt)+' · 点击任意处或按 Esc 关闭</p>'
+   + '<button class="close" type="button" data-lb-close="1">'+ICON.close+'关闭</button></div>';
+}
+
+/* ============================================================
+   渲染
+   ============================================================ */
 function render(){
   var app = document.getElementById('app');
-  app.className = 'app v'+S.variant;
+  app.className = 'app v'+S.variant+(S.variant==='C'?' theme-dark':'');
   if(S.variant==='A') app.innerHTML = aShell(S.view);
   else if(S.variant==='B') app.innerHTML = bShell(S.view);
   else app.innerHTML = cShell(S.view);
+  document.getElementById('lb').innerHTML = lightboxHTML();
+  document.getElementById('bar').innerHTML = barHTML();
   app.insertAdjacentHTML('beforeend', pickHTML());
-  renderBar();
+  focusFor();
 }
-function renderBar(){
+function barHTML(){
   var v = VARIANTS.filter(function(x){return x[0]===S.variant})[0];
-  var h = '<span class="tag">prototype</span><div class="seg">'
-   + '<button class="arrow" data-act="prev">←</button>'
-   + '<span class="lbl">'+v[0]+' · '+v[1]+'</span>'
-   + '<button class="arrow" data-act="next">→</button></div><div class="sep"></div><div class="seg">'
-   + VIEWS.map(function(x){return '<button data-view="'+x[0]+'" class="'+(S.view===x[0]?'on':'')+'">'+x[1]+'</button>'}).join('')
-   + '</div><div class="sep"></div><div class="seg">'
-   + STATES.map(function(x){return '<button data-state="'+x[0]+'" class="'+(S.state===x[0]?'on':'')+'">'+x[1]+'</button>'}).join('')
-   + '</div><div class="sep"></div><div class="seg">'
-   + ['SSIS-001','ABP-123','FC2-3336019','SSVR-122'].map(function(n){
-      return '<button data-detail="'+n+'" class="'+(S.detail===n?'on':'')+'">'+n+'</button>'}).join('')
-   + '</div>';
-  document.getElementById('bar').innerHTML = h;
+  return '<div class="inner" role="group" aria-label="原型控制条">'
+   + '<span class="tag">prototype</span>'
+   + '<span class="seg"><button type="button" data-act="prev" aria-label="上一个变体">'+ICON.left+'</button>'
+   + '<span class="lbl">'+v[0]+' · '+esc(v[1])+'</span>'
+   + '<button type="button" data-act="next" aria-label="下一个变体">'+ICON.right+'</button></span>'
+   + '<span class="sep"></span><span class="seg" role="group" aria-label="视图">'
+   + VIEWS.map(function(x){
+      return '<button type="button" data-view="'+x[0]+'" aria-pressed="'+(S.view===x[0])+'">'+esc(x[1])+'</button>'}).join('')
+   + '</span><span class="sep"></span><span class="seg" role="group" aria-label="状态">'
+   + STATES.map(function(x){
+      return '<button type="button" data-state="'+x[0]+'" aria-pressed="'+(S.state===x[0])+'">'+esc(x[1])+'</button>'}).join('')
+   + '</span><span class="sep"></span><span class="seg" role="group" aria-label="详情样本">'
+   + DETAIL_SAMPLES.map(function(n){
+      return '<button type="button" data-detail="'+esc(n)+'" aria-pressed="'+(S.detail===n)+'">'+esc(n)+'</button>'}).join('')
+   + '</span></div>';
 }
-function set(o){ for(var k in o) S[k]=o[k]; writeURL(); render(); }
+/* 焦点：对话框打开时把焦点送进去，关闭时还给打开它的那个按钮 */
+function focusFor(){
+  var dlg = document.querySelector('.dlg .box') || document.querySelector('#lb [role=dialog]');
+  if(dlg){
+    var first = dlg.querySelector('input,button,select,a[href]');
+    if(first && !dlg.contains(document.activeElement)) first.focus();
+    return;
+  }
+  if(S.focusBack){
+    var el = document.querySelector(S.focusBack);
+    S.focusBack = null;
+    if(el){ el.focus(); return; }
+    var main = document.querySelector('main');   /* 原来的元素已不在（比如刚被移除的 chip）：退到主区域 */
+    if(main) main.focus();
+  }
+}
+function trapFocus(e){
+  var box = document.querySelector('.dlg .box') || document.querySelector('#lb [role=dialog]');
+  if(!box) return;
+  var f = Array.prototype.filter.call(box.querySelectorAll('input,button,select,a[href],[tabindex]:not([tabindex="-1"])'),
+    function(el){ return el.offsetParent !== null || el === document.activeElement; });
+  if(!f.length) return;
+  var first = f[0], last = f[f.length-1];
+  if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+  else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+}
+function set(o){ for(var k in o) S[k] = o[k]; writeURL(); render(); }
+/* 点击后重渲染：先把焦点目标记下来，渲染完再还回去 */
+function rerender(el){
+  if(el && !S.focusBack){
+    var s = selectorFor(el);
+    if(s) S.focusBack = s;
+  }
+  render();
+}
 function cycle(dir){
   var i = VARIANTS.map(function(x){return x[0]}).indexOf(S.variant);
   i = (i + dir + VARIANTS.length) % VARIANTS.length;
   set({variant:VARIANTS[i][0]});
 }
+function closePicker(){ S.picker.open = false; S.focusBack = '[data-pk-open="'+S.picker.mode+'"]'; render(); }
+function closeLB(){ S.lb = null; render(); }
+
+/* ============================================================
+   交互
+   ============================================================ */
 document.addEventListener('click', function(e){
-  var img = e.target.closest('.ph');
-  if(img && S.view==='detail'){ openLB(img.style.backgroundImage); return; }
-  if(e.target.id==='lb'){ closeLB(); return; }
-  if(e.target.classList && e.target.classList.contains('modal')){
-    S.picker.open=false; render(); return;
+  var t = e.target;
+
+  /* 灯箱：详情页里点图放大（图本身就是 button，键盘可达） */
+  var zb = t.closest && t.closest('[data-zoom]');
+  if(zb && !S.picker.open){
+    var m = /url\(["']?(.*?)["']?\)/.exec(zb.style.backgroundImage||'');
+    if(m){ S.lb = {src:m[1], alt:zb.dataset.zoom}; S.focusBack = selectorFor(zb); render(); }
+    return;
   }
-  var el = e.target.closest('[data-act],[data-view],[data-state],[data-detail],[data-tab],[data-num],[data-g],[data-row],[data-pk],[data-chip]');
+  if(t.id==='lb' || (t.closest && t.closest('[data-lb-close]'))){ closeLB(); return; }
+  if(t.classList && t.classList.contains('dlg')){ closePicker(); return; }
+
+  var el = t.closest && t.closest('[data-act],[data-view],[data-state],[data-detail],[data-tab],[data-num],'+
+    '[data-g],[data-row],[data-pk],[data-pk-open],[data-chip],[data-clear-rows],[data-rerun],[data-copy],[data-ispart]');
   if(!el) return;
-  if(el.dataset.pk){
-    var pk = el.dataset.pk;
-    if(pk==='open'){
-      S.picker.open = true; S.picker.err = '';
-      S.picker.mode = el.dataset.pkMode || 'root';
-      S.picker.path = S.roots[0] || BROWSER_ROOTS[0].path;
-      render(); return;
-    }
-    if(pk==='close'){ S.picker.open=false; render(); return; }
-    if(pk==='go' || pk==='mount'){ S.picker.path = el.dataset.pkPath; S.picker.err=''; render(); return; }
-    if(pk==='up'){
-      var q = S.picker.path.replace(/\/[^\/]+\/?$/, '');
-      S.picker.path = (q.length < BROWSER_ROOTS[0].path.length) ? BROWSER_ROOTS[0].path : q;
-      S.picker.err=''; render(); return;
-    }
-    if(pk==='jump'){
-      var inp = document.getElementById('pkpath');
-      var v = ((inp && inp.value) || '').replace(/\s+$/, '');
-      S.picker.path = v || BROWSER_ROOTS[0].path;
-      S.picker.err = mountOf(S.picker.path) ? ''
-        : '不在可浏览根内（browse_roots: /media）—— 只允许 /media 及其子目录';
-      render(); return;
-    }
-    if(pk==='apply'){
-      var mode = el.dataset.pkMode, path = S.picker.path;
-      if(!mountOf(path)){ S.picker.err = '不在可浏览根内（browse_roots: /media）'; render(); return; }
-      if(mode==='root'){
-        if(S.roots.indexOf(path) < 0) S.roots.push(path);
-      } else {
-        var under = false;
-        S.roots.forEach(function(r){ if(path.indexOf(r+'/')===0) under = true; });
-        if(!under){ S.picker.err = '排除目录必须是某个根目录的真子目录（#10 的校验规则）'; render(); return; }
-        if(S.excludes.indexOf(path) < 0) S.excludes.push(path);
-      }
-      S.picker.open = false; render(); return;
-    }
-  }
-  if(el.dataset.chip){
-    var kind = el.dataset.chip, cp = el.dataset.chipPath;
-    if(kind==='root') S.roots = S.roots.filter(function(x){return x!==cp});
-    else S.excludes = S.excludes.filter(function(x){return x!==cp});
-    render(); return;
-  }
-  if(el.dataset.row!==undefined && el.classList.contains('rowpick')){
-    var r = el.dataset.row;
-    if(S.rows[r]) delete S.rows[r]; else S.rows[r]=true;
-    render(); return;
-  }
-  if(el.dataset.act==='prev') return cycle(-1);
-  if(el.dataset.act==='next') return cycle(1);
+
+  /* 真链接（视图切换）：保留 href 语义，JS 可用时走内存状态 */
+  if(el.dataset.view && el.tagName === 'A') e.preventDefault();
+
+  if(el.dataset.act === 'prev') return cycle(-1);
+  if(el.dataset.act === 'next') return cycle(1);
   if(el.dataset.view){
     var v = el.dataset.view;
     if(v==='detail' && S.view!=='detail') return set({view:'detail'});
     return set({view:v});
   }
   if(el.dataset.state) return set({state:el.dataset.state});
-  if(el.dataset.detail){
-    var n = el.dataset.detail;
-    if(DETAILS[n]) return set({detail:n, view:'detail'});
-    return set({view:'detail'});
-  }
-  if(el.dataset.tab) return set({tab:el.dataset.tab});
-  if(el.dataset.num){
-    var p = el.dataset.num.split('|');
-    var key = p[0]+'|'+p[1], val = p[2];
-    S.nums[key] = (S.nums[key]===val ? '' : val);
-    writeURL(); render(); return;
-  }
-  if(el.dataset.g!==undefined && el.classList.contains('pick')){
-    var g = el.dataset.g;
-    if(S.picked[g]) delete S.picked[g]; else S.picked[g]=true;
-    writeURL(); render(); return;
-  }
-});
-document.addEventListener('keydown', function(e){
-  var t = document.activeElement;
-  if(t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
-  if(e.key==='Escape'){
-    if(S.picker.open){ S.picker.open=false; render(); } else closeLB();
+  if(el.dataset.detail && DETAILS[el.dataset.detail]) return set({detail:el.dataset.detail, view:'detail'});
+  if(el.dataset.tab){ S.tab = el.dataset.tab; return rerender(el); }
+  if(el.dataset.clearRows){ S.rows = {}; rerender(el); return; }
+  if(el.dataset.rerun || el.dataset.copy){
+    /* 原型：不真的发请求，只给一次反馈 */
+    el.setAttribute('aria-live','polite');
+    el.classList.add('pulse');
+    setTimeout(function(){ el.classList.remove('pulse'); }, 900);
     return;
   }
-  if(S.picker.open) return;
+  if(el.dataset.num){
+    var q = el.dataset.num.split('|'), key = q[0]+'|'+q[1], val = q[2];
+    S.nums[key] = (S.nums[key]===val ? '' : val);
+    rerender(el); return;
+  }
+  if(el.dataset.ispart !== undefined && el.type === 'checkbox'){
+    /* 分片勾选：原型只记录状态（真值由后端落 task_files.is_part） */
+    return;
+  }
+  if(el.dataset.pkOpen){
+    S.focusBack = '[data-pk-open="'+el.dataset.pkOpen+'"]';
+    S.picker = {open:true, path:(S.roots[0]||BROWSER_ROOTS[0].path), mode:el.dataset.pkOpen, err:''};
+    render(); return;
+  }
+  if(el.dataset.pk){
+    var pk = el.dataset.pk;
+    if(pk==='close') return closePicker();
+    if(pk==='go' || pk==='mount'){ e.preventDefault(); S.picker.path = el.dataset.pkPath; S.picker.err=''; render(); return; }
+    if(pk==='up'){
+      var up = S.picker.path.replace(/\/[^\/]+\/?$/, '');
+      S.picker.path = (up.length < BROWSER_ROOTS[0].path.length) ? BROWSER_ROOTS[0].path : up;
+      S.picker.err=''; render(); return;
+    }
+    if(pk==='jump'){
+      var inp = document.getElementById('pkpath');
+      var val2 = ((inp && inp.value) || '').trim();
+      S.picker.path = val2 || BROWSER_ROOTS[0].path;
+      S.picker.err = mountOf(S.picker.path) ? ''
+        : '不在可浏览根内（browse_roots: /media）—— 只允许 /media 及其子目录。改成 /media 下的路径，或先在 config.yaml 里加白名单。';
+      render(); return;
+    }
+    if(pk==='apply'){
+      var mode = el.dataset.pkMode, path = S.picker.path;
+      if(!mountOf(path)){
+        S.picker.err = '不在可浏览根内（browse_roots: /media）。';
+        render(); return;
+      }
+      if(mode==='root'){
+        if(S.roots.indexOf(path) < 0) S.roots.push(path);
+      } else {
+        var under = S.roots.some(function(r){ return path.indexOf(r+'/')===0; });
+        if(!under){
+          S.picker.err = '排除目录必须是某个根目录的真子目录（#10 的校验规则）。先把它上面的一级设为根目录。';
+          render(); return;
+        }
+        if(S.excludes.indexOf(path) < 0) S.excludes.push(path);
+      }
+      closePicker(); return;
+    }
+  }
+  if(el.dataset.chip){
+    var kind = el.dataset.chip, cp = el.dataset.chipPath;
+    if(kind==='root') S.roots = S.roots.filter(function(x){return x!==cp});
+    else S.excludes = S.excludes.filter(function(x){return x!==cp});
+    rerender(el); return;
+  }
+  if(el.dataset.g !== undefined && el.type === 'checkbox'){
+    var g = el.dataset.g;
+    if(S.picked[g]) delete S.picked[g]; else S.picked[g] = true;
+    rerender(el); return;
+  }
+  if(el.dataset.row !== undefined && el.type === 'checkbox'){
+    var r = el.dataset.row;
+    if(S.rows[r]) delete S.rows[r]; else S.rows[r] = true;
+    rerender(el); return;
+  }
+});
+/* tablist 的键盘行为：左右箭头在标签间移动 */
+document.addEventListener('keydown', function(e){
+  var t = document.activeElement;
+  var inField = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
+  if(e.key==='Escape'){
+    if(S.picker.open) return closePicker();
+    if(S.lb) return closeLB();
+    return;
+  }
+  if(e.key==='Tab'){ if(S.picker.open || S.lb) trapFocus(e); return; }
+  if(inField) return;
+  if(t && t.getAttribute && t.getAttribute('role')==='tab' && (e.key==='ArrowLeft' || e.key==='ArrowRight')){
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('[role=tab]'));
+    var i = tabs.indexOf(t);
+    var n = (i + (e.key==='ArrowRight'?1:-1) + tabs.length) % tabs.length;
+    tabs[n].focus(); tabs[n].click(); e.preventDefault(); return;
+  }
+  if(S.picker.open || S.lb) return;
   if(e.key==='ArrowLeft') cycle(-1);
   if(e.key==='ArrowRight') cycle(1);
 });
-function openLB(bg){
-  var m = /url\(["']?(.*?)["']?\)/.exec(bg||'');
-  if(!m) return;
-  var lb = document.getElementById('lb');
-  lb.querySelector('img').src = m[1];
-  lb.classList.add('on');
-}
-function closeLB(){ document.getElementById('lb').classList.remove('on'); }
 readURL(); render();
 </script>
 </body>
