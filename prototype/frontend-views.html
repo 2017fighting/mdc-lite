@@ -920,16 +920,24 @@ function aShell(view){
   + '</nav><main id="main" tabindex="-1">'+aBody(view)+'</main></div>';
 }
 function aBody(view){
-  var err = S.state==='error'
-    ? '<div class="notice notice-error" role="alert">'+ICON.warn
-      + '<span><b>任务列表加载失败</b>：服务端返回 500。可以先重试，或稍后再看；'
-      + '若持续失败，用 <span class="mono">docker logs mdc-lite</span> 查后台日志。</span>'
-      + '<button class="btn btn-sm act" type="button">重试</button></div>'
-    : '';
-  if(view==='scan') return aScan();
+  /* 错误态属于「这个视图拿不到数据」，所以每个视图都要有，不只是任务列表 */
+  var err = S.state==='error' ? aErrorFor(view) : '';
+  if(view==='scan') return err + aScan();
   if(view==='tasks') return err + aTasks();
-  if(view==='detail') return aDetail();
-  return aNumbers();
+  if(view==='detail') return err + aDetail();
+  return err + aNumbers();
+}
+function aErrorFor(view){
+  var msg = {
+    scan:'扫描失败：服务端返回 500。重试一次；若持续失败，用 <span class="mono">docker logs mdc-lite</span> 看后台日志，'
+      + '并确认 <span class="mono">browse_roots</span> 里的目录在容器内真的可读。',
+    tasks:'任务列表加载失败：服务端返回 500。先重试；若持续失败，用 <span class="mono">docker logs mdc-lite</span> 查后台日志。',
+    detail:'任务详情加载失败：服务端返回 500。重试，或回任务列表确认这个任务还在。',
+    numbers:'待补号列表加载失败：服务端返回 500。重试；若持续失败，查后台日志确认数据库可写。'
+  }[view];
+  return '<div class="notice notice-error" role="alert">'+ICON.warn+'<span><b>'+esc(msg.split('：')[0])+'</b>：'
+   + msg.split('：').slice(1).join('：')+'</span>'
+   + '<button class="btn btn-sm act" type="button">重试</button></div>';
 }
 function rootChips(kind, list){
   var empty = kind==='exclude' && !list.length;
@@ -1264,15 +1272,22 @@ function bShell(view){
    + '</div><main id="main" tabindex="-1">'+bBody(view)+'</main>';
 }
 function bBody(view){
-  var err = S.state==='error'
-    ? '<div class="notice notice-error" role="alert">'+ICON.warn
-      + '<span><b>扫描失败</b>：出口不可用（egress_unavailable）。先重试；'
-      + '若一直失败，检查路由器那条按域名分流的出口规则。</span>'
-      + '<button class="btn btn-sm act" type="button">重试</button></div>' : '';
-  if(view==='scan') return bScan();
+  var err = S.state==='error' ? bErrorFor(view) : '';
+  if(view==='scan') return err + bScan();
   if(view==='tasks') return err + bTasks();
-  if(view==='numbers') return bNumbers();
-  return bDetail();
+  if(view==='numbers') return err + bNumbers();
+  return err + bDetail();
+}
+function bErrorFor(view){
+  var msg = {
+    scan:'扫描失败：出口不可用（egress_unavailable）。先重试；若一直失败，检查路由器那条按域名分流的出口规则。',
+    tasks:'任务列表加载失败：服务端返回 500。重试，或稍后再看。',
+    detail:'任务详情加载失败：服务端返回 500。重试，或回任务列表确认这个任务还在。',
+    numbers:'待补号列表加载失败：服务端返回 500。重试。'
+  }[view];
+  return '<div class="notice notice-error" role="alert">'+ICON.warn+'<span><b>'+esc(msg.split('：')[0])+'</b>：'
+   + msg.split('：').slice(1).join('：')+'</span>'
+   + '<button class="btn btn-sm act" type="button">重试</button></div>';
 }
 function bScan(){
   var h = '<h1 class="page-h">扫描预览</h1><p class="sub">选一个容器内目录，看一眼能进候选的文件，勾选后建任务</p>';
@@ -1435,15 +1450,22 @@ function cShell(view){
    + '<main id="main" tabindex="-1">'+cBody(view)+'</main>';
 }
 function cBody(view){
-  var err = S.state==='error'
-    ? '<div class="notice notice-error" role="alert">'+ICON.warn
-      + '<span><b>任务查询失败</b>：503，SQLite 的 busy_timeout 已耗尽。重试通常就能过；'
-      + '若反复出现，检查是否把 <span class="mono">db_path</span> 放在了 NFS 上（不该放）。</span>'
-      + '<button class="btn btn-sm act" type="button">重试</button></div>' : '';
-  if(view==='scan') return cScan();
+  var err = S.state==='error' ? cErrorFor(view) : '';
+  if(view==='scan') return err + cScan();
   if(view==='tasks') return err + cTasks();
-  if(view==='numbers') return cNumbers();
-  return cDetail();
+  if(view==='numbers') return err + cNumbers();
+  return err + cDetail();
+}
+function cErrorFor(view){
+  var msg = {
+    scan:'扫描失败：服务端返回 500。重试；若持续失败，确认 <span class="mono">browse_roots</span> 里的目录在容器内可读。',
+    tasks:'任务查询失败：503，SQLite 的 busy_timeout 已耗尽。重试通常就能过；若反复出现，检查 <span class="mono">db_path</span> 是否落在了 NFS 上（不该落）。',
+    detail:'任务详情查询失败：503。重试；若反复出现，查后台日志里的锁等待。',
+    numbers:'待补号查询失败：503。重试；若反复出现，确认数据库可写（单写连接没被占死）。'
+  }[view];
+  return '<div class="notice notice-error" role="alert">'+ICON.warn+'<span><b>'+esc(msg.split('：')[0])+'</b>：'
+   + msg.split('：').slice(1).join('：')+'</span>'
+   + '<button class="btn btn-sm act" type="button">重试</button></div>';
 }
 function cScan(){
   var h = '<h1 class="page-h">扫描预览</h1><p class="sub">手动模式 · 全量扫描 · 预览与建任务共用 scan → filter → group → parse</p>'
