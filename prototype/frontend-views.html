@@ -6,6 +6,11 @@
   URL 参数：?variant=A|B|C&view=scan|tasks|detail|numbers&state=normal|loading|empty|error
   底部的浮动条是原型专用的（生产里会按 NODE_ENV 关掉）。
   结构取向：A 密集表格运维台 / B 海报卡片墙 / C 深色流程看板 —— 三者结构不同，不是换配色。
+
+  【已裁决，见 issue #11 结票评论】基线 = 变体 A（运维台表格）；扫描预览跑到 `--until parse`（修正 #2）；
+  图片走 API 缩放端点（视频不抽帧）；生产样式 = Tailwind v4（本文件手写 CSS 只是为了让原型无构建即开）；
+  分页 = 页码 + 每页；搜索只搜番号；批量只做重跑；批次只做筛选项；详情页不放日志（只用 step_runs/source_runs）；
+  填号两处都能填（待补号页 + 详情页）；「打开输出目录」= 复制路径 + 落盘台账；默认排序 = 创建时间倒序。
 -->
 <html lang="zh-CN">
 <head>
@@ -130,6 +135,11 @@ a{cursor:pointer;text-decoration:none}
 .vA .cand{display:inline-flex;gap:4px}
 .vA .cand button{border:1px solid #ddd6fe;background:#f7f4ff;color:#6d28d9;border-radius:5px;padding:1px 7px;font-size:11.5px}
 .vA .cand button.on{background:#7c3aed;border-color:#7c3aed;color:#fff}
+.vA .fillrow{display:grid;grid-template-columns:1fr 220px 170px 168px;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid #eef1f5}
+#lb{position:fixed;inset:0;background:rgba(8,10,14,.93);display:none;place-items:center;z-index:1000;padding:36px;cursor:zoom-out}
+#lb.on{display:grid}
+#lb img{max-width:92vw;max-height:84vh;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+#lb .hint{position:absolute;bottom:16px;left:0;right:0;text-align:center;color:#9aa4b0;font-size:12px}
 
 /* ================= B · 卡片墙（海报为主 + 顶部导航） ================= */
 .vB{--bg:#fbfaf7;--panel:#fff;--line:#ece7dd;--text:#1a1a1a;--muted:#78716c;--accent:#111;
@@ -293,6 +303,7 @@ a{cursor:pointer;text-decoration:none}
 <body>
 <div id="app"></div>
 <div id="bar"></div>
+<div id="lb"><img alt=""><div class="hint">点击任意处或按 Esc 关闭 · 灯箱（原型演示）</div></div>
 <script>
 /* ================= 假数据（内存，无持久化） ================= */
 var PIPELINES = [{id:'default', name:'默认流水线'}, {id:'vr', name:'VR 专用'}];
@@ -459,6 +470,28 @@ var DETAILS = {
       ['fc2','ok','',5,1400],['javdb','notfound','',0,320],['javbus','notfound','',0,240],['dmm','notfound','',0,180]
     ],
     rows:[]
+  },
+  'SSVR-122': {
+    number:'SSVR-122（待定）', status:'needs_number',
+    title:'（解析出 SSVR-122 / SSVR-123 两个候选，等人定号）', hue:265,
+    out:'—', batch:'b-1043', trigger:'monitor', updated:'10-27 14:04',
+    parts:2, link:'hardlink', pipeline:'vr',
+    fields:[
+      ['title','—','',0],['plot','—','',0],['fanart','—','',1],['extrafanarts','—','',1],
+      ['tags','—','',0],['releasedate','—','',0],['actors','—','',0],['poster','—','',1],
+      ['director','—','',0],['runtime','—','',0],['rating','—','',0],['series','—','',0],
+      ['studio','—','',0],['publisher','—','',0]
+    ],
+    missing:[],
+    steps:[
+      ['scan','ok',52,'roots 1 · walk 1 目录 · 命中 2 文件'],
+      ['filter','ok',1,'候选 2 · 排除 0'],
+      ['group','ok',7,'组 1 · 合并 1 组（cd 标记）'],
+      ['parse','failed',2,'解析分歧：SSVR-122 / SSVR-123 → 待补号'],
+      ['scrape','—',0,'未跑（等人补号）'],['images','—',0,'未跑'],
+      ['nfo','—',0,'未跑'],['output','—',0,'未跑']
+    ],
+    srcs:[], rows:[]
   }
 };
 
@@ -491,13 +524,19 @@ function posterImg(hue, num, cls){ return '<div class="ph '+(cls||'')+'" style="
 function fanImg(hue, label, cls){ return '<div class="ph '+(cls||'')+'" style="background-image:url(\''+svg(hue,640,360,label)+'\')"></div>'; }
 function stLabel(s){ return {queued:'排队',running:'运行中',succeeded:'成功',partial:'部分',failed:'失败',
   needs_number:'待补号',cancelled:'已取消'}[s] || s; }
+function stepBadge(s){
+  if(s==='ok') return '<span class="st s-succeeded"><i></i>ok</span>';
+  if(s==='failed') return '<span class="st s-failed"><i></i>failed</span>';
+  return '<span class="muted">待跑</span>';
+}
+function stepCls(s){ return s==='ok' ? 'ok' : (s==='failed' ? 'bad' : ''); }
 function st(st){ return '<span class="st s-'+st+'"><i></i>'+stLabel(st)+'</span>'; }
 function reasonLabel(r){ return {egress_unavailable:'出口不可用',timeout:'超时',blocked:'被拦',
   cooldown:'冷却中',http_5xx:'5xx',parse:'解析失败'}[r] || r; }
 function taskByNum(n){ for(var i=0;i<TASKS.length;i++) if(TASKS[i].num===n) return TASKS[i]; return null; }
 
 /* ================= 状态 ================= */
-var S = {variant:'A', view:'scan', state:'normal', detail:'SSIS-001', picked:{}, nums:{}, tab:'overview', page:1};
+var S = {variant:'A', view:'scan', state:'normal', detail:'SSIS-001', picked:{}, nums:{}, rows:{}, tab:'overview', page:1};
 var VIEWS = [['scan','扫描预览'],['tasks','任务列表'],['detail','任务详情'],['numbers','待补号']];
 var STATES = [['normal','正常'],['loading','加载中'],['empty','空'],['error','出错']];
 var VARIANTS = [['A','运维台'],['B','卡片墙'],['C','流程看板']];
@@ -629,14 +668,15 @@ function aTasks(){
    + '<select class="btn"><option>批次：全部</option><option>批次 b-1043</option></select>'
    + '<select class="btn"><option>触发：全部</option><option>manual</option><option>monitor</option></select>'
    + '<select class="btn"><option>时间：全部</option><option>最近 24h</option><option>最近 7 天</option></select>'
-   + '<input type="search" placeholder="搜索番号 / 标题" style="width:190px"></div>';
+   + '<input type="search" placeholder="搜番号" style="width:150px"></div>';
   h += '<div class="card"><table><thead><tr>'
    + '<th style="width:30px"><input type="checkbox" class="ck"></th><th style="width:44px"></th><th>番号</th><th>标题</th>'
    + '<th style="width:96px">状态</th><th style="width:132px">阶段</th><th style="width:84px">源 / 缺</th>'
    + '<th style="width:92px">批次</th><th style="width:76px">触发</th><th style="width:104px">更新</th>'
    + '<th style="width:104px"></th></tr></thead><tbody>';
   TASKS.forEach(function(t){
-    h += '<tr><td><input type="checkbox" class="ck"></td>'
+    h += '<tr'+(S.rows[t.num]?' class="sel"':'')+'><td><input type="checkbox" class="ck rowpick" data-row="'
+     + t.num+'" '+(S.rows[t.num]?'checked':'')+'></td>'
      + '<td>'+posterImg(t.hue,t.num,'thumb')+'</td>'
      + '<td class="mono"><b>'+t.num+'</b></td>'
      + '<td>'+t.title+'</td><td>'+st(t.status)+'</td>'
@@ -648,7 +688,12 @@ function aTasks(){
     if(t.err) h += '<tr><td></td><td></td><td colspan="9" class="muted">'
       + '<span class="pill r">'+t.err+'</span></td></tr>';
   });
-  h += '</tbody></table><div class="pg"><span>显示 1–7 / 137</span><span style="flex:1"></span>'
+  h += '</tbody></table>';
+  var selRows = Object.keys(S.rows).length;
+  if(selRows) h += '<div class="stickybar"><span>已选 <b>'+selRows+'</b> 个任务</span>'
+   + '<span class="muted">批量重跑 = 逐条任务级后缀重跑，返回逐条结果</span><span style="flex:1"></span>'
+   + '<button class="btn">清空选择</button><button class="btn pri">批量重跑</button></div>';
+  h += '<div class="pg"><span>显示 1–7 / 137</span><span style="flex:1"></span>'
    + '<button class="btn sm">上一页</button>'
    + [1,2,3,4,5,6,7].map(function(p){return '<button class="pn '+(p===1?'on':'')+'">'+p+'</button>'}).join('')
    + '<button class="btn sm">下一页</button><select class="btn sm"><option>每页 20</option><option>每页 50</option>'
@@ -670,7 +715,7 @@ function aDetail(){
    + [1,2,3,4].map(function(i){return fanImg(d.hue+i*9,'剧照 '+i,'f16')}).join('')+'</div>'
    + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
    + '<button class="btn pri">从 parse 起重跑</button><button class="btn">取消任务</button>'
-   + '<button class="btn">打开输出目录 <span class="mono">'+d.out+'</span></button>'
+   + '<button class="btn">复制路径 <span class="mono">'+d.out+'</span></button>'
    + '<span style="flex:1"></span><span class="muted">硬链 '+d.link+' · '+d.parts+' 个分片</span></div>'
    + (d.missing.length?'<div style="margin-top:10px"><span class="pill r">缺字段 '+d.missing.length+' 个：'
      + d.missing.join(' / ')+'</span> <span class="muted">Partial = 有缺失即为真</span></div>':'')
@@ -691,9 +736,8 @@ function aDetail(){
   } else if(S.tab==='steps'){
     h += '<table><thead><tr><th style="width:110px">步骤</th><th style="width:90px">状态</th>'
      + '<th style="width:90px">耗时</th><th>摘要</th></tr></thead><tbody>'
-     + d.steps.map(function(s){return '<tr><td class="mono">'+s[0]+'</td><td>'+(s[1]==='ok'
-        ? '<span class="st s-succeeded"><i></i>ok</span>':'<span class="st s-failed"><i></i>failed</span>')
-       + '</td><td class="mono">'+s[2]+' ms</td><td class="muted">'+s[3]+'</td></tr>'}).join('')
+     + d.steps.map(function(s){return '<tr><td class="mono">'+s[0]+'</td><td>'+stepBadge(s[1])
+       + '</td><td class="mono">'+(s[1]==='—'?'—':s[2]+' ms')+'</td><td class="muted">'+s[3]+'</td></tr>'}).join('')
      + '</tbody></table>';
   } else if(S.tab==='sources'){
     h += '<table><thead><tr><th style="width:110px">源</th><th style="width:110px">状态</th><th style="width:120px">原因码</th>'
@@ -713,6 +757,29 @@ function aDetail(){
      + '</tbody></table>';
   }
   h += '</div>';
+  if(d.status==='needs_number') h += aFillPanel(S.detail);
+  return h;
+}
+function aFillPanel(taskNum){
+  var n = null;
+  NUMBERS.forEach(function(x){ if(x.task===taskNum) n = x; });
+  if(!n) return '';
+  var h = '<div class="card" style="margin-top:12px;padding:12px"><b>解析分歧，需要你填号</b>'
+   + '<span class="muted">（同一块面板在「待补号」页也有 —— 两处都能填）</span>'
+   + '<div class="muted" style="margin:6px 0 10px">填完 ⇒ 任务回 queued ⇒ 新 run 从 parse 起跑，不重扫目录；'
+   + '未填期间该路径仍被占用（重扫不会为它再建任务）</div>';
+  n.files.forEach(function(f){
+    var key = n.task+'|'+f.p;
+    h += '<div class="fillrow"><span class="mono">'+f.p
+     + (f.primary?' <span class="pill">primary</span>':' <span class="pill">分片</span>')+'</span>'
+     + '<span class="cand">'+f.cands.map(function(c){return '<button class="'+(S.nums[key]===c?'on':'')
+        + '" data-num="'+key+'|'+c+'">'+c+'</button>'}).join('')+'</span>'
+     + '<input class="numin" value="'+(S.nums[key]||'')+'" placeholder="或手填番号">'
+     + '<label class="muted"><input type="checkbox" class="ck" '+(f.part?'checked':'')+'> 同一作品的分片</label></div>';
+  });
+  h += '<div style="display:flex;gap:10px;margin-top:12px;align-items:center">'
+   + '<span class="muted">任务号取 primary 行填的号</span><span style="flex:1"></span>'
+   + '<button class="btn">跳过（取消任务）</button><button class="btn pri">提交并重跑</button></div></div>';
   return h;
 }
 function aNumbers(){
@@ -736,7 +803,7 @@ function aNumbers(){
     });
     h += '</tbody></table><div style="padding:10px 12px;display:flex;gap:10px;align-items:center">'
      + '<span class="muted">任务号取 primary 行填的号；分片勾选决定改名与排序</span><span style="flex:1"></span>'
-     + '<button class="btn">跳过</button><button class="btn pri">提交并重跑</button></div></div>';
+     + '<button class="btn">跳过（取消任务）</button><button class="btn pri">提交并重跑</button></div></div>';
   });
   return h;
 }
@@ -842,8 +909,9 @@ function bDetail(){
    + fanImg(d.hue,'fanart','f16')+fanImg(d.hue+9,'剧照 1','f16')+fanImg(d.hue+18,'剧照 2','f16')
    + fanImg(d.hue+27,'剧照 3','f16')+'</div></div></div>'
    + '<div><div class="panel"><h3>步骤</h3><div class="tl">'
-   + d.steps.map(function(s){return '<div class="row '+(s[1]==='ok'?'ok':'bad')+'"><span class="dot"></span>'
-     + '<span class="nm mono">'+s[0]+'</span><span>'+s[3]+'</span><span class="ms">'+s[2]+'ms</span></div>'}).join('')
+   + d.steps.map(function(s){return '<div class="row '+stepCls(s[1])+'"><span class="dot"></span>'
+     + '<span class="nm mono">'+s[0]+'</span><span>'+s[3]+'</span><span class="ms">'
+     + (s[1]==='—'?'—':s[2]+'ms')+'</span></div>'}).join('')
    + '</div></div><div class="panel" style="margin-top:16px"><h3>源留痕</h3>'
    + d.srcs.map(function(s){return '<div class="srcrow"><span class="mono" style="width:56px">'+s[0]+'</span>'
      + '<span>'+st(s[1]==='ok'?'succeeded':(s[1]==='failed'?'failed':'cancelled'))+'</span>'
@@ -871,7 +939,7 @@ function bNumbers(){
        + '</div></span></div>';
     });
     h += '<div style="display:flex;gap:10px;margin-top:12px"><span class="grow" style="flex:1"></span>'
-     + '<button class="btn">跳过</button><button class="btn pri">提交并重跑</button></div></div>';
+     + '<button class="btn">跳过（取消任务）</button><button class="btn pri">提交并重跑</button></div></div>';
   });
   return h;
 }
@@ -987,10 +1055,10 @@ function cDetail(){
    + '<div class="sub">'+st(d.status)+' · 批次 '+d.batch+' · '+d.trigger+' · 硬链 '+d.link
    + (d.missing.length?' · 缺字段 '+d.missing.length:'')+'</div>';
   h += '<div class="panels"><div class="panel"><h3>步骤时间线（任务级后缀从 parse 起可重跑）</h3><div class="tl">'
-   + d.steps.map(function(s){return '<div class="row '+(s[1]==='ok'?'ok':'bad')+'"><span class="nm mono">'+s[0]+'</span>'
-     + '<span class="sum">'+s[3]+'</span><span class="ms">'+s[2]+' ms</span></div>'}).join('')
+   + d.steps.map(function(s){return '<div class="row '+stepCls(s[1])+'"><span class="nm mono">'+s[0]+'</span>'
+     + '<span class="sum">'+s[3]+'</span><span class="ms">'+(s[1]==='—'?'—':s[2]+' ms')+'</span></div>'}).join('')
    + '</div><div style="display:flex;gap:8px;margin-top:12px"><button class="btn pri">从 parse 起重跑</button>'
-   + '<button class="btn">取消任务</button><button class="btn">打开目录 '+d.out+'</button></div></div>'
+   + '<button class="btn">取消任务</button><button class="btn">复制路径 '+d.out+'</button></div></div>'
    + '<div><div class="panel"><h3>图片</h3><div class="wall" style="grid-template-columns:repeat(2,1fr)">'
    + '<div style="grid-row:span 2">'+posterImg(d.hue,d.number,'p23')+'</div>'+fanImg(d.hue,'fanart','f16')
    + fanImg(d.hue+9,'剧照 1','f16')+fanImg(d.hue+18,'剧照 2','f16')+'</div></div>'
@@ -1028,7 +1096,7 @@ function cNumbers(){
        + '<label style="color:#8b949e"><input type="checkbox" class="ck" '+(f.part?'checked':'')+'> 分片</label></span></div>';
     });
     h += '<div style="display:flex;gap:8px;margin-top:10px"><span style="flex:1"></span>'
-     + '<button class="btn">跳过</button><button class="btn pri">提交并重跑</button></div></div>';
+     + '<button class="btn">跳过（取消任务）</button><button class="btn pri">提交并重跑</button></div></div>';
   });
   return h;
 }
@@ -1052,7 +1120,7 @@ function renderBar(){
    + '</div><div class="sep"></div><div class="seg">'
    + STATES.map(function(x){return '<button data-state="'+x[0]+'" class="'+(S.state===x[0]?'on':'')+'">'+x[1]+'</button>'}).join('')
    + '</div><div class="sep"></div><div class="seg">'
-   + ['SSIS-001','ABP-123','FC2-3336019'].map(function(n){
+   + ['SSIS-001','ABP-123','FC2-3336019','SSVR-122'].map(function(n){
       return '<button data-detail="'+n+'" class="'+(S.detail===n?'on':'')+'">'+n+'</button>'}).join('')
    + '</div>';
   document.getElementById('bar').innerHTML = h;
@@ -1064,8 +1132,16 @@ function cycle(dir){
   set({variant:VARIANTS[i][0]});
 }
 document.addEventListener('click', function(e){
-  var el = e.target.closest('[data-act],[data-view],[data-state],[data-detail],[data-tab],[data-num],[data-g]');
+  var img = e.target.closest('.ph');
+  if(img && S.view==='detail'){ openLB(img.style.backgroundImage); return; }
+  if(e.target.id==='lb'){ closeLB(); return; }
+  var el = e.target.closest('[data-act],[data-view],[data-state],[data-detail],[data-tab],[data-num],[data-g],[data-row]');
   if(!el) return;
+  if(el.dataset.row!==undefined && el.classList.contains('rowpick')){
+    var r = el.dataset.row;
+    if(S.rows[r]) delete S.rows[r]; else S.rows[r]=true;
+    render(); return;
+  }
   if(el.dataset.act==='prev') return cycle(-1);
   if(el.dataset.act==='next') return cycle(1);
   if(el.dataset.view){
@@ -1095,9 +1171,18 @@ document.addEventListener('click', function(e){
 document.addEventListener('keydown', function(e){
   var t = document.activeElement;
   if(t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+  if(e.key==='Escape') closeLB();
   if(e.key==='ArrowLeft') cycle(-1);
   if(e.key==='ArrowRight') cycle(1);
 });
+function openLB(bg){
+  var m = /url\(["']?(.*?)["']?\)/.exec(bg||'');
+  if(!m) return;
+  var lb = document.getElementById('lb');
+  lb.querySelector('img').src = m[1];
+  lb.classList.add('on');
+}
+function closeLB(){ document.getElementById('lb').classList.remove('on'); }
 readURL(); render();
 </script>
 </body>
