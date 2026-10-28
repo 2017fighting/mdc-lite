@@ -27,7 +27,7 @@ const filterGroup = `  - type: filter
 
 // afterGroup is the task-level suffix with every optional step left out.
 const afterGroup = `  - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: output
     with: {root: /o}
 `
@@ -229,7 +229,7 @@ func TestParsePipeline_TopologyNotConnected(t *testing.T) {
   - type: scan
     with: {roots: [/a]}
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: output
     with: {root: /o}
 `)
@@ -268,7 +268,7 @@ func TestParsePipeline_OutputRootIsRequired(t *testing.T) {
   - type: scan
     with: {roots: [/a]}
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: output
     with: {}
 `)
@@ -337,12 +337,46 @@ func TestParsePipeline_PartPatternsNeedACaptureGroup(t *testing.T) {
 	}
 }
 
+func TestParsePipeline_ParseRulesValidated(t *testing.T) {
+	body := func(rules string) string {
+		return head + filterGroup + `  - type: parse
+    with:
+      rules: ` + rules + `
+  - type: output
+    with: {root: /o}
+`
+	}
+	for _, tc := range []struct{ name, rules, want string }{
+		{"empty", `[]`, "must not be empty"},
+		{"builtin and pattern", `[{builtin: default, pattern: '(?i)x+', family: y}]`, "mutually exclusive"},
+		{"unknown builtin", `[{builtin: everything}]`, "not a builtin set"},
+		{"no rule", `[{}]`, "needs builtin or pattern"},
+		{"bad regex", `[{pattern: '['}]`, "pattern"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parse(t, body(tc.rules))
+			if err == nil {
+				t.Fatal("expected a validation error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not mention %q", err, tc.want)
+			}
+		})
+	}
+
+	// A user pattern above the built-in set is the documented way to specialise
+	// the table, so it has to load.
+	if _, err := parse(t, body(`[{pattern: '(?i)(abc[-_ ]?\d+)', family: mine}, {builtin: default}]`)); err != nil {
+		t.Fatalf("a user rule above the built-in set must load: %v", err)
+	}
+}
+
 func TestParsePipeline_OutputRequiredFieldsMustBeRealFields(t *testing.T) {
 	_, err := parse(t, `steps:
   - type: scan
     with: {roots: [/a]}
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: output
     with:
       root: /o
@@ -361,7 +395,7 @@ func TestParsePipeline_TemplateVariablesChecked(t *testing.T) {
   - type: scan
     with: {roots: [/a]}
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: output
     with:
       root: /o
@@ -381,7 +415,7 @@ func TestParsePipeline_LinkEnum(t *testing.T) {
   - type: scan
     with: {roots: [/a]}
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: output
     with: {root: /o, link: symlink}
 `)
@@ -400,7 +434,7 @@ func TestParsePipeline_TemplateSelector(t *testing.T) {
 		{"mine", "not a builtin name"},
 	} {
 		body := head + filterGroup +
-			"  - type: parse\n    with: {}\n" +
+			"  - type: parse\n    with: {rules: [{builtin: default}]}\n" +
 			"  - type: scrape\n    with: {sources: [javdb]}\n" +
 			"  - type: nfo\n    with:\n      template: \"" + tc.sel + "\"\n" +
 			"  - type: output\n    with: {root: /o}\n"
@@ -566,7 +600,7 @@ func TestLoadPipelines_UnreferencedFileIsStillValidated(t *testing.T) {
   - type: scan
     with: {roots: [/a], extensoins: [.mp4]}
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: output
     with: {root: /o}
 `)
@@ -607,7 +641,7 @@ func TestLoadPipelines_WithStructsDoNotLeakBetweenFiles(t *testing.T) {
   - type: group
     with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: output
     with: {root: /o}
 `)
@@ -631,7 +665,7 @@ func TestLoadPipelines_WithStructsDoNotLeakBetweenFiles(t *testing.T) {
   - type: group
     with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: output
     with: {root: /o}
 `)
@@ -658,7 +692,7 @@ func TestParsePipeline_WithDefaults(t *testing.T) {
   - type: group
     with: {}
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: scrape
     with: {}
   - type: images
@@ -712,7 +746,7 @@ func TestParsePipeline_SourceOrderWithKnobs(t *testing.T) {
   - type: group
     with: {}
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: scrape
     with:
       sources:
@@ -771,7 +805,7 @@ func TestParsePipeline_SourceOrderIsValidated(t *testing.T) {
   - type: group
     with: {}
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: scrape
     with:
       sources: ` + sources + `
@@ -811,6 +845,7 @@ func TestParsePipeline_OmittedWithMeansDefaults(t *testing.T) {
           then: include
   - type: group
   - type: parse
+    with: {rules: [{builtin: default}]}
   - type: scrape
   - type: output
     with: {root: /o}
@@ -832,7 +867,7 @@ func TestParsePipeline_WithMustBeAMapping(t *testing.T) {
   - type: scan
     with: /media
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: output
     with: {root: /o}
 `)

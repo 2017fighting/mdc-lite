@@ -38,7 +38,9 @@ steps:
     with: {}
 
   - type: parse
-    with: {}
+    with:
+      rules:
+        - {builtin: default}
 
   - type: output
     with: {root: "/media/library"}
@@ -72,13 +74,13 @@ func TestBuild_StopsAtTheRequestedStep(t *testing.T) {
 }
 
 func TestBuild_RefusesAStepWithNoImplementation(t *testing.T) {
-	// Asking for the whole pipeline before the task-level suffix exists has to
-	// fail at build time, naming the step, not halfway through a scan.
+	// Asking for the whole pipeline before the rest of the task-level suffix exists
+	// has to fail at build time, naming the step, not halfway through a scan.
 	_, err := build(t, testPipeline, Options{})
 	if err == nil {
-		t.Fatal("parse has no implementation in this build")
+		t.Fatal("output has no implementation in this build")
 	}
-	for _, want := range []string{"step 4 (parse)", "no implementation", "scan, filter, group"} {
+	for _, want := range []string{"step 5 (output)", "no implementation", "scan, filter, group, parse"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}
@@ -191,6 +193,69 @@ func TestRun_PrintsTheSummaryOfEveryStepItRan(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRun_PrintsEveryGroupNumberAndWhyOneNeedsAHuman(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "ABC-123-cd1.mp4"), 200)
+	writeFile(t, filepath.Join(root, "ABC-123-cd2.mp4"), 200)
+	writeFile(t, filepath.Join(root, "ABC-123_XYZ-456.mp4"), 200)
+	writeFile(t, filepath.Join(root, "SSVR-122-cd1.mp4"), 200)
+	writeFile(t, filepath.Join(root, "SSVR-123-cd2.mp4"), 200)
+	writeFile(t, filepath.Join(root, "hello.mp4"), 200)
+	writeFile(t, filepath.Join(root, "XYZ-999.mp4"), 200)
+	writeFile(t, filepath.Join(root, "XYZ-999-U.mp4"), 200)
+
+	e, err := build(t, testPipeline, Options{Input: Input{Roots: []string{root}}, Until: "parse", DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := e.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var out bytes.Buffer
+	res.Print(&out)
+	got := out.String()
+
+	for _, want := range []string{
+		"until:    parse   dry-run: nothing is written, nothing is stored",
+		"parse:   4 groups, 6 parts, 2 resolved, 1 conflicting number (SSVR-123), 1 needs a number (no_candidate), 1 needs a number (ambiguous), 1 needs a number (duplicate_stem)",
+		`number:     ABC-123 (raw "ABC-123", family generic)`,
+		"number:     none (no_candidate)",
+		"number:     none (ambiguous: ABC-123, XYZ-456)",
+		"conflict:   SSVR-123 (another part read a different number)",
+		"needs a number: duplicate_stem",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRun_PrintsWhenThePrimaryHadNoNumber(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "SECRET-cd1.mp4"), 200)
+	writeFile(t, filepath.Join(root, "SECRET-1-cd2.mp4"), 200)
+
+	e, err := build(t, testPipeline, Options{Input: Input{Roots: []string{root}}, Until: "parse"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := e.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var out bytes.Buffer
+	res.Print(&out)
+	for _, want := range []string{
+		"1 adopted from another part (primary had no number)",
+		`number:     SECRET-001 (raw "SECRET-1", family generic; primary had no number, adopted from another part)`,
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output does not contain %q:\n%s", want, out.String())
 		}
 	}
 }

@@ -46,6 +46,11 @@ steps:
   # group, and a rerun starts here rather than re-walking the directory.
   - type: parse
     with:
+      # A positional rule list: `{builtin: default}` expands the built-in set
+      # (FC2 / date-code / dmm content-id / generic) where it stands, so a user
+      # pattern written above it is credited first — but a reading that sits
+      # inside another rule's longer match still loses. A table that never says
+      # `builtin` uses no built-in rules at all.
       rules:
         - {builtin: default}
 

@@ -34,7 +34,7 @@ const pipeline = `steps:
   - type: group
     with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: parse
-    with: {}
+    with: {rules: [{builtin: default}]}
   - type: output
     with: {root: /media/library}
 `

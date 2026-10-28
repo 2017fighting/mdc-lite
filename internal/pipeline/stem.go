@@ -94,7 +94,10 @@ func newStripper(sanitize []string) (*stripper, error) {
 // (`ABC-123-cd1-1080p` only shows `-1080p` after `-1080p` is gone). Four passes
 // is more than any real name needs; the loop stops as soon as nothing changes.
 func (s *stripper) strip(base string) string {
-	out := base
+	// Fold full-width to half-width here, where the stem is made: two spellings of
+	// one name have to be one stem, or group's equality and duplicate-stem rules
+	// see two works and the same title gets two output directories.
+	out := toHalfWidth(base)
 	for pass := 0; pass < 4; pass++ {
 		before := out
 		for _, re := range s.extra {

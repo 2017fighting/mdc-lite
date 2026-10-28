@@ -72,6 +72,19 @@ func wantParts(t *testing.T, g Group, want ...string) {
 	}
 }
 
+// TestGroup_FullWidthAndHalfWidthAreOneStem: the stem is where full-width folding
+// happens, so two spellings of one work reach the duplicate rule as one stem
+// instead of becoming two tasks with two output directories.
+func TestGroup_FullWidthAndHalfWidthAreOneStem(t *testing.T) {
+	g := groupFiles(t, groupWith(), "ABC-123.mp4", "ＡＢＣ－１２３.mp4")
+	if len(g.Groups) != 0 || len(g.Duplicates) != 1 {
+		t.Fatalf("groups = %d, duplicates = %d, want one duplicate stem", len(g.Groups), len(g.Duplicates))
+	}
+	if got := g.Duplicates[0].Stem; got != "ABC-123" {
+		t.Errorf("stem = %q, want the folded ABC-123", got)
+	}
+}
+
 func TestGroup_AdjacentNumbersStayApart(t *testing.T) {
 	g := groupFiles(t, groupWith(), "ABP-123.mp4", "ABP-124.mp4")
 	if len(g.Groups) != 2 {

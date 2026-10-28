@@ -4,9 +4,9 @@
 // The contract every step obeys is the artifact one: a step says which artifacts
 // it requires and which it produces, and the engine refuses to start a sequence
 // whose chain does not connect. In this build the batch-level prefix (scan →
-// filter → group) is implemented; the task-level suffix arrives step by step,
-// and until it does, asking to run it is an error on startup rather than a
-// surprise halfway through.
+// filter → group) and `parse` are implemented; the rest of the task-level suffix
+// arrives step by step, and until it does, asking to run it is an error on
+// startup rather than a surprise halfway through.
 package pipeline
 
 import (
@@ -64,10 +64,12 @@ type State struct {
 	Files      *FileSet
 	Candidates *Candidates
 	Groups     *Groups
+	Parsed     *Parsed
 
 	ScanRun   *ScanSummary
 	FilterRun *FilterSummary
 	GroupRun  *GroupSummary
+	ParseRun  *ParseSummary
 }
 
 // Engine is a pipeline prepared to run: the steps are resolved, the stop point
@@ -102,6 +104,13 @@ var constructors = map[string]func(config.Step) (Step, error){
 		}
 		return newGroup(*w)
 	},
+	config.StepParse: func(s config.Step) (Step, error) {
+		w, ok := s.WithValue.(*config.ParseWith)
+		if !ok {
+			return nil, fmt.Errorf("the parse settings were not decoded (was the pipeline loaded through config.LoadPipelineFile?)")
+		}
+		return newParse(*w)
+	},
 }
 
 // Build prepares a run of p. It fails, before anything touches the filesystem,
@@ -118,7 +127,7 @@ func Build(p config.Pipeline, opts Options) (*Engine, error) {
 		st := p.Steps[i]
 		newStep, ok := constructors[st.Type]
 		if !ok {
-			return nil, stepError(p, i, "%q has no implementation in this build yet (this build runs the batch-level prefix: %s)",
+			return nil, stepError(p, i, "%q has no implementation in this build yet (this build runs: %s)",
 				st.Type, strings.Join(implementedTypes(), ", "))
 		}
 		step, err := newStep(st)
@@ -271,14 +280,19 @@ func (r *Result) Print(w io.Writer) {
 			st.FilterRun.In, st.FilterRun.Out, counts(st.FilterRun.Skipped))
 	}
 	if st.GroupRun != nil {
-		fmt.Fprintf(w, "group:   %s\n\n", st.GroupRun.String())
+		fmt.Fprintf(w, "group:   %s\n", st.GroupRun.String())
+	}
+	if st.ParseRun != nil {
+		fmt.Fprintf(w, "parse:   %s\n", st.ParseRun.String())
 	}
 	if st.Groups != nil {
-		writeGroups(w, st.Groups)
+		fmt.Fprintln(w)
+		writeGroups(w, st.Groups, st.Parsed)
 	}
 }
 
-func writeGroups(w io.Writer, g *Groups) {
+func writeGroups(w io.Writer, g *Groups, parsed *Parsed) {
+	resolved, unresolved := indexParsed(parsed)
 	for i, grp := range g.Groups {
 		fmt.Fprintf(w, "group %d/%d: %s (primary, %s)%s\n", i+1, len(g.Groups), grp.Primary.Path, grp.PrimaryStem, mergedNote(grp))
 		parts := make([]string, len(grp.Parts))
@@ -286,6 +300,19 @@ func writeGroups(w io.Writer, g *Groups) {
 			parts[j] = fmt.Sprintf("%s [%s]", p.File.Path, describeMarker(p.Marker))
 		}
 		fmt.Fprintf(w, "  parts:      %s\n", strings.Join(parts, " | "))
+		if item, ok := resolved[grp.Primary.Path]; ok {
+			note := ""
+			if item.PrimaryFailed {
+				note = "; primary had no number, adopted from another part"
+			}
+			fmt.Fprintf(w, "  number:     %s (raw %q, family %s%s)\n",
+				item.Number.Normalized, item.Number.Raw, item.Number.Family, note)
+			if extra := conflictsOf(item); len(extra) > 0 {
+				fmt.Fprintf(w, "  conflict:   %s (another part read a different number)\n", strings.Join(extra, ", "))
+			}
+		} else if u, ok := unresolved[grp.Primary.Path]; ok {
+			fmt.Fprintf(w, "  number:     none (%s)\n", describeUnresolved(u))
+		}
 		for _, c := range grp.Companions {
 			follows := "primary"
 			if c.FollowsPart > 0 {
@@ -299,8 +326,12 @@ func writeGroups(w io.Writer, g *Groups) {
 		for i, f := range d.Files {
 			names[i] = f.Path
 		}
-		fmt.Fprintf(w, "duplicate stem: %s/%s (%d files, a human decides): %s\n",
-			d.Dir, d.Stem, len(d.Files), strings.Join(names, ", "))
+		note := "a human decides"
+		if parsed != nil {
+			note = "needs a number: " + ReasonDuplicateStem
+		}
+		fmt.Fprintf(w, "duplicate stem: %s/%s (%d files, %s): %s\n",
+			d.Dir, d.Stem, len(d.Files), note, strings.Join(names, ", "))
 	}
 	for _, warn := range g.Warnings {
 		fmt.Fprintf(w, "like parts, not merged: %s ~ %s\n", warn.A.Path, warn.B.Path)
@@ -311,6 +342,35 @@ func writeGroups(w io.Writer, g *Groups) {
 	if len(g.Groups) > 0 {
 		fmt.Fprintln(w)
 	}
+}
+
+// indexParsed makes the parse result readable by the group it belongs to. A
+// resolved group is keyed by its primary path, and so is an unresolved one —
+// the primary is the first file in its list.
+func indexParsed(parsed *Parsed) (map[string]ParsedGroup, map[string]Unresolved) {
+	resolved := map[string]ParsedGroup{}
+	unresolved := map[string]Unresolved{}
+	if parsed == nil {
+		return resolved, unresolved
+	}
+	for _, item := range parsed.Items {
+		resolved[item.Group.Primary.Path] = item
+	}
+	for _, u := range parsed.Unresolved {
+		if len(u.Files) > 0 {
+			unresolved[u.Files[0].Path] = u
+		}
+	}
+	return resolved, unresolved
+}
+
+// describeUnresolved renders why a group needs a human, with the candidates when
+// there are any to offer.
+func describeUnresolved(u Unresolved) string {
+	if len(u.Candidates) == 0 {
+		return u.Reason
+	}
+	return u.Reason + ": " + strings.Join(u.Candidates, ", ")
 }
 
 func mergedNote(grp Group) string {
@@ -396,6 +456,57 @@ func (s GroupSummary) String() string {
 		parts = append(parts, fmt.Sprintf("%d look-like-parts warning(s)", s.Warnings))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// ParseSummary is the parse step's summary projection: what got a number, what
+// needs a human, and where the group's parts disagreed. Conflicts is a list of
+// numbers rather than a count because the point of recording one is to show it.
+type ParseSummary struct {
+	Groups   int
+	Parts    int
+	Resolved int
+	// Unresolved is keyed by reason (no_candidate / ambiguous / duplicate_stem).
+	Unresolved map[string]int
+	// Conflicts is the sorted, distinct set of numbers other parts read that the
+	// decided number was not.
+	Conflicts     []string
+	PrimaryFailed int
+	// conflicts accumulates the set while the step runs; Conflicts is its sorted
+	// projection, so the summary is stable across runs.
+	conflicts map[string]bool
+}
+
+// String renders the parse summary as one line.
+func (s ParseSummary) String() string {
+	parts := []string{
+		plural(s.Groups, "group", "groups"),
+		plural(s.Parts, "part", "parts"),
+		fmt.Sprintf("%d resolved", s.Resolved),
+	}
+	if n := len(s.Conflicts); n > 0 {
+		// Conflicts is the distinct set of numbers, not a per-group tally, so the
+		// count is of numbers that disagreed.
+		parts = append(parts, plural(n, "conflicting number", "conflicting numbers")+
+			" ("+strings.Join(s.Conflicts, ", ")+")")
+	}
+	if s.PrimaryFailed > 0 {
+		parts = append(parts, fmt.Sprintf("%d adopted from another part (primary had no number)", s.PrimaryFailed))
+	}
+	for _, reason := range []string{ReasonNoCandidate, ReasonAmbiguous, ReasonDuplicateStem} {
+		if s.Unresolved[reason] > 0 {
+			parts = append(parts, fmt.Sprintf("%d needs a number (%s)", s.Unresolved[reason], reason))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// plural renders a count with its noun, singular when the count is one, so a line
+// does not mix "1 groups" with "1 conflicting number".
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }
 
 // newCounts returns an initialised reason counter: a nil map is how a summary

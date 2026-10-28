@@ -57,8 +57,10 @@ type GroupWith struct {
 }
 
 // ParseWith configures `parse`. The rule table is a positional list: a
-// `{builtin: default}` entry expands the built-in set, and a user `{pattern: …}`
-// written above it wins.
+// `{builtin: default}` entry expands the built-in set where it stands, and a user
+// `{pattern: …}` written above it is credited first. Position does not override
+// the containment rule, though: a reading that sits inside another rule's longer
+// match still loses.
 type ParseWith struct {
 	Rules []ParseRule `yaml:"rules"`
 }
@@ -316,6 +318,12 @@ func (w *GroupWith) Validate() error {
 
 // Validate checks the parse rule table.
 func (w *ParseWith) Validate() error {
+	// An empty table numbers nothing, so every group would have to be typed in by
+	// hand. That is a misconfiguration, not a default: a step that deliberately
+	// wants no built-in rules still writes a `{pattern: …}` entry.
+	if len(w.Rules) == 0 {
+		return fmt.Errorf("rules must not be empty (write `- {builtin: default}` for the built-in set, or your own `- {pattern: …}` entries)")
+	}
 	for i, r := range w.Rules {
 		switch {
 		case r.Builtin != "" && r.Pattern != "":

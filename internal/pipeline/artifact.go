@@ -181,6 +181,65 @@ type UnmatchedFile struct {
 // has a stem it matches.
 const SkipNoGroup = "no_group"
 
+// Number is one group's 番号 as `parse` decided it: Raw is the text the winning
+// rule read, Normalized is its canonical form, and Family is the rule's label
+// (fc2 / date-code / dmm-content-id / generic, or a user rule's own).
+type Number struct {
+	Raw        string
+	Normalized string
+	Family     string
+}
+
+// ParsedGroup is one group with its number.
+//
+// Parts is index-aligned with Group.Parts, and Parts[0] is the primary: each
+// entry lists the distinct numbers that part's own stem produced. Zero entries
+// means that file's text offered no number; more than one means it offered
+// several, and the primary's list is what decides the group.
+type ParsedGroup struct {
+	Group  Group
+	Number Number
+	Parts  [][]string
+	// PrimaryFailed says the number came from another part because the primary
+	// produced no candidate of its own.
+	PrimaryFailed bool
+}
+
+// Unresolved reasons, the machine codes that also land in `tasks.last_error` and
+// in the needs-number panel. They are stable strings, not prose.
+const (
+	// ReasonNoCandidate means no rule read a number anywhere in the group.
+	ReasonNoCandidate = "no_candidate"
+	// ReasonAmbiguous means the group offered several numbers and none is the
+	// less specific reading of another. Candidates carries what to show the user.
+	ReasonAmbiguous = "ambiguous"
+	// ReasonDuplicateStem means the files strip to the same stem with no part
+	// marker on either side, so a human decides whether they are two parts or two
+	// versions. No number is read at all.
+	ReasonDuplicateStem = "duplicate_stem"
+)
+
+// Unresolved is a set of files waiting for a human-typed number. A group whose
+// number did not resolve arrives as its files (primary first); a duplicate stem
+// arrives as the files that never formed a group.
+type Unresolved struct {
+	Dir    string
+	Stem   string
+	Reason string
+	Files  []FileRef
+	// Candidates is what the rules offered, sorted — the chips the panel shows.
+	// Empty for no_candidate and duplicate_stem: there is nothing to offer.
+	Candidates []string
+}
+
+// Parsed is what `parse` produces: the groups with a number, and the files a
+// human has to number. Nothing is dropped: a file with no number goes to
+// Unresolved rather than being guessed at or silently skipped.
+type Parsed struct {
+	Items      []ParsedGroup
+	Unresolved []Unresolved
+}
+
 // Groups is what `group` produces: the works to process, the duplicate stems a
 // human has to settle, the companions that belong nowhere, and the advisory
 // warnings.
