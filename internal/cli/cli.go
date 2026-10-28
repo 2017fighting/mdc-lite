@@ -18,6 +18,7 @@ import (
 	"github.com/2017fighting/mdc-lite/internal/api"
 	"github.com/2017fighting/mdc-lite/internal/config"
 	"github.com/2017fighting/mdc-lite/internal/store"
+	"github.com/2017fighting/mdc-lite/internal/tasks"
 	"github.com/2017fighting/mdc-lite/internal/web"
 )
 
@@ -257,6 +258,19 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		defer func() { _ = st.Close() }()
 		healthStore = st
 		logger.Info("database ready", "path", st.Path(), "migrations", st.Migrations())
+		// The startup reset (spec §11): a killed process left runs marked running
+		// and tasks nobody will ever pick up. One transaction closes those runs,
+		// puts their tasks back in the queue (or fails the ones over retry_limit),
+		// and leaves the tasks waiting for a human alone.
+		rec, err := tasks.New(st, tasks.Config{RetryLimit: l.settings.RetryLimit}).Recover(ctx)
+		if err != nil {
+			// Not fatal: the queue still works, and refusing to start would hide the
+			// reason from the health endpoint too.
+			logger.Error("the work left by the last shutdown could not be reset", "err", err)
+		} else if rec.Interrupted > 0 || rec.Requeued > 0 || rec.Failed > 0 {
+			logger.Info("startup reset",
+				"interrupted_runs", rec.Interrupted, "requeued_tasks", rec.Requeued, "failed_tasks", rec.Failed)
+		}
 	}
 
 	srv := api.New(Version, healthStore, web.Handler())

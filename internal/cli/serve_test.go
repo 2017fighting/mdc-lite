@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/2017fighting/mdc-lite/internal/cli"
+	"github.com/2017fighting/mdc-lite/internal/store"
+	"github.com/2017fighting/mdc-lite/internal/tasks"
 )
 
 // serve starts `mdc serve` on a free port and returns its base URL plus a stop
@@ -179,5 +182,83 @@ func TestServe_HealthyAnswers200(t *testing.T) {
 	page, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(strings.ToLower(string(page)), "<title>") {
 		t.Errorf("the root did not serve a page: %q", page)
+	}
+}
+
+// A process that was killed leaves runs marked running and tasks nobody will pick
+// up. Starting the server again must reset them before it starts serving work:
+// that is the crash recovery the spec puts in one transaction at startup.
+func TestServe_StartupResetsTheWorkTheLastProcessLeft(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	pipelines := filepath.Join(dir, "pipelines")
+	if err := os.MkdirAll(pipelines, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(dir, "mdc.db")
+
+	// The previous process: one batch, one task, one run still marked running.
+	raw, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := tasks.New(raw, tasks.Config{RetryLimit: 5})
+	res, err := before.CreateBatch(ctx, tasks.Intake{
+		Trigger:    tasks.TriggerMonitor,
+		TriggerRef: dir,
+		PipelineID: "main",
+		Groups: []tasks.Group{{
+			Number: "ABC-123",
+			Files: []tasks.InputFile{{
+				Path: filepath.Join(dir, "ABC-123.mp4"), Kind: tasks.KindVideo,
+				Role: tasks.RolePrimary, PartIndex: 1,
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var taskID int64
+	if err := raw.Write().QueryRowContext(ctx,
+		`SELECT id FROM tasks WHERE batch_id = ?`, res.BatchID).Scan(&taskID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := before.BeginRun(ctx, taskID); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	base, logf := serve(t, "--config", filepath.Join(dir, "config.yaml"), "--pipelines-dir", pipelines, "--db-path", dbPath)
+	defer logf()
+
+	var health struct {
+		Status string `json:"status"`
+	}
+	if code := getJSON(t, base+"/api/health", &health); code != http.StatusOK {
+		t.Fatalf("health = %d, want 200", code)
+	}
+
+	// Recovery runs before the listener does, so by now the row is reset.
+	after, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = after.Close() }()
+	st := tasks.New(after, tasks.Config{RetryLimit: 5})
+	task, err := st.Task(ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != tasks.StatusQueued {
+		t.Errorf("task status = %q, want queued after the restart reset", task.Status)
+	}
+	runs, err := st.Runs(ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].Status != tasks.RunInterrupted || runs[0].FinishedAt == nil {
+		t.Errorf("runs = %+v, want the dead run marked interrupted", runs)
 	}
 }
