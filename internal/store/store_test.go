@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/2017fighting/mdc-lite/internal/store"
@@ -187,5 +188,42 @@ func TestReady_ReportsMissingSchema(t *testing.T) {
 	}
 	if errors.Is(err, context.Canceled) {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// A migration that cannot run leaves the store not-ready, and Ready says why. The
+// process still comes up so the health endpoint can report it instead of the
+// container crash-looping with no output.
+func TestOpen_FailedMigrationIsReportedNotFatal(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "mdc.db")
+
+	// A table the first migration will try to create, already there with a
+	// different shape: CREATE TABLE fails.
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx, `CREATE TABLE batches (nope INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+
+	s, err := store.Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open must not fail when a migration does: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	err = s.Ready(ctx)
+	if err == nil {
+		t.Fatal("Ready must fail after a failed migration")
+	}
+	if !strings.Contains(err.Error(), "migrations failed") {
+		t.Errorf("the error must say the migrations failed, got: %v", err)
+	}
+	// The read pool must refuse to open over a database that is not shaped right.
+	if _, err := s.Read(); err == nil {
+		t.Error("the read pool must not open over an unmigrated database")
 	}
 }
