@@ -18,15 +18,16 @@ linters:
         - fmt.Fprint
         - fmt.Fprintf
         - fmt.Fprintln
+  exclusions:
+    rules:
+      # Tests may assert on error strings and may keep helpers that only one test
+      # uses; the extra indirection is not worth it there.
+      - path: _test\.go
+        linters:
+          - unparam
+          - errorlint
 
 formatters:
   enable:
     - gofmt
     - goimports
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - unparam
-        - errorlint

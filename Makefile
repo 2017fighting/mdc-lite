@@ -30,9 +30,10 @@ test:
 vet:
 	go vet ./...
 
-## lint: golangci-lint over every package
+## lint: golangci-lint over every package, config verified first
 .PHONY: lint
 lint:
+	golangci-lint config verify
 	golangci-lint run ./...
 
 ## web: build the frontend into the directory the binary embeds
