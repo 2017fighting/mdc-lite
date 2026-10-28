@@ -67,11 +67,12 @@ run:
 config-check:
 	go run ./cmd/mdc config check --config examples/config.yaml --pipelines-dir examples/pipelines
 
-## clean: drop the binary and the built frontend (the placeholder page stays)
+## clean: drop the binary and the built frontend, restoring the committed placeholder
 .PHONY: clean
 clean:
 	rm -rf bin
-	find $(WEB_DIST) -mindepth 1 ! -name .gitkeep -delete
+	git checkout -- $(WEB_DIST) 2>/dev/null || true
+	rm -rf $(WEB_DIST)/assets
 
 ## help: list the targets
 .PHONY: help

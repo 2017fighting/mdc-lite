@@ -1,8 +1,9 @@
-# Build output. `make build` produces the binary and the frontend bundle; neither
-# belongs in git, and both are rebuilt by CI before anything embeds them.
+# Build output. `make build` produces the binary; `make web` produces the frontend
+# bundle. The binary never belongs in git. The bundle does not either, with one
+# exception: dist/index.html is committed, because //go:embed needs a file to match
+# and a checkout must compile without Node. `make web` overwrites it.
 /bin/
-/internal/web/dist/*
-!/internal/web/dist/.gitkeep
+/internal/web/dist/assets/
 /web/node_modules/
 
 # Local scratch: plans, notes, one-off experiments.
