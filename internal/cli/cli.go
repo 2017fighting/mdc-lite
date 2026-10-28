@@ -40,6 +40,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runServe(args[1:], stdout, stderr)
 	case "config":
 		return runConfig(args[1:], stdout, stderr)
+	case "run":
+		return runPipeline(args[1:], stdout, stderr)
 	case "version":
 		fmt.Fprintln(stdout, Version)
 		return 0
@@ -59,6 +61,8 @@ func usage(w io.Writer) {
 usage:
   mdc serve           [--config FILE] [overrides]   run the server
   mdc config check    [--config FILE] [overrides]   load and validate the config, print what took effect
+  mdc run             --pipeline ID --roots DIR [--until STEP] [--dry-run] [--config FILE] [overrides]
+                                                    run one pipeline over a directory and print the summary
   mdc version
 
 overrides (these win over the file, which wins over ${VAR}, which wins over the defaults):
@@ -121,10 +125,6 @@ func (c *commonFlags) flags() config.Flags {
 	return out
 }
 
-func (c *commonFlags) load() (config.Settings, error) {
-	return config.Load(c.config, config.LoadOptions{Flags: c.flags()})
-}
-
 // load is one load of both config files: process settings, then every pipeline.
 type loaded struct {
 	settings  config.Settings
@@ -142,7 +142,14 @@ type pipelineProblem struct {
 // afterwards. A broken settings file does abort, because without it there is no
 // directory to read.
 func loadAll(c *commonFlags, reg *config.Registry) (*loaded, error) {
-	settings, err := c.load()
+	return loadAllWith(c.config, c.flags(), reg)
+}
+
+// loadAllWith is loadAll for a command whose flags are not the server's: `mdc
+// run` serves nothing and opens no database, so it has no --listen or --db-path
+// to override.
+func loadAllWith(configPath string, flags config.Flags, reg *config.Registry) (*loaded, error) {
+	settings, err := config.Load(configPath, config.LoadOptions{Flags: flags})
 	if err != nil {
 		return nil, err
 	}

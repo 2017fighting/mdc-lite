@@ -9,7 +9,11 @@ make config-check   # 打印 examples/ 的流水线与生效键及其来源
 
 bin/mdc config check --config /config/config.yaml
 bin/mdc serve        --config /config/config.yaml
+bin/mdc run          --pipeline main --roots /media/in --until group --dry-run
 ```
+
+`mdc run` 跑一条流水线并打印一次扫描的摘要（walk 了多少、进了多少候选、滤掉多少及原因、
+分了哪些组），不写盘不落库；`--until` 决定停在哪一步。
 
 配置是两份、互不合并：`/config/config.yaml`（进程级，可选、全键有默认）与
 `/config/pipelines/*.yaml`（一条流水线一份，`id` = 文件名字干）。写错一个键名就拒绝启动，

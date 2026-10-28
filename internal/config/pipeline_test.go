@@ -117,6 +117,24 @@ func TestParsePipeline_UnknownKeyInsideWith(t *testing.T) {
 	}
 }
 
+func TestParsePipeline_ScanHasNoExtensionsKey(t *testing.T) {
+	// Extensions are a filter rule. Filtering them at scan time would keep
+	// companion files out of the FileSet for good, which would make
+	// group.with.companion_extensions dead configuration.
+	_, err := parse(t, `steps:
+  - type: scan
+    with:
+      roots: [/media]
+      extensions: [".mp4"]
+`+tail)
+	if err == nil {
+		t.Fatal("scan.with must not have an extensions key")
+	}
+	if !strings.Contains(err.Error(), `unknown field "extensions"`) {
+		t.Errorf("got: %v", err)
+	}
+}
+
 func TestParsePipeline_UnknownKeyInsideNestedWith(t *testing.T) {
 	_, err := parse(t, `steps:
   - type: scan
@@ -289,6 +307,33 @@ func TestParsePipeline_FilterRulesValidated(t *testing.T) {
 				t.Errorf("error %q does not mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestParsePipeline_PartPatternsNeedACaptureGroup(t *testing.T) {
+	// The first capture group is the part number. A pattern without one would load,
+	// match, and then decide nothing, so it is refused at startup instead.
+	body := func(pattern string) string {
+		return head + `  - type: filter
+    with:
+      rules:
+        - name: all
+          when: {ext_in: [.mp4]}
+          then: include
+  - type: group
+    with:
+      part_patterns: ['` + pattern + `']
+` + afterGroup
+	}
+	_, err := parse(t, body(`(?i)(?:^|[-_. ])slice\d$`))
+	if err == nil {
+		t.Fatal("a part pattern with no capture group cannot name a part number")
+	}
+	if !strings.Contains(err.Error(), "capture group") {
+		t.Errorf("got: %v", err)
+	}
+	if _, err := parse(t, body(`(?i)(?:^|[-_. ])slice(\d)$`)); err != nil {
+		t.Fatalf("a pattern with a capture group is fine: %v", err)
 	}
 }
 

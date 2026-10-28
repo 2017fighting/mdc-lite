@@ -289,8 +289,15 @@ func (w *GroupWith) Validate() error {
 		return fmt.Errorf("max_files_for_levenshtein must be >= 1")
 	}
 	for _, p := range w.PartPatterns {
-		if _, err := regexp.Compile(p); err != nil {
+		re, err := regexp.Compile(p)
+		if err != nil {
 			return fmt.Errorf("part_patterns: %w", err)
+		}
+		// The first capture group is the part number. A pattern without one would
+		// load, match, and then decide nothing — a key that does nothing is worse
+		// than a key that is absent.
+		if re.NumSubexp() < 1 {
+			return fmt.Errorf("part_patterns %q needs a capture group holding the part number, e.g. `(?:^|[-_. ])slice(\\d)$`", p)
 		}
 	}
 	for _, p := range w.Sanitize {
