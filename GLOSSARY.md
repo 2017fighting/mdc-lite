@@ -15,16 +15,18 @@ mdc-lite 的领域词汇表。写代码、起 issue、写测试名时用这里�
 - **源运行（source run）** —— `scrape` 里每个源一条留痕（`source_runs` 表），含三态与原因码。
 - **预览（preview）** —— 跑到 `--until parse` 的一次扫描；异步 202 + 轮询，状态只在内存、不落 DB。
 - **dry-run** —— 跑完整链但只出 `Plan`，不写盘、不落库。
+- **`mdc run`** —— 手动跑一条流水线的 CLI 子命令（`--pipeline/--roots/--until/--dry-run`）；`--until` 与 `--dry-run` 是预览与调试的同一入口，不写盘不落库。
 - **落盘（Plan / Apply）** —— 副作用步骤（`images`/`nfo`/`output`）只产出 `Plan{Writes []PlannedWrite}`，由引擎统一 `Apply`；`output` 是**唯一写盘出口**。
 
 ## 分组与番号
 
 - **候选（candidate）** —— 通过 `filter` 规则、进入处理集合的文件（`Candidates`）。
+- **候选规则（filter rule）** —— `filter.with.rules` 的一条：`{name, when, then}`，`then ∈ {include, exclude}`；**有序、首条命中即停**，`name` 进 `Candidate.Rule` 与 `step_runs` 的 `skipped` 计数。文件扩展名只在这里判（`scan` 不按扩展名预筛）。
 - **主干（stem）** —— 文件名剥掉噪声（sanitize / 广告域 / 技术 token / 分辨率 / 旗标 / 字幕尾标）后的文本；分组的判据就长在主干上。
 - **分片标记（part marker）** —— 判定「这是同一作品的分片」的正面证据。两档：**确定标记**（`cd\d`/`disc\d`/`part\d`/`vol\d`/带分隔的 `-A/-B/-D`，无条件生效）与**条件标记**（尾随 1-2 位数字、粘连字母如 `9ofje121A`，需同目录兄弟文件同意）。
 - **分片（part）** —— 同一作品的一个视频片；落盘 `-cd{n}`。
 - **primary** —— 组内分片序号最小的文件；无标记文件视为第 1 片。primary 定番号、定目录名。
-- **伴随文件（companion）** —— 与视频同组但不参与分片证据的文件（字幕、图片）；字幕跟随对应视频改名。
+- **伴随文件（companion）** —— 与视频同组但不参与分片证据的文件（字幕、图片）；字幕跟随对应视频改名，图片保持原名。**进输出目录**：`PlannedWrite.Kind = companion`、`file_rows.role = companion`（见 ADR-0017）。
 - **重复版本（duplicate stem）** —— 主干相同而两侧都没有生效分片标记（`ABC-123.mp4` + `ABC-123-U.mp4`）→ 交人判定，**不自动合成一组**。
 - **待补号（needs_number）** —— 任务状态之一：番号解析不出（`no_candidate`）、歧义（`ambiguous`）或重复版本（`duplicate_stem`）时等人填号。
 - **番号（number）** —— `Number{Raw, Normalized, Family}`；`Family` 是规则标签（`fc2` / `date-code` / `dmm-content-id` / `generic`）。
@@ -35,7 +37,7 @@ mdc-lite 的领域词汇表。写代码、起 issue、写测试名时用这里�
 
 - **字段（field）** —— V1 **14 个源级字段**：`title` / `plot` / `fanart` / `extrafanarts` / `tags` / `releasedate` / `actors` / `poster` / `director` / `runtime` / `rating` / `series` / `studio` / `publisher`；外加内置 `number`。字段名即模板变量名。
 - **必选字段（required fields）** —— 程序强制门禁：`output.with.required_fields`，默认 `[title, fanart]`；`fanart` 按**字节到手**判。
-- **元数据（metadata）** —— 14 个源级字段 + `Sources` / `Missing` / `Partial`；`Metadata.Derived`（`TitleCN`/`PlotCN`/`TagsCN`/`ActorsCN`/`PosterCrop`）由第二批写，**调度器在类型上够不着**。
+- **元数据（metadata）** —— 14 个源级字段 + `Sources` / `Missing` / `Partial`；`Metadata.Derived`（`TitleCN`/`PlotCN`/`TagsCN`/`ActorsCN`/`PosterCrop`）**调度器在类型上够不着**。`TitleCN`/`PlotCN`/`TagsCN`/`ActorsCN` 由第二批写；**`PosterCrop` 在 V1**（见下条与 ADR-0015）。
 - **胜出源（Sources）** —— 逐字段记下是谁给的（`{title: javdb}`）。
 - **缺字段（Missing）** —— fallback 用尽后仍缺的源级字段；`Partial = len(Missing) > 0`。
 - **部分成功（partial）** —— 任务状态：跑完但有缺口。
