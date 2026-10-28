@@ -45,12 +45,14 @@
 | `filter` | 无（`rules` 必填） |
 | `group` | `max_distance: 2`、`max_files_for_levenshtein: 50`、`companion_extensions` 为字幕与图片扩展名 |
 | `parse` | 无（`rules` 必填） |
-| `scrape` | `sources` 为全局序 `[javdb, dmm, javbus, fc2]`、`timeout: 5m` |
+| `scrape` | `sources` 为全局序 `[javdb, dmm, javbus, fc2]`、`timeout: 5m`；源级 `timeout` 30s、`rate` 1 req/s + burst 2 + 冷却 5m |
 | `images` | 无键 |
 | `nfo` | `template: default` |
 | `output` | `dir_template: {{ number }}`、`file_template: {{ number }}-cd{{ part }}`、`link: hardlink`、`required_fields: [title, fanart]`；**`root` 必填** |
 
 `scrape.with.sources` 是有序列表，每项是**裸 id** 或**带 id 的对象**：`sources: [javdb, {id: dmm, timeout: 30s, domains: [dmm.co.jp]}]`。源级的四个旋钮（`proxy` / `domains` / `rate` / `timeout`）就挂在这一项里，位置与设置不分家。`priority.<field>` 是**完整替换**全局序，不是追加。
+
+`domains` 是有序列表，**失败即切下一个**；一项可以写裸域（`javbus.com`，按 `https` 访问），也可以写带 scheme 的完整地址（`http://127.0.0.1:9001`）——后者是让夹具回放接管某个源的循正规做法，源里的其他每一行（选择器、cookie、Referer）都还是生产那一份。`timeout` 管**单次 HTTP 请求**（默认 30s），`scrape.with.timeout` 管**整个番号**（默认 5m）。`rate` 的 `requests_per_second` / `burst` / `cooldown` 三个字段各自独立，只写一个时其余取默认。
 
 `group.with.sanitize` 是「字面量 / 正则」混合表：裸字符串按字面量剥，`r:` 前缀（如 `r:[-_. ]1080p$`）按 Go 正则剥。
 
@@ -77,6 +79,32 @@ mdc run --pipeline <id> --roots <dir>[,<dir>|<file>] [--until <step>] [--dry-run
 - `--dry-run` 只产出 `output` 的 `Plan`，不落盘。不写 dry-run 就 `Apply` 那份 Plan：图片 / NFO / 伴随文件走同目录 `.tmp` → `rename`，视频按 `output.with.link` 硬链 / 复制 / 移动；内容相同（`sha256` 相同且文件仍在）则跳过并保住 mtime。
 - `mdc run` **不落库**（不建批次、不写任务台账），所以它的写盘没有 `file_rows`；任务重跑的清理与幂等要靠任务运行（见下节）。
 - 目录里任一流水线文件坏了就整体拒绝（与 `serve` 同一条规矩），不会「用好的那条跑、坏的装作没看见」。
+
+## 手动试一个源（`mdc source test`）
+
+```
+mdc source test --id <id> --number <番号> [--dump] [--pipeline <id>] [--dump-dir <dir>]
+```
+
+一件事：**这个源对这个番号现在到底说什么**。它走程序自己的 Fetcher 与解析器（同一份 UA、cookie、Referer、限速），所以打印出来的就是任务会拿到的东西——`curl` 加肉眼看 HTML 既验不了 cookie，也验不了选择器。
+
+- 逐字段打印 14 个源级字段：`title` 这类给出值，`plot` 这类标「not declared by this source」（能力声明里没有），`series` 这类标「declared, absent on this page」（声明了但这页没有）。**这三者是不同的答案**，混成一个就会误读一个源。
+- 再打印 `status:`（`ok` / `notfound` / `failed`）与 `reason:`（六档原因码，仅 `failed`）、耗时。
+- 源给了图片地址就真的去取一次，打印字节数与 magic bytes 判出的类型——一张「403 页面存成 cover.jpg」在这里就现形了。
+- `--dump` 把这次的原始响应逐字写进夹具目录（默认 `internal/source/<id>/testdata/captures`），并在同目录 `fixtures.json` 里记 `path` / `url` / `status` / `bytes` / `captured` / `sha256`。夹具只能这样来：**由程序自己的 Fetcher 抓、逐字不改**，写坏了它就是坏了的证据。
+- 退出码：`ok` 与 `notfound` 为 0（「站点没这条」是一个答案），`failed` 或图片没取到为 1。
+- `--pipeline` 选哪条流水线的 `scrape.with.sources` 提供这个源的四个旋钮；不写就用第一条带 `scrape` 的流水线。
+
+## 网络层（`Fetcher`）
+
+元数据与图片共用一个 `Fetcher`，一个进程一个实例：代理、限速、冷却、重试、取消都在这一处，四个源自己不重试、不管代理、不管退避。
+
+- **只用 `net/http` + 浏览器 UA**。不接 TLS 指纹库，不做 FlareSolverr 也不留占位键——一个解析了但不生效的键比没有这个键更坏。
+- **限速按可注册域（eTLD+1）分桶、进程内全局**：`pics.dmm.co.jp` 与 `www.dmm.co.jp` 同一个桶（`dmm.co.jp`），跨源跨流水线共享。默认 1 req/s + burst 2。后缀表用 `golang.org/x/net/publicsuffix` 内嵌的公共后缀表，不是手写的短名单——否则 `a.github.io` 与 `b.github.io` 会被当成同一个站。没有可注册域的地址（夹具的 IP 字面量、`localhost`、单标签主机名）回落到 host:port，这样两个本地夹具服务器不会互相限速；解析不出的主机按「后两段」退化——**宁可多合桶，不可少合桶**。
+- **冷却**：403 / 429 / 503 同一惩罚 → 该可注册域冷却 5 min（源级 `rate.cooldown` 可改），**快速失败、不排队**，状态只在内存（重启即忘）。惩罚只按状态码判，不认 body 标记。
+- **重试只在 Fetcher 内**：连接错 / TLS EOF / 5xx 重试 **2 次**，退避 1s、4s 加 jitter；**404、其他 4xx、超时与冷却不重试**。`domains` 的镜像切换与重试**共享同一预算**（总共三次尝试，不是每个域三次）。等待与退避都尊重 ctx。
+- **404 是答案不是错误**：Fetcher 把 404 原样交给源，源自己判 `notfound`。其余取不到的情况都带六档原因码（`egress_unavailable` / `timeout` / `blocked` / `cooldown` / `http_5xx` / `parse`），落 `source_runs.reason`。**「取不到」永不写成 `notfound`**；通用层只按状态码判惩罚，站点拦截页由源自己用正向标记认出来报 `blocked`。
+- 出口是操作者的事：`proxy` 为空就是直连（**不读 `HTTP_PROXY` 环境变量**，也不做可达性预检），打不通就如实记 `egress_unavailable`。
 
 ## 拒绝启动的情形
 
@@ -143,6 +171,7 @@ config/pipelines/main.yaml:24:18: step 2 (filter): unknown field "rules[0].when.
 - **多分片时 primary 也带 `-cd1`**：spec §4 的「primary 裸名」与 §10 的 `file_template` 默认值冲突；取 §10——模板对**每个**分片生效（`{{ number }}-cd{{ part }}` → `ABC-123-cd1.mp4`），因为它是配置面写死的键，取证文档里的多分盘目录示例也是 `-cd1`；组内只有一个文件时仍保留源文件名。
 - **任务重跑从 `parse` 之后开始，不重跑 `parse`**：番号已经是 `tasks.number` 这一行事实（可能由人填过），重跑 `parse` 只会用文件名的推断去覆盖它。所以重跑用 `task_files` 重建 parse 产物（`Options.Seed`），再从 `scrape` 起跑；重扫目录、重跑剥离规则都不发生。
 - **`scrape` 的调度是顺序版**：按 `scrape.with.sources` 顺序逐源 `Scrape`，标量字段先到先得、多值字段整段取自同一源；图片字段只有在 `FetchImage` 成功后才算贡献（失败则轮到下一个源）。波次并发、`priority[field]` 与 `concurrency` 的上限落在同一接缝上（票 #24 / #25），不改产物形状。
+- **二进制里没有的源被跳过，不是致命错误**：出厂源序写着四个源，而这一版只编进了 javbus，所以 `scrape` 跳过 javdb/dmm/fc2 继续跑 javbus——否则「默认配置能跑出 javbus 的字段与图片」在其余三源写完之前永远不成立。想确认某个源在不在，用 `mdc source test`：它直接查注册表，缺了会点名说明本二进制知道哪些。
 
 ## 本票落下的实现裁决
 

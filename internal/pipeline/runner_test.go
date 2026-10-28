@@ -228,7 +228,7 @@ func TestRunner_OneTaskProducesItsDirectoryAndItsLedger(t *testing.T) {
 // API belongs to another ticket.
 func sourceRows(t *testing.T, e *runnerEnv) []tasks.SourceRun {
 	t.Helper()
-	rows, err := e.raw.Write().Query(`SELECT source_id, status, fields_json FROM source_runs`)
+	rows, err := e.raw.Write().Query(`SELECT source_id, status, coalesce(reason, ''), err, fields_json FROM source_runs`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func sourceRows(t *testing.T, e *runnerEnv) []tasks.SourceRun {
 	var out []tasks.SourceRun
 	for rows.Next() {
 		var r tasks.SourceRun
-		if err := rows.Scan(&r.SourceID, &r.Status, &r.FieldsJSON); err != nil {
+		if err := rows.Scan(&r.SourceID, &r.Status, &r.Reason, &r.Err, &r.FieldsJSON); err != nil {
 			t.Fatal(err)
 		}
 		out = append(out, r)
@@ -577,4 +577,31 @@ func e_taskID(t *testing.T, raw *store.Store, batchID int64) int64 {
 		t.Fatal(err)
 	}
 	return id
+}
+
+func TestRunner_RecordsTheReasonCodeOfAFailedSource(t *testing.T) {
+	// The reason code is the difference between "the site has no such work" and
+	// "we could not read the site"; it has to survive from the Fetcher, through the
+	// scrape step, into `source_runs.reason`.
+	e := newRunnerEnv(t)
+	e.src.scrapeErr = source.Fail(source.ReasonBlocked, errors.New("javbus: the age gate answered"))
+	taskID := e.createTask(t, "ABC-123", "ABC-123-cd1.mp4", "ABC-123-cd2.mp4")
+
+	outcome, err := e.run.RunTask(e.ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Status != tasks.RunFailed {
+		t.Fatalf("status = %q, want failed (the required fields never arrived)", outcome.Status)
+	}
+	rows := sourceRows(t, e)
+	if len(rows) != 1 {
+		t.Fatalf("source rows = %+v", rows)
+	}
+	if rows[0].Status != "failed" || rows[0].Reason != source.ReasonBlocked {
+		t.Errorf("source row = %+v, want failed with reason %q", rows[0], source.ReasonBlocked)
+	}
+	if !strings.Contains(rows[0].Err, "age gate") {
+		t.Errorf("source row err = %q, want the failure's own text", rows[0].Err)
+	}
 }

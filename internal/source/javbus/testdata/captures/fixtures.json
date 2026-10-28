@@ -1,0 +1,26 @@
+[
+  {
+    "path": "javbus-IPX-535.html",
+    "url": "https://www.javbus.com/IPX-535",
+    "status": 200,
+    "bytes": 41927,
+    "captured": "2026-10-28T16:20:26Z",
+    "sha256": "e77d6e6f9f316bbc4dbe93850d71c24a562eb4916bdb974b937d59940930db31"
+  },
+  {
+    "path": "javbus-SSIS-001.html",
+    "url": "https://www.javbus.com/SSIS-001",
+    "status": 200,
+    "bytes": 41375,
+    "captured": "2026-10-28T16:20:22Z",
+    "sha256": "4368273cdb6c845b7ad1ea9e6ee9f7b690516fbfad918f270b20a8ed681817be"
+  },
+  {
+    "path": "javbus-ZZZZ-9999.html",
+    "url": "https://www.javbus.com/ZZZZ-9999",
+    "status": 404,
+    "bytes": 20445,
+    "captured": "2026-10-28T16:20:28Z",
+    "sha256": "e82691bf1753d012b7a129fb06d4331a2eacd8e984e22aafd61f461550679b60"
+  }
+]

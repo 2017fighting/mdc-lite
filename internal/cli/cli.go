@@ -43,6 +43,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runConfig(args[1:], stdout, stderr)
 	case "run":
 		return runPipeline(args[1:], stdout, stderr)
+	case "source":
+		return runSourceCommand(args[1:], stdout, stderr)
 	case "version":
 		fmt.Fprintln(stdout, Version)
 		return 0
@@ -64,6 +66,8 @@ usage:
   mdc config check    [--config FILE] [overrides]   load and validate the config, print what took effect
   mdc run             --pipeline ID --roots DIR [--until STEP] [--dry-run] [--config FILE] [overrides]
                                                     run one pipeline over a directory and print the summary
+  mdc source test     --id ID --number NUMBER [--dump] [--dump-dir DIR] [--pipeline ID]
+                                                    ask one source about one number and print every field
   mdc version
 
 overrides (these win over the file, which wins over ${VAR}, which wins over the defaults):

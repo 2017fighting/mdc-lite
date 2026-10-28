@@ -32,6 +32,10 @@ type fakeSource struct {
 
 	images   map[string][]byte
 	fetchErr map[string]bool
+
+	// scrapes counts the calls, so a test can assert that a source was (or was not)
+	// asked at all.
+	scrapes int
 }
 
 func newFakeSource() *fakeSource {
@@ -49,6 +53,7 @@ func (f *fakeSource) ID() string { return f.id }
 func (f *fakeSource) Fields() []field.Name { return f.declared }
 
 func (f *fakeSource) Scrape(_ context.Context, _ string) (source.Result, error) {
+	f.scrapes++
 	if f.scrapeErr != nil {
 		return source.Result{}, f.scrapeErr
 	}

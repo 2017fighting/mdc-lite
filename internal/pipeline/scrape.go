@@ -21,6 +21,11 @@ import (
 // the next source that offers the field gets its chance. The wave scheduling and
 // `priority[field]` of the field-level fallback land on top of this seam without
 // changing the artifact.
+//
+// `scrape.with.timeout` bounds the whole number — every source and every image —
+// and is not a step failure: the sources it did not reach are recorded as failed
+// (reason `timeout`) and the number ends with whatever the others gave. A source's
+// own failure is never the step's failure, which is the point of the fallback.
 type scrapeStep struct {
 	cfg     config.ScrapeWith
 	sources source.Registry
@@ -79,22 +84,43 @@ type contribution struct {
 
 func (s *scrapeStep) scrapeOne(ctx context.Context, item ParsedGroup) (ScrapedItem, []SourceAttempt, error) {
 	number := item.Number.Normalized
+	if s.cfg.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.cfg.Timeout))
+		defer cancel()
+	}
 	md := meta.Metadata{}
 	var (
 		attempts []SourceAttempt
 		contribs []contribution
 	)
-	for _, entry := range s.cfg.Sources {
+	for i, entry := range s.cfg.Sources {
 		src, ok := s.sources.Lookup(entry.ID)
 		if !ok {
-			return ScrapedItem{}, nil, fmt.Errorf("scrape: source %q is not built into this binary (known: %s)", entry.ID, s.sources.Known())
+			// The factory order lists javdb, dmm, javbus and fc2; a build that has
+			// only some of them must still run the ones it has. Asking for a source
+			// the binary does not have is an error at the door (`mdc source test`),
+			// not a reason to fail every task while the other three are being written.
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			// The number's budget is gone. The sources that were never asked are
+			// recorded as failed with `timeout`: "we never got to it" is a fact the
+			// detail page has to be able to show.
+			attempts = append(attempts, notReached(s.cfg.Sources[i:], s.sources)...)
+			break
 		}
 		started := time.Now()
 		res, err := src.Scrape(ctx, number)
 		a := SourceAttempt{ID: entry.ID, MS: time.Since(started).Milliseconds()}
 		switch {
 		case err != nil:
-			a.Status, a.Err = "failed", err.Error()
+			a.Status, a.Err, a.Reason = "failed", err.Error(), source.ReasonOf(err)
+			if a.Reason == "" && ctx.Err() != nil {
+				// The number ran out of budget mid-request; that is a timeout even
+				// though the source only saw a cancelled context.
+				a.Reason = source.ReasonTimeout
+			}
 			attempts = append(attempts, a)
 			continue
 		case !res.Found:
@@ -110,7 +136,50 @@ func (s *scrapeStep) scrapeOne(ctx context.Context, item ParsedGroup) (ScrapedIt
 	}
 
 	images := s.fetchImages(ctx, contribs, &md)
+	markDeliveredImages(attempts, images)
 	return ScrapedItem{Group: item.Group, Number: item.Number, Metadata: md, Images: images}, attempts, nil
+}
+
+// markDeliveredImages keeps `source_runs.fields` honest about the image fields: a
+// source that offered a cover it could not deliver contributed nothing, so the
+// field must not appear in its row. Only the image pass knows this (the whole point
+// of "fanart is judged by bytes in hand"), which is why it runs afterwards.
+func markDeliveredImages(attempts []SourceAttempt, images []ImageBlob) {
+	delivered := map[string]map[field.Name]bool{}
+	for _, img := range images {
+		if delivered[img.Source] == nil {
+			delivered[img.Source] = map[field.Name]bool{}
+		}
+		delivered[img.Source][img.Role] = true
+	}
+	for i := range attempts {
+		kept := attempts[i].Fields[:0]
+		for _, name := range attempts[i].Fields {
+			if isImageField(name) && !delivered[attempts[i].ID][name] {
+				continue
+			}
+			kept = append(kept, name)
+		}
+		attempts[i].Fields = kept
+	}
+}
+
+// notReached records the sources a timed-out number never asked. A source this
+// build does not have is not among them: it was never part of this run.
+func notReached(rest []config.SourceEntry, reg source.Registry) []SourceAttempt {
+	out := make([]SourceAttempt, 0, len(rest))
+	for _, entry := range rest {
+		if _, ok := reg.Lookup(entry.ID); !ok {
+			continue
+		}
+		out = append(out, SourceAttempt{
+			ID:     entry.ID,
+			Status: "failed",
+			Err:    "not reached: the number's scrape budget ran out",
+			Reason: source.ReasonTimeout,
+		})
+	}
+	return out
 }
 
 // mergeFields takes the first contribution of each scalar field. Multi-valued
@@ -230,9 +299,9 @@ type SourceAttempt struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
 	Err    string `json:"err,omitempty"`
-	// Reason is one of the six machine codes. It is the transport's verdict (a
-	// cooldown, a 5xx, a blocked page), so this step leaves it empty: the source
-	// reports the failure, the Fetcher classifies it.
+	// Reason is one of the six machine codes, read off the failure the source or the
+	// Fetcher returned. It is empty for `ok` and for `notfound`: "no such work" is an
+	// answer, and giving it a reason code would make it look like a failure.
 	Reason string       `json:"reason,omitempty"`
 	Fields []field.Name `json:"fields,omitempty"`
 	MS     int64        `json:"ms"`
@@ -272,4 +341,15 @@ func (s ScrapeSummary) String() string {
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+// isImageField reports whether a source-level field's value is bytes rather than
+// text, i.e. whether it only counts once FetchImage succeeded.
+func isImageField(name field.Name) bool {
+	for _, f := range imageFields {
+		if f == name {
+			return true
+		}
+	}
+	return false
 }

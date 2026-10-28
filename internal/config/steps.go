@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -380,6 +381,19 @@ func (w *ScrapeWith) Validate() error {
 func (o SourceWith) validate(key string) error {
 	if o.Timeout < 0 {
 		return fmt.Errorf("%s.timeout must be >= 0", key)
+	}
+	for i, d := range o.Domains {
+		if strings.TrimSpace(d) == "" {
+			return fmt.Errorf("%s.domains[%d] must not be empty", key, i)
+		}
+		// A domain is a bare host or a full URL (the fixture form). A full URL with
+		// no host would otherwise produce a request to nothing at run time.
+		if strings.Contains(d, "://") {
+			u, err := url.Parse(d)
+			if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+				return fmt.Errorf("%s.domains[%d] %q is not a host or an http(s) URL", key, i, d)
+			}
+		}
 	}
 	if o.Rate != nil && (o.Rate.RequestsPerSecond < 0 || o.Rate.Burst < 0 || o.Rate.Cooldown < 0) {
 		return fmt.Errorf("%s.rate values must be >= 0", key)

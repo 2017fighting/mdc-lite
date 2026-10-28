@@ -62,8 +62,12 @@ steps:
       #
       #   - id: dmm
       #     timeout: 30s
-      #     domains: ["dmm.co.jp", "dmm.com"]
+      #     domains: ["dmm.co.jp", "dmm.com"]   # ordered; a failed one falls through
       #     rate: {requests_per_second: 1, burst: 2, cooldown: 5m}
+      #
+      # A domain is a bare host (reached over https) or a full URL, which is how a
+      # captured-page replay takes over one source while every other line — the
+      # selectors, the age-gate cookie, the image Referer — stays the real one.
       sources:
         - javdb
         - dmm

@@ -5,6 +5,7 @@ go 1.27.2
 require (
 	github.com/nikolalohinski/gonja/v2 v2.9.1
 	github.com/pressly/goose/v3 v3.29.0
+	golang.org/x/net v0.61.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.61.0
 )

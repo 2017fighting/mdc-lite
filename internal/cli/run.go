@@ -11,6 +11,7 @@ import (
 
 	"github.com/2017fighting/mdc-lite/internal/config"
 	"github.com/2017fighting/mdc-lite/internal/pipeline"
+	"github.com/2017fighting/mdc-lite/internal/sources"
 )
 
 // runPipeline is `mdc run`: one pipeline, one directory, printed summary.
@@ -77,7 +78,10 @@ func runPipeline(args []string, stdout, stderr io.Writer) int {
 		Input:  pipeline.Input{Roots: roots},
 		Until:  until,
 		DryRun: dryRun,
-		Env:    pipeline.Environment{TemplatesDir: l.settings.TemplatesDir},
+		Env: pipeline.Environment{
+			TemplatesDir: l.settings.TemplatesDir,
+			Sources:      sources.Build(sources.ScrapeWith(p), sources.NewFetcher(l.settings)),
+		},
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "%v\n", err)

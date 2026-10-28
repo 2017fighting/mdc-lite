@@ -193,23 +193,35 @@ var imageFields = []field.Name{field.Poster, field.Fanart, field.Extrafanarts}
 // `.jpg`, which is the whitelist rule of §8 — the bytes are not re-encoded.
 var imageExtensions = map[string]bool{"jpg": true, "jpeg": true, "png": true, "gif": true, "tbn": true}
 
-// sniffImageExt reads the magic bytes. Content-Type is not trusted: the site's
-// header has been wrong often enough that the spec says the engine sniffs.
-func sniffImageExt(b []byte) string {
-	ext := ""
+// SniffImageFormat reads the magic bytes and names the format, or "" when the
+// bytes are not a format this build knows. Content-Type is not trusted: the site's
+// header has been wrong often enough that the engine sniffs.
+//
+// It is exported because `mdc source test` has to answer the same question ("what
+// did we actually get?") with the same code, rather than with a second copy that
+// drifts.
+func SniffImageFormat(b []byte) string {
 	switch {
 	case len(b) >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF:
-		ext = "jpg"
+		return "jpg"
 	case len(b) >= 8 && bytes.Equal(b[:8], []byte("\x89PNG\r\n\x1a\n")):
-		ext = "png"
+		return "png"
 	case len(b) >= 6 && (bytes.Equal(b[:6], []byte("GIF87a")) || bytes.Equal(b[:6], []byte("GIF89a"))):
-		ext = "gif"
+		return "gif"
+	case len(b) >= 12 && bytes.Equal(b[:4], []byte("RIFF")) && bytes.Equal(b[8:12], []byte("WEBP")):
+		return "webp"
+	default:
+		return ""
 	}
-	if imageExtensions[ext] {
+}
+
+// sniffImageExt is the name the bytes get on disk: the public whitelist as-is, and
+// anything else as `.jpg` — webp, svg and an unrecognised body are still written,
+// and the bytes are never re-encoded.
+func sniffImageExt(b []byte) string {
+	if ext := SniffImageFormat(b); imageExtensions[ext] {
 		return ext
 	}
-	// webp, svg and anything unrecognised are named .jpg: the bytes are not
-	// re-encoded, and the whitelist is about what the servers will read.
 	return "jpg"
 }
 
