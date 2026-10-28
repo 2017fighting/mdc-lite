@@ -1,0 +1,116 @@
+# The pull-request gate: fast, no Docker, no network beyond fetching modules.
+# The acceptance environment (make accept) runs on pushes to main and nightly —
+# a suite that takes minutes is one that stops being run on every PR.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: go vet + test + lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  web:
+    name: frontend build + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: install
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+      - name: typecheck
+        working-directory: web
+        run: npm run typecheck
+      - name: build
+        working-directory: web
+        run: npm run build
+
+  binary:
+    name: static single binary + smoke test
+    runs-on: ubuntu-latest
+    needs: [go, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: build the frontend the binary embeds
+        working-directory: web
+        run: npm ci --no-audit --no-fund && npm run build
+      - name: build
+        env:
+          CGO_ENABLED: "0"
+        run: make build
+      - name: the binary is static
+        run: |
+          set -eu
+          file bin/mdc
+          if file bin/mdc | grep -q 'dynamically linked'; then
+            echo "::error::bin/mdc is dynamically linked; CGO_ENABLED=0 must produce a static binary"
+            exit 1
+          fi
+          echo "static binary confirmed"
+      - name: smoke test — health is green, the page is served
+        run: |
+          set -eu
+          work="$(mktemp -d)"
+          bin/mdc serve --config examples/config.yaml \
+            --pipelines-dir examples/pipelines \
+            --db-path "$work/mdc.db" --listen 127.0.0.1:19208 &
+          server=$!
+          trap 'kill $server 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:19208/api/health > "$work/health.json"; then break; fi
+            sleep 0.2
+          done
+          cat "$work/health.json"
+          grep -q '"status":"ok"' "$work/health.json"
+          curl -fsS http://127.0.0.1:19208/ | grep -qi '<title>'
+          echo "smoke test ran: health ok and a page was served"
+      - name: the config gate refuses a typo inside with
+        run: |
+          set -eu
+          work="$(mktemp -d)"
+          cp examples/config.yaml "$work/config.yaml"
+          mkdir -p "$work/pipelines"
+          sed 's/ext_in:/ext_in_typo:/' examples/pipelines/main.yaml > "$work/pipelines/main.yaml"
+          if bin/mdc config check --config "$work/config.yaml" --pipelines-dir "$work/pipelines" > "$work/out.txt" 2>&1; then
+            echo "::error::config check accepted a typo inside with"
+            cat "$work/out.txt"
+            exit 1
+          fi
+          cat "$work/out.txt"
+          grep -q 'ext_in_typo' "$work/out.txt"
+          echo "the config gate failed as expected, and for the right reason"

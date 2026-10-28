@@ -1,5 +1,21 @@
 > 整体采用pipeline设计，可以自由组合，增删步骤
 
+## 跑起来
+
+```
+make build          # CGO_ENABLED=0 静态单二进制（前端产物内嵌）
+make check          # PR 门禁：vet + test + lint + 前端 typecheck
+make config-check   # 打印 examples/ 的流水线与生效键及其来源
+
+bin/mdc config check --config /config/config.yaml
+bin/mdc serve        --config /config/config.yaml
+```
+
+配置是两份、互不合并：`/config/config.yaml`（进程级，可选、全键有默认）与
+`/config/pipelines/*.yaml`（一条流水线一份，`id` = 文件名字干）。写错一个键名就拒绝启动，
+报错形如 `config/pipelines/main.yaml:14:5: step 3 (scrape): unknown field "plot_prioirty"`。
+示例配置在 `examples/`，首次启动不会生成任何文件。
+
 ## 整体流程
 
 0. 设置一个监控：轮询模式，监控目录[/mnt/path/a, /mnt/path/b]，排除目录[/mnt/path/a/ignore]，使用配置文件1

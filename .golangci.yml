@@ -1,0 +1,32 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gocritic
+    - misspell
+    - nilerr
+    - unparam
+    - unused
+  settings:
+    errcheck:
+      # Writing to a caller-supplied io.Writer (the CLI's stdout, an HTTP
+      # response) has nowhere to report a failure to; the caller owns the stream.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - unparam
+        - errorlint

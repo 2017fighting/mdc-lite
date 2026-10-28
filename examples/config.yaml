@@ -1,0 +1,36 @@
+# mdc-lite process-level config.
+#
+# Every key below has a default; this file only spells out the defaults so they
+# are discoverable. The file is optional — a missing /config/config.yaml is not an
+# error, and the first start never writes one.
+#
+# Override order: command line flag > ${VAR} > this file > the default.
+# A ${VAR} with no value and no default stops the process: a config that silently
+# loses a value is worse than one that refuses to start.
+
+listen: ":9208"                     # HTTP listen address
+db_path: "/config/mdc.db"           # SQLite file; its volume must not be NFS
+pipelines_dir: "/config/pipelines"  # top-level *.yaml / *.yml only, never recursive
+templates_dir: "/config/templates"  # root for `@file` NFO templates
+
+log:
+  level: info                       # debug | info | warn | error
+  format: text                      # text | json (stdout only, no log files)
+
+browse_roots:                       # what the directory picker may browse
+  - path: "/media"
+    label: "/media"
+
+concurrency:                        # the only place concurrency is configured
+  tasks: 4                          # task-level worker pool
+  requests: 8                       # in-flight HTTP requests, process-wide
+  images: 4                         # image fetches per task
+
+retry_limit: 5                      # reruns after a crash before a task fails
+
+# proxy: "http://user:pass@proxy:8080"   # process-wide egress; per-source override below
+
+webhook:                            # second batch; the endpoint is not open in V1
+  enabled: false
+  token: ""
+  categories: {}

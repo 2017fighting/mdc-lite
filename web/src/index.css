@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+/* Design tokens live here and nowhere else (spec §15). The three views arrive
+   with their own ticket; the placeholder below only needs the surface and text
+   roles. */
+@theme {
+  --color-surface: oklch(1 0 0);
+  --color-surface-sunken: oklch(0.97 0 0);
+  --color-text: oklch(0.2 0 0);
+  --color-text-muted: oklch(0.5 0 0);
+  --color-line: oklch(0.9 0 0);
+  --color-accent: oklch(0.55 0.18 255);
+}

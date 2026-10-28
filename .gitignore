@@ -1,0 +1,9 @@
+# Build output. `make build` produces the binary and the frontend bundle; neither
+# belongs in git, and both are rebuilt by CI before anything embeds them.
+/bin/
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
+/web/node_modules/
+
+# Local scratch: plans, notes, one-off experiments.
+/.scratch/

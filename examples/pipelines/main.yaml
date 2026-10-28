@@ -1,0 +1,67 @@
+# One file = one complete pipeline. The id is the file name's stem (`main`), so
+# there is no `id` key here; rename the file to rename the pipeline, and change its
+# extension to disable it without deleting it.
+#
+# Every step's settings live under `with`. A step is `type` + `with` + optional
+# `name` (required when the same type appears twice) + optional `on_error`
+# (fail | continue, default fail).
+
+name: main
+
+steps:
+  # Batch-level prefix: scan → filter → group. These run once per trigger.
+  - type: scan
+    with:
+      roots: ["/media"]
+      exclude: []
+
+  - type: filter
+    with:
+      # Ordered; the first rule that matches decides. The name is what shows up in
+      # the step's skipped counts, so keep it meaningful.
+      rules:
+        - name: companions
+          when: {ext_in: [".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png", ".webp"]}
+          then: include
+        - name: too-small
+          when: {min_size: 104857600}
+          then: exclude
+        - name: videos
+          when: {ext_in: [".mp4", ".mkv", ".avi", ".wmv", ".mov", ".m4v", ".ts", ".iso"]}
+          then: include
+        - name: everything-else
+          when: {stem_matches: "^.*$"}
+          then: exclude
+
+  - type: group
+    with:
+      max_distance: 2
+      max_files_for_levenshtein: 50
+      companion_extensions: [".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png", ".webp"]
+
+  # Task-level suffix: parse → scrape → images → nfo → output. These run once per
+  # group, and a rerun starts here rather than re-walking the directory.
+  - type: parse
+    with:
+      rules:
+        - {builtin: default}
+
+  - type: scrape
+    with:
+      sources: ["javdb", "dmm", "javbus", "fc2"]
+      timeout: 5m
+
+  - type: images
+    with: {}
+
+  - type: nfo
+    with:
+      template: default
+
+  - type: output
+    with:
+      root: "/media/library"
+      dir_template: "{{ number }}"
+      file_template: "{{ number }}-cd{{ part }}"
+      link: hardlink
+      required_fields: ["title", "fanart"]
