@@ -27,9 +27,12 @@ jobs:
       - name: go test
         run: go test ./...
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          # Pinned, not "latest": golangci-lint refuses to run when the Go it was
+          # built with is older than go.mod's target, and "latest" resolved to a
+          # v1 release built with Go 1.24. Keep this in step with go.mod.
+          version: v2.14.0
 
   web:
     name: frontend build + typecheck
