@@ -82,7 +82,7 @@ const (
 // hasWrites reports whether the pipeline has a step that writes to disk.
 func hasWrites(p Pipeline) bool {
 	for _, st := range p.Steps {
-		if st.Type == "output" {
+		if st.Type == StepOutput {
 			return true
 		}
 	}
@@ -121,21 +121,22 @@ func describeSteps(steps []Step) string {
 }
 
 func requiresOf(p Pipeline, st Step) []string {
-	if p.registry != nil {
-		if spec, ok := p.registry.Lookup(st.Type); ok {
-			return spec.Requires
-		}
-	}
-	return nil
+	return specField(p, st, func(s StepSpec) []string { return s.Requires })
 }
 
 func producesOf(p Pipeline, st Step) []string {
-	if p.registry != nil {
-		if spec, ok := p.registry.Lookup(st.Type); ok {
-			return spec.Produces
-		}
+	return specField(p, st, func(s StepSpec) []string { return s.Produces })
+}
+
+// specField reads one artifact list off the step type's spec. A pipeline built
+// without a registry has no contracts to check, which is why an unknown type
+// yields nothing rather than an error here.
+func specField(p Pipeline, st Step, get func(StepSpec) []string) []string {
+	spec, ok := p.registry.Lookup(st.Type)
+	if !ok {
+		return nil
 	}
-	return nil
+	return get(spec)
 }
 
 // String renders a pipeline the way `mdc config check` lists it.

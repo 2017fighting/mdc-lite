@@ -94,7 +94,8 @@ func newCommonFlags(name string, stderr io.Writer) *commonFlags {
 	return c
 }
 
-// flags turns whatever was set on the command line into config overrides.
+// flags turns whatever was set on the command line into config overrides. A flag
+// left alone is nil, which is how "not set" stays distinct from "set to empty".
 func (c *commonFlags) flags() config.Flags {
 	set := func(name string) *string {
 		f := c.fs.Lookup(name)
@@ -104,14 +105,20 @@ func (c *commonFlags) flags() config.Flags {
 		v := f.Value.String()
 		return &v
 	}
-	return config.Flags{
-		Listen:       set("listen"),
-		DBPath:       set("db-path"),
-		PipelinesDir: set("pipelines-dir"),
-		TemplatesDir: set("templates-dir"),
-		LogLevel:     set("log-level"),
-		LogFormat:    set("log-format"),
+	var out config.Flags
+	out.Listen = set("listen")
+	out.DBPath = set("db-path")
+	out.PipelinesDir = set("pipelines-dir")
+	out.TemplatesDir = set("templates-dir")
+	if v := set("log-level"); v != nil {
+		l := config.LogLevel(*v)
+		out.LogLevel = &l
 	}
+	if v := set("log-format"); v != nil {
+		f := config.LogFormat(*v)
+		out.LogFormat = &f
+	}
+	return out
 }
 
 func (c *commonFlags) load() (config.Settings, error) {
@@ -282,19 +289,8 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 }
 
 func newLogger(w io.Writer, s config.LogSettings) *slog.Logger {
-	var level slog.Level
-	switch s.Level {
-	case "debug":
-		level = slog.LevelDebug
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	default:
-		level = slog.LevelInfo
-	}
-	opts := &slog.HandlerOptions{Level: level}
-	if s.Format == "json" {
+	opts := &slog.HandlerOptions{Level: s.Level.Slog()}
+	if s.Format == config.LogJSON {
 		return slog.New(slog.NewJSONHandler(w, opts))
 	}
 	return slog.New(slog.NewTextHandler(w, opts))

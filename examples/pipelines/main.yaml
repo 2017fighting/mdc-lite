@@ -38,6 +38,9 @@ steps:
       max_distance: 2
       max_files_for_levenshtein: 50
       companion_extensions: [".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png", ".webp"]
+      # Noise stripped off the file name before grouping. A bare string is a
+      # literal; `r:` makes it a Go regexp.
+      # sanitize: ["1080p", "r:[-_. ](?:x264|x265|h264|h265)$"]
 
   # Task-level suffix: parse → scrape → images → nfo → output. These run once per
   # group, and a rerun starts here rather than re-walking the directory.

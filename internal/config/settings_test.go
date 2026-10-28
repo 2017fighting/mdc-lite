@@ -341,3 +341,52 @@ webhook:
 		}
 	}
 }
+
+func TestLogEnums(t *testing.T) {
+	for _, l := range config.Levels() {
+		if !l.Valid() {
+			t.Errorf("%q should be valid", l)
+		}
+	}
+	for _, f := range config.Formats() {
+		if !f.Valid() {
+			t.Errorf("%q should be valid", f)
+		}
+	}
+	if config.LogLevel("loud").Valid() {
+		t.Error("an unknown level must not be valid")
+	}
+	if config.LogLevel("").Valid() {
+		t.Error("the empty level must not be valid")
+	}
+	if got := config.LogWarn.Slog(); got.String() != "WARN" {
+		t.Errorf("LogWarn.Slog() = %v", got)
+	}
+}
+
+func TestLoad_LogFormatEnum(t *testing.T) {
+	if _, err := load(t, "log:\n  format: xml\n", config.LoadOptions{}); err == nil {
+		t.Fatal("an unknown log format must be refused")
+	}
+	s, err := load(t, "log:\n  format: json\n", config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Log.Format != config.LogJSON {
+		t.Errorf("format = %q", s.Log.Format)
+	}
+}
+
+func TestLoad_LogLevelFromFlag(t *testing.T) {
+	lvl := config.LogDebug
+	s, err := load(t, "", config.LoadOptions{Flags: config.Flags{LogLevel: &lvl}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Log.Level != config.LogDebug {
+		t.Errorf("level = %q", s.Log.Level)
+	}
+	if got := s.SourceOf("log.level"); got != config.SourceFlag {
+		t.Errorf("source = %q", got)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -26,8 +27,69 @@ const (
 
 // LogSettings is the `log` block. Logs go to stdout only; there is no file sink.
 type LogSettings struct {
-	Level  string `yaml:"level"`
-	Format string `yaml:"format"`
+	Level  LogLevel  `yaml:"level"`
+	Format LogFormat `yaml:"format"`
+}
+
+// LogLevel is the `log.level` enum. It is a type rather than a string so the two
+// places that care — validation and the logger — read the same closed set.
+type LogLevel string
+
+// The log levels, in increasing severity.
+const (
+	LogDebug LogLevel = "debug"
+	LogInfo  LogLevel = "info"
+	LogWarn  LogLevel = "warn"
+	LogError LogLevel = "error"
+)
+
+// Levels returns the accepted log levels.
+func Levels() []LogLevel { return []LogLevel{LogDebug, LogInfo, LogWarn, LogError} }
+
+// Valid reports whether l is one of the accepted levels.
+func (l LogLevel) Valid() bool {
+	for _, v := range Levels() {
+		if l == v {
+			return true
+		}
+	}
+	return false
+}
+
+// Slog maps the level onto the stdlib's.
+func (l LogLevel) Slog() slog.Level {
+	switch l {
+	case LogDebug:
+		return slog.LevelDebug
+	case LogWarn:
+		return slog.LevelWarn
+	case LogError:
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// LogFormat is the `log.format` enum.
+type LogFormat string
+
+// The two accepted log formats.
+const (
+	LogText LogFormat = "text"
+	LogJSON LogFormat = "json"
+)
+
+// Formats returns the accepted log formats.
+func Formats() []LogFormat { return []LogFormat{LogText, LogJSON} }
+
+// Valid reports whether f is one of the accepted formats.
+func (f LogFormat) Valid() bool {
+	for _, v := range Formats() {
+		if f == v {
+			return true
+		}
+	}
+	return false
 }
 
 // BrowseRoot is one entry of the directory-picker allow-list.
@@ -75,7 +137,7 @@ func Defaults() Settings {
 		DBPath:       "/config/mdc.db",
 		PipelinesDir: "/config/pipelines",
 		TemplatesDir: "/config/templates",
-		Log:          LogSettings{Level: "info", Format: "text"},
+		Log:          LogSettings{Level: LogInfo, Format: LogText},
 		BrowseRoots:  []BrowseRoot{{Path: "/media", Label: "/media"}},
 		Concurrency:  Concurrency{Tasks: 4, Requests: 8, Images: 4},
 		RetryLimit:   5,
@@ -100,8 +162,8 @@ type Flags struct {
 	DBPath       *string
 	PipelinesDir *string
 	TemplatesDir *string
-	LogLevel     *string
-	LogFormat    *string
+	LogLevel     *LogLevel
+	LogFormat    *LogFormat
 }
 
 // LoadOptions carries the inputs Load reads besides the file.
@@ -129,8 +191,8 @@ type fileSettings struct {
 }
 
 type logFile struct {
-	Level  *string `yaml:"level"`
-	Format *string `yaml:"format"`
+	Level  *LogLevel  `yaml:"level"`
+	Format *LogFormat `yaml:"format"`
 }
 
 type concFile struct {
@@ -328,15 +390,11 @@ func (s Settings) Validate() error {
 	if strings.TrimSpace(s.DBPath) == "" {
 		errs = append(errs, "db_path must not be empty")
 	}
-	switch s.Log.Level {
-	case "debug", "info", "warn", "error":
-	default:
-		errs = append(errs, fmt.Sprintf("log.level %q is not one of debug, info, warn, error", s.Log.Level))
+	if !s.Log.Level.Valid() {
+		errs = append(errs, fmt.Sprintf("log.level %q is not one of %s", s.Log.Level, joinEnum(Levels())))
 	}
-	switch s.Log.Format {
-	case "text", "json":
-	default:
-		errs = append(errs, fmt.Sprintf("log.format %q is not one of text, json", s.Log.Format))
+	if !s.Log.Format.Valid() {
+		errs = append(errs, fmt.Sprintf("log.format %q is not one of %s", s.Log.Format, joinEnum(Formats())))
 	}
 	if len(s.BrowseRoots) == 0 {
 		errs = append(errs, "browse_roots must not be empty")
@@ -375,8 +433,8 @@ func (s Settings) Effective() []KeyValue {
 		{"db_path", s.DBPath},
 		{"pipelines_dir", s.PipelinesDir},
 		{"templates_dir", s.TemplatesDir},
-		{"log.level", s.Log.Level},
-		{"log.format", s.Log.Format},
+		{"log.level", string(s.Log.Level)},
+		{"log.format", string(s.Log.Format)},
 	}
 	for i, r := range s.BrowseRoots {
 		out = append(out, KeyValue{fmt.Sprintf("browse_roots[%d].path", i), r.Path})
@@ -408,6 +466,15 @@ func (s Settings) Effective() []KeyValue {
 type KeyValue struct {
 	Key   string
 	Value string
+}
+
+// joinEnum renders an enum's values for an error message.
+func joinEnum[T ~string](vals []T) string {
+	out := make([]string, len(vals))
+	for i, v := range vals {
+		out[i] = string(v)
+	}
+	return strings.Join(out, ", ")
 }
 
 // Secret renders a secret without printing it. `mdc config check` never prints a
