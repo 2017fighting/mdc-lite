@@ -48,7 +48,22 @@ steps:
 
   - type: scrape
     with:
-      sources: ["javdb", "dmm", "javbus", "fc2"]
+      # The global source order. An entry is either a bare id or an object carrying
+      # that source's per-source knobs (proxy / domains / rate / timeout), so a
+      # source's settings stay next to its position:
+      #
+      #   - id: dmm
+      #     timeout: 30s
+      #     domains: ["dmm.co.jp", "dmm.com"]
+      #     rate: {requests_per_second: 1, burst: 2, cooldown: 5m}
+      sources:
+        - javdb
+        - dmm
+        - javbus
+        - fc2
+      # Optional: a per-field order that replaces the global one completely.
+      # priority:
+      #   title: [javdb, dmm]
       timeout: 5m
 
   - type: images

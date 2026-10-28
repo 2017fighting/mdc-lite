@@ -230,19 +230,22 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	var st *store.Store
-	st, err = store.Open(ctx, l.settings.DBPath)
+	// The interface value, not the concrete pointer: a nil *store.Store stored in
+	// api.Store is a non-nil interface, and the health handler's nil check would
+	// miss it and panic instead of answering 503.
+	var healthStore api.Store
+	st, err := store.Open(ctx, l.settings.DBPath)
 	if err != nil {
 		// The server still comes up: /api/health then answers 503 with the reason,
 		// which is a better diagnostic than a crash loop with no output.
 		logger.Error("database is not available", "path", l.settings.DBPath, "err", err)
-		st = nil
 	} else {
 		defer func() { _ = st.Close() }()
+		healthStore = st
 		logger.Info("database ready", "path", st.Path(), "migrations", st.Migrations())
 	}
 
-	srv := api.New(Version, st, web.Handler(), logger)
+	srv := api.New(Version, healthStore, web.Handler())
 	httpServer := &http.Server{
 		Addr:              l.settings.Listen,
 		Handler:           srv.Handler(),

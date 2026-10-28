@@ -545,3 +545,256 @@ func TestPipelineString(t *testing.T) {
 		t.Errorf("String() = %q, want %q", got, want)
 	}
 }
+
+// A `with` struct must be freshly built per step. If one instance were shared
+// between files, a valid file could hand its values to an invalid one, and whether
+// a pipeline passed would depend on the order the directory was read.
+func TestLoadPipelines_WithStructsDoNotLeakBetweenFiles(t *testing.T) {
+	dir := t.TempDir()
+	// Sorted first, and valid: it fills FilterWith.Rules.
+	writeFile(t, dir, "a-first.yaml", validPipeline)
+	// Sorted second, and invalid on its own: `rules` is empty.
+	writeFile(t, dir, "z-second.yaml", `steps:
+  - type: scan
+    with: {roots: [/a]}
+  - type: filter
+    with: {}
+  - type: group
+    with: {max_distance: 2, max_files_for_levenshtein: 50}
+  - type: parse
+    with: {}
+  - type: output
+    with: {root: /o}
+`)
+
+	_, err := config.LoadPipelines(dir, config.DefaultStepRegistry(), env(nil))
+	if err == nil {
+		t.Fatal("the second file has no filter rules; a shared with struct must not fill them in")
+	}
+	if !strings.Contains(err.Error(), "z-second.yaml") {
+		t.Errorf("got: %v", err)
+	}
+
+	// And the other way round: the invalid file sorted first must not make the
+	// valid one look broken.
+	dir2 := t.TempDir()
+	writeFile(t, dir2, "z-second.yaml", `steps:
+  - type: scan
+    with: {roots: [/a]}
+  - type: filter
+    with: {}
+  - type: group
+    with: {max_distance: 2, max_files_for_levenshtein: 50}
+  - type: parse
+    with: {}
+  - type: output
+    with: {root: /o}
+`)
+	writeFile(t, dir2, "a-first.yaml", validPipeline)
+	_, err = config.LoadPipelines(dir2, config.DefaultStepRegistry(), env(nil))
+	if err == nil || !strings.Contains(err.Error(), "z-second.yaml") {
+		t.Errorf("the failure must be attributed to the file that is wrong, got: %v", err)
+	}
+}
+
+// A step's `with` may be omitted entirely, or given empty: every key inside it has
+// a documented default. `output.root` is the one exception, because a write step
+// that does not say where it writes is a mistake, not a default.
+func TestParsePipeline_WithDefaults(t *testing.T) {
+	p, err := parse(t, `steps:
+  - type: scan
+    with: {roots: [/a]}
+  - type: filter
+    with:
+      rules:
+        - name: all
+          when: {ext_in: [.mp4]}
+          then: include
+  - type: group
+    with: {}
+  - type: parse
+    with: {}
+  - type: scrape
+    with: {}
+  - type: images
+    with: {}
+  - type: nfo
+    with: {}
+  - type: output
+    with: {root: /o}
+`)
+	if err != nil {
+		t.Fatalf("every with key has a default: %v", err)
+	}
+
+	group := p.Steps[2].WithValue.(*config.GroupWith)
+	if group.MaxDistance != 2 || group.MaxFilesForLevenshtein != 50 {
+		t.Errorf("group defaults = %+v", group)
+	}
+
+	scrape := p.Steps[4].WithValue.(*config.ScrapeWith)
+	if got := strings.Join(scrape.Sources.IDs(), ","); got != "javdb,dmm,javbus,fc2" {
+		t.Errorf("scrape sources = %q", got)
+	}
+	if scrape.Timeout.Std().Minutes() != 5 {
+		t.Errorf("scrape timeout = %v", scrape.Timeout.Std())
+	}
+
+	output := p.Steps[7].WithValue.(*config.OutputWith)
+	if output.DirTemplate != "{{ number }}" || output.FileTemplate != "{{ number }}-cd{{ part }}" {
+		t.Errorf("output templates = %q / %q", output.DirTemplate, output.FileTemplate)
+	}
+	if output.Link != "hardlink" {
+		t.Errorf("output link = %q", output.Link)
+	}
+	if strings.Join(output.RequiredFields, ",") != "title,fanart" {
+		t.Errorf("required_fields = %v", output.RequiredFields)
+	}
+}
+
+// A source in the global order is either a bare id or an object with that source's
+// knobs, and the object form keeps its position in the order.
+func TestParsePipeline_SourceOrderWithKnobs(t *testing.T) {
+	p, err := parse(t, `steps:
+  - type: scan
+    with: {roots: [/a]}
+  - type: filter
+    with:
+      rules:
+        - name: all
+          when: {ext_in: [.mp4]}
+          then: include
+  - type: group
+    with: {}
+  - type: parse
+    with: {}
+  - type: scrape
+    with:
+      sources:
+        - javdb
+        - id: dmm
+          timeout: 45s
+          domains: [dmm.co.jp, dmm.com]
+          rate:
+            requests_per_second: 0.5
+            burst: 1
+            cooldown: 10m
+        - javbus
+      priority:
+        title: [javdb, dmm]
+  - type: output
+    with: {root: /o}
+`)
+	if err != nil {
+		t.Fatalf("a source entry may be an object: %v", err)
+	}
+
+	w := p.Steps[4].WithValue.(*config.ScrapeWith)
+	if got := strings.Join(w.Sources.IDs(), ","); got != "javdb,dmm,javbus" {
+		t.Errorf("order = %q", got)
+	}
+	knobs := w.Sources.Knobs()
+	dmm, ok := knobs["dmm"]
+	if !ok {
+		t.Fatalf("dmm's knobs are missing: %+v", knobs)
+	}
+	if dmm.Timeout.Std().Seconds() != 45 {
+		t.Errorf("dmm timeout = %v", dmm.Timeout.Std())
+	}
+	if strings.Join(dmm.Domains, ",") != "dmm.co.jp,dmm.com" {
+		t.Errorf("dmm domains = %v", dmm.Domains)
+	}
+	if dmm.Rate == nil || dmm.Rate.Burst != 1 {
+		t.Errorf("dmm rate = %+v", dmm.Rate)
+	}
+	if _, ok := knobs["javdb"]; ok {
+		t.Errorf("a bare id must not produce knobs: %+v", knobs)
+	}
+}
+
+func TestParsePipeline_SourceOrderIsValidated(t *testing.T) {
+	body := func(sources string) string {
+		return `steps:
+  - type: scan
+    with: {roots: [/a]}
+  - type: filter
+    with:
+      rules:
+        - name: all
+          when: {ext_in: [.mp4]}
+          then: include
+  - type: group
+    with: {}
+  - type: parse
+    with: {}
+  - type: scrape
+    with:
+      sources: ` + sources + `
+  - type: output
+    with: {root: /o}
+`
+	}
+	for _, tc := range []struct{ name, sources, want string }{
+		{"empty", "[]", "must not be empty"},
+		{"duplicate", "[javdb, javdb]", "listed twice"},
+		{"blank id", "[{id: \"\"}]", "id must not be empty"},
+		{"unknown knob", "[{id: dmm, prot: x}]", "prot"},
+		{"bad timeout", "[{id: dmm, timeout: -1s}]", "timeout"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parse(t, body(tc.sources))
+			if err == nil {
+				t.Fatal("expected a validation error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// An omitted `with` is the same as `with: {}`: every key inside has a default.
+func TestParsePipeline_OmittedWithMeansDefaults(t *testing.T) {
+	p, err := parse(t, `steps:
+  - type: scan
+    with: {roots: [/a]}
+  - type: filter
+    with:
+      rules:
+        - name: all
+          when: {ext_in: [.mp4]}
+          then: include
+  - type: group
+  - type: parse
+  - type: scrape
+  - type: output
+    with: {root: /o}
+`)
+	if err != nil {
+		t.Fatalf("an omitted `with` must fall back to the defaults: %v", err)
+	}
+	if g := p.Steps[2].WithValue.(*config.GroupWith); g.MaxDistance != 2 {
+		t.Errorf("group defaults missing: %+v", g)
+	}
+	if s := p.Steps[4].WithValue.(*config.ScrapeWith); len(s.Sources) != 4 {
+		t.Errorf("scrape defaults missing: %+v", s)
+	}
+}
+
+// A scalar where a mapping belongs is still refused, and points at the value.
+func TestParsePipeline_WithMustBeAMapping(t *testing.T) {
+	_, err := parse(t, `steps:
+  - type: scan
+    with: /media
+  - type: parse
+    with: {}
+  - type: output
+    with: {root: /o}
+`)
+	if err == nil {
+		t.Fatal("a scalar `with` must be refused")
+	}
+	if !strings.Contains(err.Error(), "must be a mapping") {
+		t.Errorf("got: %v", err)
+	}
+}

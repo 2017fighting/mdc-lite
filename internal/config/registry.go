@@ -20,9 +20,11 @@ type Validator interface {
 type StepSpec struct {
 	// Type is the value of `type:` that selects this step.
 	Type string
-	// With is a pointer to a zero value of the step's `with` struct. It is
-	// decoded into, so it must be a pointer to a struct.
-	With any
+	// NewWith returns a fresh zero value of the step's `with` struct. It is a
+	// constructor, not a shared value: every step of this type is decoded into its
+	// own instance, so one pipeline file can never inherit the values of another
+	// (and a validation failure can never depend on which file was read first).
+	NewWith func() any
 	// Requires lists the artifact kinds this step consumes.
 	Requires []string
 	// Produces lists the artifact kinds this step emits.

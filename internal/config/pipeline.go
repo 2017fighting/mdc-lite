@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -32,6 +33,10 @@ type Step struct {
 	Name    string
 	OnError OnError
 	With    *yaml.Node
+	// WithValue is the decoded, defaulted `with` struct (a *ScanWith, *GroupWith,
+	// …). The engine reads the step's settings from here; the node above is kept
+	// only so errors can point at the position the operator wrote.
+	WithValue any
 
 	WithLine, WithColumn int
 	// Line and Column locate the step's own mapping in the file, so an error about
@@ -189,7 +194,7 @@ func ParsePipeline(path string, data []byte, reg *Registry, env Env) (Pipeline, 
 
 	stepNodes := stepNodesOf(doc)
 	for i, rs := range rp.Steps {
-		st := Step{Type: rs.Type, Name: rs.Name, OnError: OnError(rs.OnError), WithLine: rs.With.Line, WithColumn: rs.With.Column}
+		st := Step{Type: rs.Type, Name: rs.Name, OnError: OnError(rs.OnError)}
 		if st.OnError == "" {
 			st.OnError = OnErrorFail
 		}
@@ -208,9 +213,11 @@ func ParsePipeline(path string, data []byte, reg *Registry, env Env) (Pipeline, 
 			if !ok {
 				return Pipeline{}, stepErr(path, st, i, "unknown step type %q (known: %s)", st.Type, strings.Join(reg.Types(), ", "))
 			}
-			if err := decodeWith(st, spec, path, i); err != nil {
+			with, err := decodeWith(st, spec, path, i)
+			if err != nil {
 				return Pipeline{}, err
 			}
+			st.WithValue = with
 		}
 		p.Steps = append(p.Steps, st)
 	}
@@ -252,28 +259,40 @@ func stepErr(path string, st Step, idx int, format string, args ...any) error {
 
 // decodeWith strictly decodes the step's `with` node into the step type's own
 // struct and runs its Validate.
-func decodeWith(st Step, spec StepSpec, path string, idx int) error {
+func decodeWith(st Step, spec StepSpec, path string, idx int) (any, error) {
 	if st.With == nil {
-		return stepErr(path, st, idx, "`with` is required")
+		// No `with` at all: the step runs entirely on its documented defaults.
+		with := spec.NewWith()
+		if v, ok := with.(Validator); ok {
+			if err := v.Validate(); err != nil {
+				return nil, fmt.Errorf("%s:%d:%d: step %d (%s): %w", path, st.Line, st.Column, idx+1, st.Type, err)
+			}
+		}
+		return with, nil
 	}
+	// An omitted `with` and `with: {}` both mean "every default"; only a scalar or a
+	// sequence in its place is a mistake.
 	isNull := st.With.Kind == yaml.ScalarNode && st.With.Tag == "!!null"
 	if st.With.Kind != yaml.MappingNode && !isNull {
-		return fmt.Errorf("%s:%d:%d: step %d (%s): `with` must be a mapping", path, st.With.Line, st.With.Column, idx+1, st.Type)
+		return nil, fmt.Errorf("%s:%d:%d: step %d (%s): `with` must be a mapping", path, st.With.Line, st.With.Column, idx+1, st.Type)
 	}
-	probs := checkUnknownKeys(st.With, typeOf(spec.With), "")
+	// A fresh struct carrying the documented defaults, so an omitted key means
+	// "the default" rather than "the zero value".
+	with := spec.NewWith()
+	probs := checkUnknownKeys(st.With, typeOf(with), "")
 	if len(probs) > 0 {
 		p := probs[0]
-		return fmt.Errorf("%s:%d:%d: step %d (%s): unknown field %q", path, p.Line, p.Column, idx+1, st.Type, p.Path)
+		return nil, fmt.Errorf("%s:%d:%d: step %d (%s): unknown field %q", path, p.Line, p.Column, idx+1, st.Type, p.Path)
 	}
-	if err := st.With.Decode(spec.With); err != nil {
-		return fmt.Errorf("%s:%d:%d: step %d (%s): %w", path, st.With.Line, st.With.Column, idx+1, st.Type, err)
+	if err := st.With.Decode(with); err != nil {
+		return nil, fmt.Errorf("%s:%d:%d: step %d (%s): %w", path, st.With.Line, st.With.Column, idx+1, st.Type, cleanDecodeErr(err))
 	}
-	if v, ok := spec.With.(Validator); ok {
+	if v, ok := with.(Validator); ok {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("%s:%d:%d: step %d (%s): %w", path, st.With.Line, st.With.Column, idx+1, st.Type, err)
+			return nil, fmt.Errorf("%s:%d:%d: step %d (%s): %w", path, st.With.Line, st.With.Column, idx+1, st.Type, err)
 		}
 	}
-	return nil
+	return with, nil
 }
 
 // validateStep checks the type-independent rules of the metadata layer.
@@ -315,4 +334,26 @@ func (p Pipeline) Validate() error {
 		return fmt.Errorf("%s: the pipeline has no step that writes to disk (needs an `output` step)", p.File)
 	}
 	return checkTopology(p)
+}
+
+// cleanDecodeErr strips the position yaml puts inside a decode error, because
+// the caller already prefixed the error with 文件:行:列. Two positions in one line
+// (one of them a line number with no file) is how a reader stops trusting the
+// message.
+func cleanDecodeErr(err error) error {
+	var te *yaml.TypeError
+	if errors.As(err, &te) {
+		msgs := make([]string, 0, len(te.Errors))
+		for _, e := range te.Errors {
+			msgs = append(msgs, stripLinePrefix(e))
+		}
+		return errors.New(strings.Join(msgs, "; "))
+	}
+	return errors.New(stripLinePrefix(err.Error()))
+}
+
+var linePrefix = regexp.MustCompile(`^line \d+: `)
+
+func stripLinePrefix(s string) string {
+	return linePrefix.ReplaceAllString(s, "")
 }

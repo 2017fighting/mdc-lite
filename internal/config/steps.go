@@ -3,7 +3,11 @@ package config
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/2017fighting/mdc-lite/internal/field"
 )
@@ -66,17 +70,71 @@ type ParseRule struct {
 	Family  string `yaml:"family"`
 }
 
-// ScrapeWith configures `scrape`: the global source order, per-field overrides,
-// the whole-number timeout, and the per-source knobs.
-type ScrapeWith struct {
-	Sources  []string              `yaml:"sources"`
-	Priority map[string][]string   `yaml:"priority"`
-	Timeout  Duration              `yaml:"timeout"`
-	Options  map[string]SourceWith `yaml:"sources_options"`
+// ScrapeDefaults are the documented defaults of `scrape.with`: the global source
+// order, and a 5m budget for one number's whole scrape unit.
+func ScrapeDefaults() ScrapeWith {
+	return ScrapeWith{
+		Sources: SourceOrder{{ID: "javdb"}, {ID: "dmm"}, {ID: "javbus"}, {ID: "fc2"}},
+		Timeout: Duration(5 * time.Minute),
+	}
 }
 
-// SourceWith holds the four knobs a single source exposes. Everything else (UA,
-// cookies, image Referer, signature constants) is a code constant.
+// ScrapeWith configures `scrape`: the global source order, per-field overrides,
+// the whole-number timeout, and the per-source knobs.
+//
+// `sources` is the ordered global list, and each entry is either a bare id or an
+// object carrying that source's knobs. One key, one meaning: the order and the
+// knobs belong to the same list, so a source's settings cannot drift away from its
+// position.
+type ScrapeWith struct {
+	Sources  SourceOrder         `yaml:"sources"`
+	Priority map[string][]string `yaml:"priority"`
+	Timeout  Duration            `yaml:"timeout"`
+}
+
+// SourceOrder is the ordered global source list.
+type SourceOrder []SourceEntry
+
+// SourceEntry is one source in the global order: an id, optionally with knobs.
+type SourceEntry struct {
+	ID string `yaml:"id"`
+
+	SourceWith `yaml:",inline"`
+}
+
+// UnmarshalYAML accepts either a bare id string or a mapping with an `id`.
+func (e *SourceEntry) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode {
+		e.ID = n.Value
+		return nil
+	}
+	type plain SourceEntry
+	return n.Decode((*plain)(e))
+}
+
+// IDs returns the ordered source ids.
+func (o SourceOrder) IDs() []string {
+	out := make([]string, len(o))
+	for i, e := range o {
+		out[i] = e.ID
+	}
+	return out
+}
+
+// Knobs returns the per-source settings that were actually written, keyed by id.
+func (o SourceOrder) Knobs() map[string]SourceWith {
+	out := make(map[string]SourceWith, len(o))
+	for _, e := range o {
+		if e.Proxy != "" || len(e.Domains) > 0 || e.Rate != nil || e.Timeout != 0 {
+			out[e.ID] = e.SourceWith
+		}
+	}
+	return out
+}
+
+// SourceWith holds the four knobs a single source exposes: proxy, domains, rate
+// and timeout. Everything else (UA, cookies, image Referer, signature constants)
+// is a code constant.
 type SourceWith struct {
 	Proxy   string   `yaml:"proxy"`
 	Domains []string `yaml:"domains"`
@@ -98,6 +156,16 @@ type ImagesWith struct{}
 // NfoWith configures `nfo`.
 type NfoWith struct {
 	Template string `yaml:"template"`
+}
+
+// OutputDefaults are the documented defaults of `output.with`. `root` has none.
+func OutputDefaults() OutputWith {
+	return OutputWith{
+		DirTemplate:    "{{ number }}",
+		FileTemplate:   "{{ number }}-cd{{ part }}",
+		Link:           "hardlink",
+		RequiredFields: []string{string(field.Title), string(field.Fanart)},
+	}
 }
 
 // OutputWith configures `output`, the only step that writes to disk.
@@ -124,16 +192,18 @@ const (
 // DefaultStepRegistry returns the registry of V1 step types.
 func DefaultStepRegistry() *Registry {
 	return NewRegistry(
-		StepSpec{Type: StepScan, With: &ScanWith{}, Produces: []string{ArtifactFileSet}},
-		StepSpec{Type: StepFilter, With: &FilterWith{}, Requires: []string{ArtifactFileSet}, Produces: []string{ArtifactCandidates}},
-		StepSpec{Type: StepGroup, With: &GroupWith{}, Requires: []string{ArtifactCandidates}, Produces: []string{ArtifactGroups}},
-		StepSpec{Type: StepParse, With: &ParseWith{}, Requires: []string{ArtifactGroups}, Produces: []string{ArtifactParsed}},
-		StepSpec{Type: StepScrape, With: &ScrapeWith{}, Requires: []string{ArtifactParsed}, Produces: []string{ArtifactScraped}},
-		StepSpec{Type: StepImages, With: &ImagesWith{}, Requires: []string{ArtifactScraped}, Produces: []string{ArtifactImages}},
-		StepSpec{Type: StepNfo, With: &NfoWith{}, Requires: []string{ArtifactScraped}, Produces: []string{ArtifactNfoDoc}},
-		StepSpec{Type: StepOutput, With: &OutputWith{}, Requires: []string{ArtifactParsed}, Produces: []string{ArtifactManifest}},
+		StepSpec{Type: StepScan, NewWith: func() any { return &ScanWith{} }, Produces: []string{ArtifactFileSet}},
+		StepSpec{Type: StepFilter, NewWith: func() any { return &FilterWith{} }, Requires: []string{ArtifactFileSet}, Produces: []string{ArtifactCandidates}},
+		StepSpec{Type: StepGroup, NewWith: func() any { g := GroupDefaults(); return &g }, Requires: []string{ArtifactCandidates}, Produces: []string{ArtifactGroups}},
+		StepSpec{Type: StepParse, NewWith: func() any { return &ParseWith{} }, Requires: []string{ArtifactGroups}, Produces: []string{ArtifactParsed}},
+		StepSpec{Type: StepScrape, NewWith: func() any { w := ScrapeDefaults(); return &w }, Requires: []string{ArtifactParsed}, Produces: []string{ArtifactScraped}},
+		StepSpec{Type: StepImages, NewWith: func() any { return &ImagesWith{} }, Requires: []string{ArtifactScraped}, Produces: []string{ArtifactImages}},
+		StepSpec{Type: StepNfo, NewWith: func() any { return &NfoWith{} }, Requires: []string{ArtifactScraped}, Produces: []string{ArtifactNfoDoc}},
+		StepSpec{Type: StepOutput, NewWith: func() any { w := OutputDefaults(); return &w }, Requires: []string{ArtifactParsed}, Produces: []string{ArtifactManifest}},
 	)
 }
+
+func itoa(i int) string { return strconv.Itoa(i) }
 
 var (
 	extPattern      = regexp.MustCompile(`^\.[a-z0-9]+$`)
@@ -201,6 +271,15 @@ func (w FilterWhen) validate() error {
 	return nil
 }
 
+// GroupDefaults are the documented defaults of `group.with`.
+func GroupDefaults() GroupWith {
+	return GroupWith{
+		MaxDistance:            2,
+		MaxFilesForLevenshtein: 50,
+		CompanionExtensions:    []string{".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png", ".webp"},
+	}
+}
+
 // Validate checks the group knobs.
 func (w *GroupWith) Validate() error {
 	if w.MaxDistance < 0 {
@@ -254,6 +333,19 @@ func (w *ScrapeWith) Validate() error {
 	if len(w.Sources) == 0 {
 		return fmt.Errorf("sources must not be empty")
 	}
+	seen := map[string]bool{}
+	for i, e := range w.Sources {
+		if strings.TrimSpace(e.ID) == "" {
+			return fmt.Errorf("sources[%d].id must not be empty", i)
+		}
+		if seen[e.ID] {
+			return fmt.Errorf("sources: %q is listed twice", e.ID)
+		}
+		seen[e.ID] = true
+		if err := e.validate("sources[" + itoa(i) + "]"); err != nil {
+			return err
+		}
+	}
 	for f, order := range w.Priority {
 		if !field.Valid(f) {
 			return fmt.Errorf("priority: %q is not one of the 14 source-level fields", f)
@@ -265,13 +357,17 @@ func (w *ScrapeWith) Validate() error {
 	if w.Timeout < 0 {
 		return fmt.Errorf("timeout must be >= 0")
 	}
-	for id, o := range w.Options {
-		if o.Timeout < 0 {
-			return fmt.Errorf("sources.%s.timeout must be >= 0", id)
-		}
-		if o.Rate != nil && (o.Rate.RequestsPerSecond < 0 || o.Rate.Burst < 0 || o.Rate.Cooldown < 0) {
-			return fmt.Errorf("sources.%s.rate values must be >= 0", id)
-		}
+	return nil
+}
+
+// validate checks one source's knobs. The key is the location the value was
+// written at, so the error names the key the operator can actually go and fix.
+func (o SourceWith) validate(key string) error {
+	if o.Timeout < 0 {
+		return fmt.Errorf("%s.timeout must be >= 0", key)
+	}
+	if o.Rate != nil && (o.Rate.RequestsPerSecond < 0 || o.Rate.Burst < 0 || o.Rate.Cooldown < 0) {
+		return fmt.Errorf("%s.rate values must be >= 0", key)
 	}
 	return nil
 }
@@ -307,7 +403,7 @@ func (w *OutputWith) Validate() error {
 // checkTemplateVars rejects a template that names a variable the render context
 // does not have. Only the shape is checked here; rendering belongs to the step.
 func checkTemplateVars(tpl string) error {
-	allowed := map[string]bool{"number": true, "part": true}
+	allowed := map[string]bool{string(field.Number): true, "part": true}
 	for _, f := range field.All() {
 		allowed[string(f)] = true
 	}

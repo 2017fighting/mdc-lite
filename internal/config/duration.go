@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -14,7 +15,7 @@ type Duration time.Duration
 // UnmarshalYAML implements yaml.Unmarshaler.
 func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind != yaml.ScalarNode {
-		return fmt.Errorf("line %d: a duration must be a scalar", n.Line)
+		return errors.New("a duration must be a scalar")
 	}
 	if v, err := time.ParseDuration(n.Value); err == nil {
 		*d = Duration(v)
@@ -25,7 +26,7 @@ func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
 		*d = Duration(time.Duration(secs) * time.Second)
 		return nil
 	}
-	return fmt.Errorf("line %d: %q is not a duration (use \"30s\", \"5m\" or a whole number of seconds)", n.Line, n.Value)
+	return fmt.Errorf("%q is not a duration (use \"30s\", \"5m\" or a whole number of seconds)", n.Value)
 }
 
 // MarshalYAML implements yaml.Marshaler.

@@ -6,12 +6,16 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"time"
 )
 
 // Store is the part of the database the health endpoint needs.
+//
+// A nil *store.Store in a Store field is not a nil Store interface: calling a
+// method on it panics instead of reporting "no database". New therefore takes the
+// interface and the caller must pass an untyped nil, which is why the CLI keeps a
+// separate variable rather than assigning a typed nil.
 type Store interface {
 	Path() string
 	Migrations() int64
@@ -27,18 +31,13 @@ type Server struct {
 	Store Store
 	// Static serves the embedded frontend.
 	Static http.Handler
-	// Logger may be nil.
-	Logger *slog.Logger
 
 	started time.Time
 }
 
 // New builds a server.
-func New(version string, st Store, static http.Handler, logger *slog.Logger) *Server {
-	if logger == nil {
-		logger = slog.Default()
-	}
-	return &Server{Version: version, Store: st, Static: static, Logger: logger, started: time.Now()}
+func New(version string, st Store, static http.Handler) *Server {
+	return &Server{Version: version, Store: st, Static: static, started: time.Now()}
 }
 
 // Handler returns the routed handler.

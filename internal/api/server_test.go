@@ -22,7 +22,7 @@ func newServer(t *testing.T) (*api.Server, *store.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return api.New("test", st, web.Handler(), nil), st
+	return api.New("test", st, web.Handler()), st
 }
 
 type health struct {
@@ -69,7 +69,7 @@ func TestHealth_ReadyIs200(t *testing.T) {
 
 func TestHealth_NotReadyIs503DbUnavailable(t *testing.T) {
 	// No store at all: the process came up but its database did not.
-	s := api.New("test", nil, nil, nil)
+	s := api.New("test", nil, nil)
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/health", nil))
 	if rec.Code != http.StatusServiceUnavailable {
@@ -172,7 +172,7 @@ func (e errStore) Ready(context.Context) error {
 }
 
 func TestHealth_ReportsTheReadinessError(t *testing.T) {
-	s := api.New("test", errStore{err: errors.New("migrations failed: no such table")}, nil, nil)
+	s := api.New("test", errStore{err: errors.New("migrations failed: no such table")}, nil)
 	code, body := getHealth(t, s.Handler())
 	if code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d", code)

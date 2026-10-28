@@ -9,6 +9,7 @@
 
 - 命令行 flag 见 `mdc serve --help` 与 `mdc config check --help`。
 - 环境变量只有 `${VAR}` 插值这一种形式，`${VAR:-默认}` 给回落值。**缺失即启动报错**——一份悄悄丢掉值的配置比拒绝启动更坏。
+- 插值后的标量按内容重判类型，所以数值键也能走环境变量：`retry_limit: ${RETRY}`（`RETRY=7` → `7`）。**加了引号的标量仍是字符串**，所以 `listen: "${ADDR}"` 不会被推断成别的东西。
 - 文件缺失不是错误：全键有默认，首次启动不生成任何文件。
 
 ## 进程级键
@@ -33,6 +34,25 @@
 顶层只有两个键：`name`（可选显示名，默认 = id）与 `steps`。**没有 `id` 键**——`id` 就是文件名字干（`main.yaml` → `main`），引用一律用 `id`。
 
 步骤元数据层固定四个键：`type` / `with` / `name`（同一 type 出现两次时必填）/ `on_error`（`fail` | `continue`，默认 `fail`）。参数一律收在 `with:` 下。
+
+## 步骤 `with` 的默认值
+
+每个键都有默认，所以 `with: {}` 与整段省略 `with` 等价。例外是 `output.with.root`：写盘步骤不写落点就是配置错误，不是默认值。
+
+| 步骤 | 默认 |
+|---|---|
+| `scan` | `roots: []`、`exclude: []`（由触发注入覆盖） |
+| `filter` | 无（`rules` 必填） |
+| `group` | `max_distance: 2`、`max_files_for_levenshtein: 50`、`companion_extensions` 为字幕与图片扩展名 |
+| `parse` | 无（`rules` 为空 = 不解析） |
+| `scrape` | `sources` 为全局序 `[javdb, dmm, javbus, fc2]`、`timeout: 5m` |
+| `images` | 无键 |
+| `nfo` | `template: default` |
+| `output` | `dir_template: {{ number }}`、`file_template: {{ number }}-cd{{ part }}`、`link: hardlink`、`required_fields: [title, fanart]`；**`root` 必填** |
+
+`scrape.with.sources` 是有序列表，每项是**裸 id** 或**带 id 的对象**：`sources: [javdb, {id: dmm, timeout: 30s, domains: [dmm.co.jp]}]`。源级的四个旋钮（`proxy` / `domains` / `rate` / `timeout`）就挂在这一项里，位置与设置不分家。`priority.<field>` 是**完整替换**全局序，不是追加。
+
+`filter.with.rules[].when` 的四个键（`ext_in` / `ext_not_in` / `min_size` / `stem_matches`）**互斥**：一条规则同时写两个时语义未定义，所以启动即拒。要同时卡扩展名与体积就写两条规则。
 
 ## 拒绝启动的情形
 
@@ -72,3 +92,15 @@ config/pipelines/main.yaml:24:18: step 2 (filter): unknown field "rules[0].when.
 ## 门禁
 
 `make check` = `go vet` + `go test ./...` + `golangci-lint` + 前端 `typecheck`，CI 在 PR 上跑同一组。CI 另有一个 job 证明两件事：二进制是**静态**的，以及配置门禁**真的会红**（把 `ext_in` 改成 `ext_in_typo` 后 `config check` 必须失败，且失败原因对）。
+
+## 本票落下的实现裁决
+
+写在这里，因为它们是实现时才暴露出来的洞：
+
+- **`scrape.with.sources` 一项两形**：spec §6 说它是有序列表，§7 说源级旋钮「挂在 `scrape.with.sources.<id>` 下」——同名而形状不同。取「列表项可为字符串或对象」，于是 `sources: [javdb, {id: dmm, timeout: 30s}]` 既保住有序，又让旋钮跟着自己的 id 走。校验覆盖空 id、重复 id、未知旋钮、负值。
+- **`filter.when` 四个键互斥**：spec 只要求「未知键报错」，但一条规则同时写 `ext_in` 与 `min_size` 时语义未定义。互斥把未定义变成启动期错误；要同时卡两个条件就写两条规则。
+- **`${VAR}` 插值后按内容重判类型**：否则 `retry_limit`、`concurrency.*` 这类数值键无法从环境变量设置，「flag > ${VAR} > 文件 > 默认」在数值键上就不成立。加引号的标量仍是字符串。
+- **每个步骤的 `with` 都有默认**（见上表），`with` 整段省略 = `with: {}`。
+- **`/healthz` 是 `/api/health` 的别名**：k8s 惯例探针路径，一行代码省掉部署侧的 rewrite。`mdc version` / `mdc help` 同理是常规便利，不在 spec 的子命令面里。
+- **`with` 结构体每步新建**：registry 存的是构造函数而不是共享实例，否则一个文件的合法值会漏进另一个文件，校验结果取决于目录读取顺序。
+- **health 的 nil 走接口**：`api.Store` 存 `nil *store.Store` 是非 nil 接口，处理器会 panic 而不是回 503，所以 CLI 用独立变量并只在打开成功时赋值。

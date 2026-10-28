@@ -12,7 +12,6 @@ import (
 type problem struct {
 	Line, Column int
 	Path         string
-	Field        string
 }
 
 // checkUnknownKeys walks a decoded YAML node against a struct type and reports
@@ -48,6 +47,7 @@ func checkUnknownKeys(n *yaml.Node, t reflect.Type, path string) []problem {
 			// A wrong shape is the decoder's error to report, with its own position.
 			return nil
 		}
+		inline := inlineFields(t)
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			key, val := n.Content[i], n.Content[i+1]
 			if key.Tag == "!!merge" {
@@ -57,9 +57,21 @@ func checkUnknownKeys(n *yaml.Node, t reflect.Type, path string) []problem {
 			}
 			f, ok := fieldByTag(t, key.Value)
 			if !ok {
+				// An `,inline` struct contributes its own keys to this mapping, so
+				// the key is checked against each inline type in turn.
+				for _, it := range inline {
+					if f, found := fieldByTag(it, key.Value); found {
+						out = append(out, checkUnknownKeys(val, f.Type, joinPath(path, key.Value))...)
+						ok = true
+						break
+					}
+				}
+				if ok {
+					continue
+				}
 				out = append(out, problem{
 					Line: key.Line, Column: key.Column,
-					Path: joinPath(path, key.Value), Field: key.Value,
+					Path: joinPath(path, key.Value),
 				})
 				continue
 			}
@@ -83,15 +95,45 @@ func checkUnknownKeys(n *yaml.Node, t reflect.Type, path string) []problem {
 	return out
 }
 
+// inlineFields returns the types of the struct's `,inline` fields.
+func inlineFields(t reflect.Type) []reflect.Type {
+	var out []reflect.Type
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.PkgPath != "" {
+			continue
+		}
+		parts := strings.Split(f.Tag.Get("yaml"), ",")
+		for _, p := range parts[1:] {
+			if p == "inline" {
+				ft := f.Type
+				for ft.Kind() == reflect.Pointer {
+					ft = ft.Elem()
+				}
+				if ft.Kind() == reflect.Struct {
+					out = append(out, ft)
+				}
+			}
+		}
+	}
+	return out
+}
+
 func fieldByTag(t reflect.Type, key string) (reflect.StructField, bool) {
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		if f.PkgPath != "" { // unexported
 			continue
 		}
-		name := strings.Split(f.Tag.Get("yaml"), ",")[0]
+		parts := strings.Split(f.Tag.Get("yaml"), ",")
+		name := parts[0]
 		if name == "-" {
 			continue
+		}
+		for _, p := range parts[1:] {
+			if p == "inline" {
+				name = ""
+			}
 		}
 		if name == "" {
 			name = strings.ToLower(f.Name)

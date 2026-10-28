@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"reflect"
 	"strconv"
 
@@ -19,10 +18,18 @@ func expandNodeTracked(n *yaml.Node, lookup func(string) (string, bool), fromEnv
 	if n.Kind == yaml.ScalarNode && n.Tag == "!!str" && containsEnvRef(n.Value) {
 		v, _, err := ExpandEnv(n.Value, lookup)
 		if err != nil {
-			return fmt.Errorf("line %d: %w", n.Line, err)
+			return err
 		}
 		n.Value = v
 		fromEnv[n] = true
+		// A substituted value is a value, not text: `${RETRY}` holding "7" must
+		// become the integer 7, or every numeric key would be unreachable from the
+		// environment. An explicitly quoted scalar stays a string, so
+		// `listen: "${ADDR}"` cannot be reinterpreted as something else.
+		if !quoted(n) {
+			n.Tag = ""
+			n.Style = 0
+		}
 	}
 	for _, c := range n.Content {
 		if err := expandNodeTracked(c, lookup, fromEnv); err != nil {
@@ -30,6 +37,12 @@ func expandNodeTracked(n *yaml.Node, lookup func(string) (string, bool), fromEnv
 		}
 	}
 	return nil
+}
+
+// quoted reports whether the scalar was written inside quotes. The style is
+// recorded by the parser; a plain scalar has Style 0.
+func quoted(n *yaml.Node) bool {
+	return n.Style == yaml.DoubleQuotedStyle || n.Style == yaml.SingleQuotedStyle
 }
 
 func containsEnvRef(s string) bool {

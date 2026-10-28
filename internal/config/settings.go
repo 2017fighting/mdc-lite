@@ -94,26 +94,6 @@ func (s Settings) SourceOf(key string) Source {
 	return SourceDefault
 }
 
-// Sources returns every tracked key with its source, sorted.
-func (s Settings) Sources() []KeySource {
-	keys := make([]string, 0, len(s.sources))
-	for k := range s.sources {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	out := make([]KeySource, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, KeySource{Key: k, Source: s.sources[k]})
-	}
-	return out
-}
-
-// KeySource is one effective key and where it came from.
-type KeySource struct {
-	Key    string
-	Source Source
-}
-
 // Flags are the command-line overrides. A nil field is not set.
 type Flags struct {
 	Listen       *string
@@ -303,7 +283,9 @@ func (s *Settings) applyFile(path string, data []byte, lookup func(string) (stri
 		}
 		if f.Webhook.Categories != nil {
 			s.Webhook.Categories = *f.Webhook.Categories
-			set("webhook.categories", "webhook.categories")
+			for k := range s.Webhook.Categories {
+				set("webhook.categories."+k, "webhook.categories."+k)
+			}
 		}
 	}
 	return nil

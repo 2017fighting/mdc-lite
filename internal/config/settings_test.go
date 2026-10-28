@@ -268,3 +268,76 @@ func TestExpandEnv(t *testing.T) {
 		}
 	}
 }
+
+// A numeric key must be reachable from the environment. `${VAR}` holding "7" is the
+// integer 7 unless the scalar was quoted, in which case it stays the string "7".
+func TestLoad_EnvVarReachesNumericKeys(t *testing.T) {
+	s, err := load(t, "retry_limit: ${MDC_RETRY}\nconcurrency:\n  tasks: ${MDC_TASKS}\n", config.LoadOptions{
+		LookupEnv: env(map[string]string{"MDC_RETRY": "7", "MDC_TASKS": "9"}),
+	})
+	if err != nil {
+		t.Fatalf("a ${VAR} in a numeric key must work: %v", err)
+	}
+	if s.RetryLimit != 7 {
+		t.Errorf("retry_limit = %d, want 7", s.RetryLimit)
+	}
+	if s.Concurrency.Tasks != 9 {
+		t.Errorf("concurrency.tasks = %d, want 9", s.Concurrency.Tasks)
+	}
+	if got := s.SourceOf("retry_limit"); got != config.SourceEnv {
+		t.Errorf("retry_limit source = %q, want env", got)
+	}
+}
+
+func TestLoad_QuotedEnvVarStaysAString(t *testing.T) {
+	// ":9208" quoted stays a string, which is what listen wants.
+	s, err := load(t, "listen: \"${MDC_ADDR}\"\n", config.LoadOptions{
+		LookupEnv: env(map[string]string{"MDC_ADDR": ":7000"}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Listen != ":7000" {
+		t.Errorf("listen = %q", s.Listen)
+	}
+}
+
+// A numeric-looking ${VAR} in a place that wants text must still be text.
+func TestLoad_EnvVarInAStringKeyIsNotReinterpreted(t *testing.T) {
+	s, err := load(t, "proxy: ${MDC_PROXY}\n", config.LoadOptions{
+		LookupEnv: env(map[string]string{"MDC_PROXY": "http://127.0.0.1:8080"}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Proxy != "http://127.0.0.1:8080" {
+		t.Errorf("proxy = %q", s.Proxy)
+	}
+}
+
+// Every key `Effective` prints must be able to say where it came from; a key that
+// falls back to "default" while the file set it is a lie the operator cannot spot.
+func TestEffective_EveryPrintedKeyHasTheRightSource(t *testing.T) {
+	s, err := load(t, `listen: ":1"
+db_path: /a.db
+pipelines_dir: /p
+templates_dir: /t
+log: {level: debug, format: json}
+browse_roots: [{path: /media/a, label: Movies}]
+concurrency: {tasks: 1, requests: 2, images: 3}
+retry_limit: 9
+proxy: http://p:8080
+webhook:
+  enabled: true
+  token: t
+  categories: {movie: main}
+`, config.LoadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kv := range s.Effective() {
+		if got := s.SourceOf(kv.Key); got != config.SourceFile {
+			t.Errorf("%s is printed but its source is %q, want file", kv.Key, got)
+		}
+	}
+}
