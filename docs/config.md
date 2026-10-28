@@ -73,8 +73,9 @@ mdc run --pipeline <id> --roots <dir>[,<dir>|<file>] [--until <step>] [--dry-run
 一次扫描、一份打印出来的摘要：walk 了多少、进了多少候选、滤掉多少及原因、分了哪些组；停在 `parse` 时还打印每组的番号（原文 / 归一化 / 规则家族）与待补号的组及原因。它是预览、监控 tick 与调试的**同一段前缀**——触发只注入 `{roots, exclude}` 覆盖 `scan.with`，其余一律照流水线文件——所以规则写错在这里就能看见。
 
 - `--roots` 可重复，也可逗号分隔；元素可为目录（递归）或文件（只取该文件）。
-- `--until` 接**步骤 type** 或**步骤 `name`**；不写就跑到最后一步。已实现批次级前缀（`scan` / `filter` / `group`）与 `parse`，所以停在 `scrape` 及之后的步骤（或跑完整条链）会在启动时被拒并点名第几步。
-- `--dry-run` 不写盘、不落库。前缀本身不产生任何副作用，所以两种模式的可观察结果相同——这个开关是为任务级后缀（`Plan` / `Apply`）先接好的。
+- `--until` 接**步骤 type** 或**步骤 `name`**；不写就跑到最后一步。八类步骤全部可跑。
+- `--dry-run` 只产出 `output` 的 `Plan`，不落盘。不写 dry-run 就 `Apply` 那份 Plan：图片 / NFO / 伴随文件走同目录 `.tmp` → `rename`，视频按 `output.with.link` 硬链 / 复制 / 移动；内容相同（`sha256` 相同且文件仍在）则跳过并保住 mtime。
+- `mdc run` **不落库**（不建批次、不写任务台账），所以它的写盘没有 `file_rows`；任务重跑的清理与幂等要靠任务运行（见下节）。
 - 目录里任一流水线文件坏了就整体拒绝（与 `serve` 同一条规矩），不会「用好的那条跑、坏的装作没看见」。
 
 ## 拒绝启动的情形
@@ -126,7 +127,22 @@ config/pipelines/main.yaml:24:18: step 2 (filter): unknown field "rules[0].when.
 - **「像分片却没合」的告警有两个上界**：距离 ≤ `3 × max_distance`，且两条主干共享至少一半前缀。否则一个目录里的分区对会把摘要刷成一片噪声，而提示就不成其为提示了。
 - **`scan` 只按名字滤三样东西**：隐藏项、`.part` / `.!qB`、`exclude` 子树。另外两件不是判断而是硬约束：隐藏**目录**整棵剪掉（否则 `.Trash-1000` 之类会像正常文件一样进来），指向目录的符号链接不跟随（会成环），指向文件的符号链接按目标文件收下（媒体库里很常见）。
 - **`filter` 的 `stem_matches` 判的是「原始 basename 去扩展名」**：剥离噪声只发生在 `group` 一处，所以过滤阶段还没有「主干」。
-- **`mdc run` 与前缀都不碰数据库**：这一票的产物全在内存里，`--dry-run` 与非 dry-run 的可观察结果因此相同。
+- **`mdc run` 不碰数据库**：前缀的产物全在内存里；任务级后缀的写盘由 `output` 出 `Plan`、`Apply` 执行，非 `--dry-run` 时才会写输出目录。
+
+## 落盘主链（`scrape` / `images` / `nfo` / `output`）的实现裁决
+
+- **`output` 是唯一写盘出口**，但它自己不写：`Run` 只产出 `Plan{Items[].Writes[]{Kind, Role, Index, Mode, Src, Path, Dst, Data}}`，由 `Apply` 统一执行；`--dry-run` 就是不 `Apply`。`nfo` 只渲染文本。
+- **图片命名是固定布局**（spec §8）：`poster.*` / `fanart.*` / `extrafanart/fanart{i+1}.*`（1 起），`thumb` 永不写。扩展名按 **magic bytes** 嗅探：`jpg`/`jpeg`/`png`/`gif`/`tbn` 原样，`webp`/`svg`/嗅探失败 → `.jpg`（只改名字，不重编码字节）——所以一张 webp 封套会以 `.jpg` 落地，且**不能被裁切**（标准库没有 webp 解码器），于是 `poster` 仍缺、任务 `partial`。
+- **`poster.crop`**（ADR-0015）：`poster` 为空且 `fanart` 字节在手时，从右侧按 2:3 裁、`image/jpeg` 编码；`Sources[poster] = "<源 id> (自动裁切)"`、`Derived.PosterCrop = true`、`file_rows.src` 记 fanart 的来源 URL；裁切失败只让任务 `partial`。
+- **NFO 只写 `movie.nfo`**，模板环境开 autoescape（字段里的 `&` 必须变 `&amp;`，否则两份解析器都会静默吞掉整份元数据）；默认模板：`<plot>`（无 `<outline>`）、`<premiered>` + `<releasedate>` 双写、`<rating>`、`<tag>发行: X</tag>`、`tags` 重复 `<tag>`（不用 `<genre>`）、actor 带 `<role>女优|男优</role>`、`originaltitle` = `title`、`sorttitle` = `title` + 分片。
+- **路径模板逐段净化**：模板自己的 `/` 决定层级，渲染值里的 `/` 变 `_`；非法字符与控制字符 → `_`，剥首尾空格与 `.`，单段 ≤200 字节（UTF-8 边界），空值回落 `_`。
+- **幂等与清理**：目标存在即覆盖，但 `sha256` 相同且文件仍在则跳过；重跑按**上一次 run 的 `file_rows`** 删掉本次不再产出的产物，且**只删台账里记过、落在该任务输出目录内**的文件。清理与台账写在同一条结束事务里。
+- **原子写**：图片 / NFO / 伴随文件 / `copy` 都是同目录 `.tmp` → `rename`；`hardlink` 直接产最终名；`move` 就是 `rename`。跨设备 `EXDEV` → 任务 `failed`，错误点名「改 `output.with.link=copy|move`」，**不自动回退**。
+- **伴随文件有落盘通道**（ADR-0017）：字幕跟随对应视频改名（保留自己的语言 token，例如 `ABC-123.zh.srt` 跟着 `ABC-123-cd1.mp4` 变成 `ABC-123-cd1.zh.srt`），图片保持原名；`Kind = companion` / `role = companion`、照常进台账，因此幂等与清理对它同样成立，且**不受 `link` 开关影响**。
+- **`required_fields` 默认 `[title, fanart]`，`fanart` 按字节到手判**；缺则 `output` 步失败（→ 任务 `failed`），除非 `output.on_error: continue`（→ 任务 `partial`，能写的照写）。任何 14 字段缺失都让 `Metadata.Partial = true`。
+- **多分片时 primary 也带 `-cd1`**：spec §4 的「primary 裸名」与 §10 的 `file_template` 默认值冲突；取 §10——模板对**每个**分片生效（`{{ number }}-cd{{ part }}` → `ABC-123-cd1.mp4`），因为它是配置面写死的键，取证文档里的多分盘目录示例也是 `-cd1`；组内只有一个文件时仍保留源文件名。
+- **任务重跑从 `parse` 之后开始，不重跑 `parse`**：番号已经是 `tasks.number` 这一行事实（可能由人填过），重跑 `parse` 只会用文件名的推断去覆盖它。所以重跑用 `task_files` 重建 parse 产物（`Options.Seed`），再从 `scrape` 起跑；重扫目录、重跑剥离规则都不发生。
+- **`scrape` 的调度是顺序版**：按 `scrape.with.sources` 顺序逐源 `Scrape`，标量字段先到先得、多值字段整段取自同一源；图片字段只有在 `FetchImage` 成功后才算贡献（失败则轮到下一个源）。波次并发、`priority[field]` 与 `concurrency` 的上限落在同一接缝上（票 #24 / #25），不改产物形状。
 
 ## 本票落下的实现裁决
 

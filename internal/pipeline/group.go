@@ -378,6 +378,13 @@ func (s *groupStep) attachCompanions(companions []FileRef, groups []Group) []Unm
 		if t.tier != tierNone && t.stem != stripped {
 			stems = append(stems, t.stem)
 		}
+		// A subtitle name often carries its language after the work's stem
+		// (`ABC-123.zh.srt`), and that token is not part evidence: matching on the
+		// name without it is what binds the subtitle to its video.
+		lang, withoutLang := splitLanguageToken(stripped)
+		if lang != "" {
+			stems = append(stems, withoutLang)
+		}
 		attached := false
 		for _, stem := range stems {
 			for gi := range groups {
@@ -389,6 +396,7 @@ func (s *groupStep) attachCompanions(companions []FileRef, groups []Group) []Unm
 					File:        f.withKind(KindCompanion),
 					Stem:        stem,
 					Marker:      t.marker(),
+					Lang:        lang,
 					FollowsPart: follows,
 				})
 				attached = true
@@ -403,6 +411,25 @@ func (s *groupStep) attachCompanions(companions []FileRef, groups []Group) []Unm
 		}
 	}
 	return unmatched
+}
+
+// languageToken matches a subtitle's language suffix: a dot followed by a short
+// language name, optionally with a region (`zh`, `zh-cn`, `eng`, `jpn`).
+var languageToken = regexp.MustCompile(`(?i)^\.[a-z]{2,3}(?:[-_][a-z0-9]{2,4})?$`)
+
+// splitLanguageToken separates a name's trailing language token from the rest:
+// `ABC-123.zh` → (".zh", "ABC-123"). No trailing dot-token, or a token that does
+// not look like a language, is left alone: `.2024` and `.cd1` are not languages.
+func splitLanguageToken(stem string) (token, base string) {
+	i := strings.LastIndexByte(stem, '.')
+	if i <= 0 {
+		return "", stem
+	}
+	token = stem[i:]
+	if !languageToken.MatchString(token) {
+		return "", stem
+	}
+	return token, stem[:i]
 }
 
 // follows reports whether a companion with this stem belongs to the group, and

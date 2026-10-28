@@ -294,3 +294,35 @@ func TestFinishRun_ABatchWhoseTasksWereAllCancelledIsCancelled(t *testing.T) {
 		t.Errorf("batch counters = %+v, want none of succeeded/partial/failed", batch)
 	}
 }
+
+func TestFinishRun_WritesMetadataAndKeepsItWhenARerunHasNone(t *testing.T) {
+	e := openStore(t)
+	task := oneTask(t, e)
+
+	run := begin(t, e, task.ID)
+	metadata := `{"title":"ABC-123","sources":{"title":"javbus"}}`
+	if err := e.st.FinishRun(e.ctx, run.ID, tasks.Outcome{Status: tasks.RunSucceeded, MetadataJSON: metadata}); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+	after, err := e.st.Task(e.ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.MetadataJSON != metadata {
+		t.Errorf("metadata_json = %s, want the run's", after.MetadataJSON)
+	}
+
+	// A failed rerun that collected nothing must not erase what the last good run
+	// found: the field values are the task's, not the run's.
+	run = begin(t, e, task.ID)
+	if err := e.st.FinishRun(e.ctx, run.ID, tasks.Outcome{Status: tasks.RunFailed, Error: "boom"}); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+	after, err = e.st.Task(e.ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.MetadataJSON != metadata {
+		t.Errorf("metadata_json = %s, want the previous run's", after.MetadataJSON)
+	}
+}

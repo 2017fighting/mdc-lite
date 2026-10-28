@@ -73,20 +73,26 @@ func TestBuild_StopsAtTheRequestedStep(t *testing.T) {
 	}
 }
 
-func TestBuild_RefusesAStepWithNoImplementation(t *testing.T) {
-	// Asking for the whole pipeline before the rest of the task-level suffix exists
-	// has to fail at build time, naming the step, not halfway through a scan.
-	_, err := build(t, testPipeline, Options{})
-	if err == nil {
-		t.Fatal("output has no implementation in this build")
+func TestBuild_RunsTheWholePipeline(t *testing.T) {
+	// Every V1 step type has an implementation, so the whole sequence is buildable.
+	e, err := build(t, testPipeline, Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
 	}
-	for _, want := range []string{"step 5 (output)", "no implementation", "scan, filter, group, parse"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not mention %q", err, want)
-		}
+	if len(e.steps) != 5 {
+		t.Fatalf("steps = %d, want 5", len(e.steps))
 	}
-	if !strings.Contains(err.Error(), "main.yaml:") {
-		t.Errorf("a build error must point at the step: %v", err)
+	if got := e.steps[len(e.steps)-1].Type(); got != config.StepOutput {
+		t.Errorf("last step = %q", got)
+	}
+}
+
+func TestBuild_FromNeedsTheArtifactsBeforeIt(t *testing.T) {
+	// A rerun starts after parse, so it must be given the parse artifact: without
+	// one there is no way to know what to process.
+	_, err := build(t, testPipeline, Options{From: "output"})
+	if err == nil || !strings.Contains(err.Error(), "needs the artifacts") {
+		t.Fatalf("got %v", err)
 	}
 }
 
@@ -141,7 +147,7 @@ func TestEngineStepsMatchTheConfigContracts(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s is implemented but not in the config registry", typ)
 		}
-		step, err := newStep(config.Step{Type: typ, WithValue: spec.NewWith()})
+		step, err := newStep(config.Step{Type: typ, WithValue: spec.NewWith()}, Options{})
 		if err != nil {
 			t.Fatalf("%s: %v", typ, err)
 		}

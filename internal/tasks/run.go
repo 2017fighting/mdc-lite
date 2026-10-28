@@ -27,6 +27,10 @@ type Outcome struct {
 	// Error is the message written to task_runs.error; for a failed task it is
 	// also what tasks.last_error shows the list page.
 	Error string
+	// MetadataJSON replaces `tasks.metadata_json` when it is set. It is written in
+	// the same transaction as the status, so the field values the run ended with
+	// and the result it reports can never disagree.
+	MetadataJSON string
 	// Rows is the output ledger this run produced. They are written in the same
 	// transaction as the status, so a run's ledger and its result can never
 	// disagree.
@@ -211,9 +215,11 @@ func (s *Store) FinishRun(ctx context.Context, runID int64, out Outcome) error {
 	case RunNeedsNumber:
 		lastError = out.Reason
 	}
+	// A run that has nothing new to say about the fields keeps the ones the task
+	// already had: a failed rerun must not erase what the last good run collected.
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE tasks SET status = ?, last_error = ?, updated_at = ? WHERE id = ?`,
-		string(status), lastError, now, taskID,
+		`UPDATE tasks SET status = ?, last_error = ?, metadata_json = coalesce(nullif(?, ''), metadata_json), updated_at = ? WHERE id = ?`,
+		string(status), lastError, out.MetadataJSON, now, taskID,
 	); err != nil {
 		return fmt.Errorf("tasks: move task %d to %s: %w", taskID, status, err)
 	}

@@ -16,6 +16,57 @@ import (
 // three transaction boundaries: a step that finished before a crash keeps its row,
 // so the detail page can still say how far the run got.
 //
+// SourceRun is one source's row in `source_runs`: how the source answered for one
+// number, and which fields it actually contributed. `Reason` is one of the six
+// machine codes; `Fields` is the JSON projection of the contributed field names.
+type SourceRun struct {
+	ID         int64
+	StepRunID  int64
+	SourceID   string
+	Status     string
+	Err        string
+	Reason     string
+	FieldsJSON string
+	MS         int64
+}
+
+// RecordSource writes one source's trace inside the scrape step's step run. Like
+// RecordStep it is a single INSERT, so a crash after it still leaves the trace of
+// the sources that had already answered.
+func (s *Store) RecordSource(ctx context.Context, src SourceRun) error {
+	if src.StepRunID == 0 {
+		return errors.New("tasks: a source run needs its step run")
+	}
+	if src.SourceID == "" {
+		return errors.New("tasks: a source run needs a source id")
+	}
+	switch src.Status {
+	case "ok", "notfound", "failed":
+	default:
+		return fmt.Errorf("tasks: source run status %q is not one of ok, notfound, failed", src.Status)
+	}
+	switch src.Reason {
+	case "", "egress_unavailable", "timeout", "blocked", "cooldown", "http_5xx", "parse":
+	default:
+		return fmt.Errorf("tasks: source run reason %q is not one of the six reason codes", src.Reason)
+	}
+	fields := src.FieldsJSON
+	if fields == "" {
+		fields = "{}"
+	}
+	if !json.Valid([]byte(fields)) {
+		return fmt.Errorf("tasks: the %s source run's fields are not JSON: %s", src.SourceID, fields)
+	}
+	if _, err := s.db.Write().ExecContext(ctx,
+		`INSERT INTO source_runs (step_run_id, source_id, status, err, reason, fields_json, ms)
+		 VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?)`,
+		src.StepRunID, src.SourceID, src.Status, src.Err, src.Reason, fields, src.MS,
+	); err != nil {
+		return fmt.Errorf("tasks: record source %s: %w", src.SourceID, err)
+	}
+	return nil
+}
+
 // summary_json is a projection, never an artifact: counts and the first N items of
 // something big. The media itself lives on disk and the field values live in
 // tasks.metadata_json, so nothing here grows with the library.

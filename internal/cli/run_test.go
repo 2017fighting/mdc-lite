@@ -155,15 +155,59 @@ func TestRun_RootsAcceptsACommaSeparatedList(t *testing.T) {
 	}
 }
 
-func TestRun_RefusesAStepThatIsNotImplementedYet(t *testing.T) {
+func TestRun_FailsWhenARequiredFieldNeverArrived(t *testing.T) {
+	// This pipeline has no scrape step, so no source ever supplies anything: title
+	// and fanart are both absent and the default required-fields gate refuses.
 	f := setupRun(t)
 	code, _, errOut := run(t, f.args("--pipeline", "main", "--roots", f.media)...)
-	if code == 0 {
-		t.Fatal("running the whole pipeline must fail while the suffix is unimplemented")
+	if code != 1 {
+		t.Fatalf("exit %d, want 1: %s", code, errOut)
 	}
-	for _, want := range []string{"step 5 (output)", "no implementation"} {
+	for _, want := range []string{"step 5 (output)", "missing required field(s)", "title", "fanart", "required_fields"} {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("error %q does not mention %q", errOut, want)
+		}
+	}
+}
+
+func TestRun_WritesTheOutputDirectoryUnlessDryRun(t *testing.T) {
+	f := setupRun(t)
+	library := filepath.Join(f.dir, "library")
+	// A pipeline that needs no scraped field, so the whole chain can run without a
+	// source: parse → output.
+	write(t, f.pipelines, "main.yaml", `steps:
+  - type: scan
+    with: {roots: [/media]}
+  - type: filter
+    with:
+      rules:
+        - name: companions
+          when: {ext_in: [".srt"]}
+          then: include
+        - name: videos
+          when: {ext_in: [".mp4"]}
+          then: include
+  - type: group
+    with: {}
+  - type: parse
+    with:
+      rules:
+        - {builtin: default}
+  - type: output
+    with:
+      root: "`+library+`"
+      required_fields: []
+`)
+	code, out, errOut := run(t, f.args("--pipeline", "main", "--roots", f.media)...)
+	if code != 0 {
+		t.Fatalf("exit %d: %s%s", code, out, errOut)
+	}
+	if !strings.Contains(out, "wrote:") {
+		t.Errorf("the run should report what it wrote: %s", out)
+	}
+	for _, name := range []string{"ABC-123-cd1.mp4", "ABC-123-cd2.mp4", "ABC-123-cd1.srt"} {
+		if _, err := os.Stat(filepath.Join(library, "ABC-123", name)); err != nil {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
 }

@@ -1,6 +1,11 @@
 package pipeline
 
-import "time"
+import (
+	"time"
+
+	"github.com/2017fighting/mdc-lite/internal/field"
+	"github.com/2017fighting/mdc-lite/internal/meta"
+)
 
 // This file is the artifact side of the step contract: what one step hands to
 // the next. The names and the fields are the spec's §3 contract, so they are
@@ -130,6 +135,10 @@ type Companion struct {
 	File   FileRef
 	Stem   string
 	Marker Marker
+	// Lang is the subtitle's own language token, separators included (".zh"), when
+	// its name carried one. The rename keeps it: a subtitle follows its video's new
+	// base name but not its language.
+	Lang string
 	// FollowsPart is the part index this companion follows when it gets renamed.
 	// 0 means the primary.
 	FollowsPart int
@@ -238,6 +247,192 @@ type Unresolved struct {
 type Parsed struct {
 	Items      []ParsedGroup
 	Unresolved []Unresolved
+}
+
+// ImageBlob is one image whose bytes are in hand, before it is named for the
+// output directory. Ext is the engine's own sniffing of the magic bytes, never the
+// Content-Type the source claimed.
+type ImageBlob struct {
+	Role  field.Name
+	Index int
+	Ext   string
+	Bytes []byte
+	// Source is the id of the source that won the field; URL is where the bytes
+	// came from, kept for the ledger and the detail page.
+	Source string
+	URL    string
+}
+
+// ScrapedItem is one group after scraping: its number, what the sources agreed on,
+// and the images whose bytes arrived.
+type ScrapedItem struct {
+	Group    Group
+	Number   Number
+	Metadata meta.Metadata
+	Images   []ImageBlob
+}
+
+// Scraped is what `scrape` produces.
+type Scraped struct {
+	Items []ScrapedItem
+}
+
+// ImageFile is one image bound for the output directory: its field, its index,
+// the name it will be written under (relative to the output directory), and the
+// bytes.
+type ImageFile struct {
+	Role   field.Name
+	Index  int
+	Name   string
+	Ext    string
+	Bytes  []byte
+	Source string
+	URL    string
+	// Cropped marks the poster that `images` cut out of the fanart, so the traces
+	// can say so.
+	Cropped bool
+}
+
+// ImagesItem is one group's images: what will be written, and what is still
+// missing after the poster crop had its chance.
+type ImagesItem struct {
+	Group    Group
+	Number   Number
+	Metadata meta.Metadata
+	Files    []ImageFile
+	Missing  []field.Name
+	// Partial is true when a required field is missing; it is the image step's own
+	// contribution to the run's partial status (the crop failing does not fail the
+	// task, it only leaves the poster missing).
+	Partial bool
+}
+
+// Images is what `images` produces.
+type Images struct {
+	Items []ImagesItem
+}
+
+// NfoItem is one group's rendered NFO. It carries the group and the metadata so
+// `output` can write the file next to the videos without re-reading anything.
+type NfoItem struct {
+	Group    Group
+	Number   Number
+	Metadata meta.Metadata
+	Content  string
+	Warnings []string
+}
+
+// NfoDoc is what `nfo` produces: text, never a file. Writing belongs to `output`,
+// which is the only step allowed to touch the disk.
+type NfoDoc struct {
+	Items []NfoItem
+}
+
+// WriteKind is what a planned write becomes in the ledger's `kind` column.
+type WriteKind string
+
+// The four kinds a write can have.
+const (
+	WriteVideo     WriteKind = "video"
+	WriteImage     WriteKind = "image"
+	WriteNfo       WriteKind = "nfo"
+	WriteCompanion WriteKind = "companion"
+)
+
+// Ledger roles, i.e. the `file_rows.role` values.
+const (
+	RoleVideo       = "video"
+	RolePoster      = "poster"
+	RoleFanart      = "fanart"
+	RoleExtrafanart = "extrafanart"
+	RoleNfo         = "nfo"
+	RoleCompanion   = "companion"
+)
+
+// WriteMode says how a video reaches its destination. Images, the NFO and the
+// companions always go through memory (WriteBytes): they are small and the spec
+// gives them move semantics regardless of `output.with.link`.
+type WriteMode string
+
+// The four ways one planned write can be applied.
+const (
+	ModeHardlink WriteMode = "hardlink"
+	ModeCopy     WriteMode = "copy"
+	ModeMove     WriteMode = "move"
+	ModeBytes    WriteMode = "bytes"
+)
+
+// PlannedWrite is one file the `output` step intends to produce. `Src` is
+// provenance (a source path, or an image's URL) and is what lands in the ledger's
+// `src` column; `Path` is the local file to read for a video, and `Data` holds the
+// bytes for everything written through memory.
+type PlannedWrite struct {
+	Kind  WriteKind
+	Role  string
+	Index int
+	Mode  WriteMode
+	Src   string
+	Path  string
+	Dst   string
+	Data  []byte
+}
+
+// PlanItem is one group's set of writes. Grouping them keeps a task's plan
+// selectable: a task is one group, so its run applies exactly one item.
+type PlanItem struct {
+	Group    Group
+	Number   Number
+	Metadata meta.Metadata
+	// Dir is the absolute output directory this item writes into.
+	Dir    string
+	Writes []PlannedWrite
+}
+
+// Plan is what `output` produces instead of writing: the whole batch's intent.
+type Plan struct {
+	Items []PlanItem
+}
+
+// Writes flattens every planned write, in item order.
+func (p *Plan) Writes() []PlannedWrite {
+	if p == nil {
+		return nil
+	}
+	var out []PlannedWrite
+	for _, item := range p.Items {
+		out = append(out, item.Writes...)
+	}
+	return out
+}
+
+// Action is what applying one write actually did.
+type Action string
+
+// The four ledger actions.
+const (
+	ActionCreated     Action = "created"
+	ActionOverwritten Action = "overwritten"
+	ActionSkipped     Action = "skipped"
+	ActionDeleted     Action = "deleted"
+)
+
+// Row is one applied write, i.e. one line of the run's ledger once the caller has
+// attached the step run it belongs to.
+type Row struct {
+	Kind   string
+	Role   string
+	Index  int
+	Src    string
+	Dst    string
+	Bytes  int64
+	SHA256 string
+	Action Action
+}
+
+// Manifest is what applying a plan produced: one row per file, including the ones
+// that were skipped because their content was already there.
+type Manifest struct {
+	Rows []Row
 }
 
 // Groups is what `group` produces: the works to process, the duplicate stems a

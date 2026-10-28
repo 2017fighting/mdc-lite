@@ -77,6 +77,7 @@ func runPipeline(args []string, stdout, stderr io.Writer) int {
 		Input:  pipeline.Input{Roots: roots},
 		Until:  until,
 		DryRun: dryRun,
+		Env:    pipeline.Environment{TemplatesDir: l.settings.TemplatesDir},
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "%v\n", err)
@@ -91,6 +92,22 @@ func runPipeline(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	res.Print(stdout)
+	if dryRun {
+		return 0
+	}
+	// `output` planned; applying is what makes the run write. `--dry-run` stops one
+	// step before this, which is why it needs no separate code path inside the steps.
+	manifest, err := pipeline.Apply(ctx, res.State.Plan)
+	if err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	if manifest != nil {
+		res.State.Manifest = manifest
+		if len(manifest.Rows) > 0 {
+			res.PrintManifest(stdout, manifest)
+		}
+	}
 	return 0
 }
 

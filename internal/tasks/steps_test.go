@@ -183,3 +183,87 @@ func TestFinishRun_ARefusedCleanupRollsTheWholeFinishBack(t *testing.T) {
 		t.Error("a rolled-back finish must not release the paths")
 	}
 }
+
+func TestRecordSource_OneTracePerSourceInsideTheScrapeStep(t *testing.T) {
+	e := openStore(t)
+	res, err := e.st.CreateBatch(e.ctx, intake(tasks.Group{
+		Number: "ABC-123",
+		Files:  []tasks.InputFile{video("/media/in/a/ABC-123.mp4", tasks.RolePrimary, 1)},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := e.tasksIn(t, res.BatchID)[0]
+	run := begin(t, e, task.ID)
+	step, err := e.st.RecordStep(e.ctx, tasks.Step{TaskRunID: run.ID, Idx: 5, Type: "scrape", Status: "ok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := e.st.RecordSource(e.ctx, tasks.SourceRun{
+		StepRunID: step, SourceID: "javbus", Status: "ok",
+		FieldsJSON: `{"fields":["title","actresses"]}`, MS: 120,
+	}); err != nil {
+		t.Fatalf("RecordSource: %v", err)
+	}
+	if err := e.st.RecordSource(e.ctx, tasks.SourceRun{
+		StepRunID: step, SourceID: "dmm", Status: "failed",
+		Err: "region", Reason: "egress_unavailable",
+	}); err != nil {
+		t.Fatalf("RecordSource: %v", err)
+	}
+
+	rows, err := e.db().Query(`SELECT source_id, status, coalesce(reason, ''), fields_json FROM source_runs ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var got []string
+	for rows.Next() {
+		var id, status, reason, fields string
+		if err := rows.Scan(&id, &status, &reason, &fields); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, id+":"+status+":"+reason+":"+fields)
+	}
+	want := []string{
+		`javbus:ok::{"fields":["title","actresses"]}`,
+		`dmm:failed:egress_unavailable:{}`,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("source_runs = %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("row %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestRecordSource_RefusesWhatTheSchemaWould(t *testing.T) {
+	e := openStore(t)
+	res, err := e.st.CreateBatch(e.ctx, intake(tasks.Group{
+		Number: "ABC-123",
+		Files:  []tasks.InputFile{video("/media/in/a/ABC-123.mp4", tasks.RolePrimary, 1)},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := e.tasksIn(t, res.BatchID)[0]
+	run := begin(t, e, task.ID)
+	step, err := e.st.RecordStep(e.ctx, tasks.Step{TaskRunID: run.ID, Idx: 5, Type: "scrape", Status: "ok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []tasks.SourceRun{
+		{StepRunID: 0, SourceID: "javbus", Status: "ok"},
+		{StepRunID: step, Status: "ok"},
+		{StepRunID: step, SourceID: "javbus", Status: "maybe"},
+		{StepRunID: step, SourceID: "javbus", Status: "failed", Reason: "vibes"},
+		{StepRunID: step, SourceID: "javbus", Status: "ok", FieldsJSON: `{"fields":`},
+	} {
+		if err := e.st.RecordSource(e.ctx, bad); err == nil {
+			t.Errorf("RecordSource(%+v) was accepted", bad)
+		}
+	}
+}

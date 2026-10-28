@@ -15,8 +15,10 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/2017fighting/mdc-lite/internal/config"
+	"github.com/2017fighting/mdc-lite/internal/source"
 )
 
 // inputStep is a step the trigger's injected directories are meant for. Only
@@ -34,16 +36,50 @@ type Input struct {
 	Exclude []string
 }
 
+// Environment is what the task-level steps need from outside the pipeline file:
+// the built-in sources `scrape` dispatches to, and the directory `@file` NFO
+// templates are read from.
+type Environment struct {
+	Sources      source.Registry
+	TemplatesDir string
+}
+
 // Options are the knobs `mdc run`, the preview and a monitor tick share.
 type Options struct {
 	Input Input
 	// Until is the step to stop after, by type or by name. Empty runs the whole
 	// pipeline.
 	Until string
-	// DryRun plans without applying. The batch-level prefix writes nothing, so on
-	// its own it changes nothing yet; it is plumbed through so that the task-level
-	// steps can honour it without a second flag appearing.
+	// From is the first step to run, by type or by name. It exists for the rerun:
+	// a task's files are read from `task_files` and its number is already decided,
+	// so a rerun starts after `parse` with Seed carrying the parse artifact, and
+	// never re-walks a directory.
+	From string
+	// Seed is the artifact set a From run starts from. Only the artifacts the
+	// skipped steps would have produced need to be set.
+	Seed *State
+	// DryRun plans without applying. The write steps produce a Plan either way; the
+	// caller is what decides not to apply it.
 	DryRun bool
+	// Env carries the sources and the templates directory.
+	Env Environment
+	// OnStep, when set, is called after every step with what the step did. It is
+	// the seam the task runner uses to write `step_runs` one row at a time, which is
+	// why it is not the engine that knows about the database.
+	OnStep func(ctx context.Context, o StepOutcome) error
+}
+
+// StepOutcome is one step's result, as an observer sees it.
+type StepOutcome struct {
+	Idx    int
+	Type   string
+	Name   string
+	Status string
+	MS     int64
+	// Summary is the step's summary projection (a *ScanSummary, *OutputSummary, …),
+	// never an artifact.
+	Summary any
+	Err     error
 }
 
 // Step is one step the engine can run. Requires and Produces are artifact kinds
@@ -65,11 +101,48 @@ type State struct {
 	Candidates *Candidates
 	Groups     *Groups
 	Parsed     *Parsed
+	Scraped    *Scraped
+	Images     *Images
+	NfoDoc     *NfoDoc
+	Plan       *Plan
+	Manifest   *Manifest
 
 	ScanRun   *ScanSummary
 	FilterRun *FilterSummary
 	GroupRun  *GroupSummary
 	ParseRun  *ParseSummary
+	ScrapeRun *ScrapeSummary
+	ImagesRun *ImagesSummary
+	NfoRun    *NfoSummary
+	OutputRun *OutputSummary
+
+	// Partial collects the reasons a step's failure did not stop the run
+	// (`on_error: continue`). A run with any of them ends partial.
+	Partial []string
+}
+
+// summaryFor returns the summary projection of one step type.
+func (st *State) summaryFor(typ string) any {
+	switch typ {
+	case config.StepScan:
+		return st.ScanRun
+	case config.StepFilter:
+		return st.FilterRun
+	case config.StepGroup:
+		return st.GroupRun
+	case config.StepParse:
+		return st.ParseRun
+	case config.StepScrape:
+		return st.ScrapeRun
+	case config.StepImages:
+		return st.ImagesRun
+	case config.StepNfo:
+		return st.NfoRun
+	case config.StepOutput:
+		return st.OutputRun
+	default:
+		return nil
+	}
 }
 
 // Engine is a pipeline prepared to run: the steps are resolved, the stop point
@@ -78,38 +151,70 @@ type Engine struct {
 	pipeline config.Pipeline
 	opts     Options
 	steps    []Step
+	onError  []config.OnError
+	// indexes is each step's 1-based position in the pipeline file, which is what
+	// step_runs.idx records: a rerun that starts at step 5 still says "step 5".
+	indexes []int
 }
 
 // Step constructors, one per implemented step type. This map is the whole list
 // of what the binary can run today.
-var constructors = map[string]func(config.Step) (Step, error){
-	config.StepScan: func(s config.Step) (Step, error) {
+var constructors = map[string]func(config.Step, Options) (Step, error){
+	config.StepScan: func(s config.Step, _ Options) (Step, error) {
 		w, ok := s.WithValue.(*config.ScanWith)
 		if !ok {
 			return nil, fmt.Errorf("the scan settings were not decoded (was the pipeline loaded through config.LoadPipelineFile?)")
 		}
 		return newScan(*w), nil
 	},
-	config.StepFilter: func(s config.Step) (Step, error) {
+	config.StepFilter: func(s config.Step, _ Options) (Step, error) {
 		w, ok := s.WithValue.(*config.FilterWith)
 		if !ok {
 			return nil, fmt.Errorf("the filter settings were not decoded (was the pipeline loaded through config.LoadPipelineFile?)")
 		}
 		return newFilter(*w)
 	},
-	config.StepGroup: func(s config.Step) (Step, error) {
+	config.StepGroup: func(s config.Step, _ Options) (Step, error) {
 		w, ok := s.WithValue.(*config.GroupWith)
 		if !ok {
 			return nil, fmt.Errorf("the group settings were not decoded (was the pipeline loaded through config.LoadPipelineFile?)")
 		}
 		return newGroup(*w)
 	},
-	config.StepParse: func(s config.Step) (Step, error) {
+	config.StepParse: func(s config.Step, _ Options) (Step, error) {
 		w, ok := s.WithValue.(*config.ParseWith)
 		if !ok {
 			return nil, fmt.Errorf("the parse settings were not decoded (was the pipeline loaded through config.LoadPipelineFile?)")
 		}
 		return newParse(*w)
+	},
+	config.StepScrape: func(s config.Step, opts Options) (Step, error) {
+		w, ok := s.WithValue.(*config.ScrapeWith)
+		if !ok {
+			return nil, fmt.Errorf("the scrape settings were not decoded (was the pipeline loaded through config.LoadPipelineFile?)")
+		}
+		return newScrape(*w, opts.Env.Sources)
+	},
+	config.StepImages: func(s config.Step, _ Options) (Step, error) {
+		w, ok := s.WithValue.(*config.ImagesWith)
+		if !ok {
+			return nil, fmt.Errorf("the images settings were not decoded (was the pipeline loaded through config.LoadPipelineFile?)")
+		}
+		return newImages(*w)
+	},
+	config.StepNfo: func(s config.Step, opts Options) (Step, error) {
+		w, ok := s.WithValue.(*config.NfoWith)
+		if !ok {
+			return nil, fmt.Errorf("the nfo settings were not decoded (was the pipeline loaded through config.LoadPipelineFile?)")
+		}
+		return newNfo(*w, opts.Env.TemplatesDir)
+	},
+	config.StepOutput: func(s config.Step, opts Options) (Step, error) {
+		w, ok := s.WithValue.(*config.OutputWith)
+		if !ok {
+			return nil, fmt.Errorf("the output settings were not decoded (was the pipeline loaded through config.LoadPipelineFile?)")
+		}
+		return newOutput(*w, s.OnError)
 	},
 }
 
@@ -121,7 +226,19 @@ func Build(p config.Pipeline, opts Options) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := &Engine{pipeline: p, opts: opts}
+	start := 0
+	if opts.From != "" {
+		if start, err = startIndex(p, opts.From); err != nil {
+			return nil, err
+		}
+		if start > stop {
+			return nil, fmt.Errorf("%s: --from %q comes after --until %q", p.File, opts.From, opts.Until)
+		}
+		if opts.Seed == nil {
+			return nil, fmt.Errorf("%s: starting at %q needs the artifacts of the steps before it", p.File, opts.From)
+		}
+	}
+	e := &Engine{pipeline: p, opts: opts, onError: make([]config.OnError, 0, stop-start+1), indexes: make([]int, 0, stop-start+1)}
 	available := map[string]bool{}
 	for i := 0; i <= stop; i++ {
 		st := p.Steps[i]
@@ -130,7 +247,7 @@ func Build(p config.Pipeline, opts Options) (*Engine, error) {
 			return nil, stepError(p, i, "%q has no implementation in this build yet (this build runs: %s)",
 				st.Type, strings.Join(implementedTypes(), ", "))
 		}
-		step, err := newStep(st)
+		step, err := newStep(st, opts)
 		if err != nil {
 			return nil, stepError(p, i, "%v", err)
 		}
@@ -146,6 +263,13 @@ func Build(p config.Pipeline, opts Options) (*Engine, error) {
 		for _, has := range step.Produces() {
 			available[has] = true
 		}
+		if i < start {
+			// The artifact is supplied by the runner instead of produced: it comes
+			// out of the database, not out of the directory walk.
+			continue
+		}
+		e.onError = append(e.onError, st.OnError)
+		e.indexes = append(e.indexes, i+1)
 		e.steps = append(e.steps, step)
 	}
 	return e, nil
@@ -155,21 +279,52 @@ func Build(p config.Pipeline, opts Options) (*Engine, error) {
 // they produced. It writes no files and touches no database: every artifact this
 // build produces is in memory.
 func (e *Engine) Run(ctx context.Context) (*Result, error) {
+	state := &State{}
+	if e.opts.Seed != nil {
+		state = e.opts.Seed
+	}
 	res := &Result{
 		Pipeline: e.pipeline.ID,
 		File:     e.pipeline.File,
 		Until:    runKey(e.steps[len(e.steps)-1]),
 		DryRun:   e.opts.DryRun,
-		State:    &State{},
+		State:    state,
 	}
 	for i, step := range e.steps {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("%s: stopped before step %d (%s): %w", e.pipeline.ID, i+1, step.Type(), err)
 		}
-		if err := step.Run(ctx, res.State); err != nil {
-			return nil, stepError(e.pipeline, i, "%v", err)
+		started := time.Now()
+		runErr := step.Run(ctx, state)
+		o := StepOutcome{
+			Idx:     e.indexes[i],
+			Type:    step.Type(),
+			Name:    step.Name(),
+			Status:  "ok",
+			MS:      time.Since(started).Milliseconds(),
+			Summary: state.summaryFor(step.Type()),
+			Err:     runErr,
+		}
+		if runErr != nil {
+			o.Status = "failed"
+			if e.onError[i] == config.OnErrorContinue {
+				// `on_error: continue`: the run goes on, and its product is partial.
+				// The step's failure is recorded, not swallowed.
+				o.Status = "partial"
+				state.Partial = append(state.Partial, fmt.Sprintf("%s: %v", step.Type(), runErr))
+			}
+		}
+		if e.opts.OnStep != nil {
+			if err := e.opts.OnStep(ctx, o); err != nil {
+				return nil, err
+			}
+		}
+		if runErr != nil && e.onError[i] != config.OnErrorContinue {
+			return nil, stepError(e.pipeline, i, "%v", runErr)
 		}
 	}
+	// The seed is the run's state object, so everything a step wrote is already
+	// visible through res.State: there is nothing to copy back.
 	return res, nil
 }
 
@@ -202,6 +357,24 @@ func stopIndex(p config.Pipeline, until string) (int, error) {
 		keys[i] = stepKey(st)
 	}
 	return 0, fmt.Errorf("%s: no step named %q (steps: %s)", p.File, until, strings.Join(keys, ", "))
+}
+
+// DryRun reports whether this engine writes anything. The write steps always plan;
+// the caller is what decides not to apply.
+func (e *Engine) DryRun() bool { return e.opts.DryRun }
+
+// startIndex turns `--from` into the index of the first step to run.
+func startIndex(p config.Pipeline, from string) (int, error) {
+	for i, st := range p.Steps {
+		if st.Type == from || (st.Name != "" && st.Name == from) {
+			return i, nil
+		}
+	}
+	keys := make([]string, len(p.Steps))
+	for i, st := range p.Steps {
+		keys[i] = stepKey(st)
+	}
+	return 0, fmt.Errorf("%s: no step named %q (steps: %s)", p.File, from, strings.Join(keys, ", "))
 }
 
 // runKey is the same key for an engine step.
@@ -285,9 +458,41 @@ func (r *Result) Print(w io.Writer) {
 	if st.ParseRun != nil {
 		fmt.Fprintf(w, "parse:   %s\n", st.ParseRun.String())
 	}
+	if st.ScrapeRun != nil {
+		fmt.Fprintf(w, "scrape:  %s\n", st.ScrapeRun.String())
+	}
+	if st.ImagesRun != nil {
+		fmt.Fprintf(w, "images:  %s\n", st.ImagesRun.String())
+	}
+	if st.NfoRun != nil {
+		fmt.Fprintf(w, "nfo:     %s\n", st.NfoRun.String())
+	}
+	if st.OutputRun != nil {
+		fmt.Fprintf(w, "output:  %s\n", st.OutputRun.String())
+	}
+	for _, reason := range st.Partial {
+		fmt.Fprintf(w, "partial: %s\n", reason)
+	}
 	if st.Groups != nil {
 		fmt.Fprintln(w)
 		writeGroups(w, st.Groups, st.Parsed)
+	}
+}
+
+// PrintManifest reports what applying the plan did. It is the `mdc run` view of the
+// ledger a task run would have written.
+func (r *Result) PrintManifest(w io.Writer, m *Manifest) {
+	if m == nil {
+		return
+	}
+	counts := map[Action]int{}
+	for _, row := range m.Rows {
+		counts[row.Action]++
+	}
+	fmt.Fprintf(w, "\nwrote:   %d created, %d overwritten, %d skipped\n",
+		counts[ActionCreated], counts[ActionOverwritten], counts[ActionSkipped])
+	for _, row := range m.Rows {
+		fmt.Fprintf(w, "  %-10s %s\n", row.Action, row.Dst)
 	}
 }
 
