@@ -470,9 +470,15 @@ func TestApply_HardlinkAcrossFilesystemsFailsWithTheFix(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dst) })
 
+	target := filepath.Join(dst, "ABC-123.mp4")
+	// The previous run's product is already there. A failed link must not take it
+	// away: the failure is the run's, not the library's.
+	if err := os.WriteFile(target, []byte("the previous run's file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	plan := &Plan{Items: []PlanItem{{Writes: []PlannedWrite{{
 		Kind: WriteVideo, Role: RoleVideo, Mode: ModeHardlink, Src: src, Path: src,
-		Dst: filepath.Join(dst, "ABC-123.mp4"),
+		Dst: target,
 	}}}}}
 	_, err = Apply(context.Background(), plan)
 	if err == nil {
@@ -482,6 +488,16 @@ func TestApply_HardlinkAcrossFilesystemsFailsWithTheFix(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}
+	}
+	kept, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatalf("the previous output must survive a failed link: %v", readErr)
+	}
+	if string(kept) != "the previous run's file" {
+		t.Errorf("the previous output was replaced: %q", kept)
+	}
+	if entries, _ := os.ReadDir(dst); len(entries) != 1 {
+		t.Errorf("a failed link left a temp file behind: %v", entries)
 	}
 }
 
