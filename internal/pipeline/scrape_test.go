@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,7 +33,7 @@ func scrapeCfg(ids ...string) config.ScrapeWith {
 
 func runScrape(t *testing.T, cfg config.ScrapeWith, sources ...source.Source) (*State, error) {
 	t.Helper()
-	step, err := newScrape(cfg, source.NewRegistry(sources...))
+	step, err := newScrape(cfg, source.NewRegistry(sources...), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,5 +630,90 @@ func TestScrapeRecordsOnlyTheFieldsASourceWon(t *testing.T) {
 	}
 	if fieldsOf["winner"] != "title,tags" {
 		t.Errorf("the winning source's row = %q, want the two fields it won", fieldsOf["winner"])
+	}
+}
+
+// imageProbeSource serves a list of stills and holds each fetch long enough for the
+// concurrency assertion to see them overlap.
+type imageProbeSource struct {
+	refs  []source.ImageRef
+	probe *probe
+	hold  time.Duration
+}
+
+func (s *imageProbeSource) ID() string           { return "fixture" }
+func (s *imageProbeSource) Fields() []field.Name { return field.All() }
+
+func (s *imageProbeSource) Scrape(context.Context, string) (source.Result, error) {
+	return source.Result{Found: true, Fields: source.Fields{Extrafanarts: s.refs}}, nil
+}
+
+func (s *imageProbeSource) FetchImage(ctx context.Context, ref source.ImageRef) ([]byte, error) {
+	s.probe.enter()
+	defer s.probe.leave()
+	select {
+	case <-time.After(s.hold):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return []byte("\xff\xd8\xff" + ref.URL), nil
+}
+
+// TestScrapeFetchesOneTaskImagesUpToTheConfiguredLimit is the
+// `concurrency.images` nail: one winning source's stills are fetched in parallel,
+// but never more than the configured number at once, and the metadata keeps the
+// site's order afterwards.
+func TestScrapeFetchesOneTaskImagesUpToTheConfiguredLimit(t *testing.T) {
+	probe := &probe{}
+	refs := make([]source.ImageRef, 6)
+	for i := range refs {
+		refs[i] = source.ImageRef{Role: field.Extrafanarts, Index: i, URL: fmt.Sprintf("https://site/still-%d.jpg", i)}
+	}
+	src := &imageProbeSource{refs: refs, probe: probe, hold: 30 * time.Millisecond}
+	step, err := newScrape(scrapeCfg("fixture"), source.NewRegistry(src), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := scrapeState("SSIS-001")
+	if err := step.Run(context.Background(), st); err != nil {
+		t.Fatal(err)
+	}
+	if got := probe.peak.Load(); got != 2 {
+		t.Errorf("peak in-flight image fetches = %d, want the configured 2 (not one, not all six)", got)
+	}
+	item := st.Scraped.Items[0]
+	if len(item.Images) != len(refs) {
+		t.Fatalf("images = %d, want all %d", len(item.Images), len(refs))
+	}
+	for i, blob := range item.Images {
+		if blob.Index != i {
+			t.Errorf("image %d has index %d: the refs' order must survive concurrent fetching", i, blob.Index)
+		}
+	}
+}
+
+// TestScrapeWithoutAnImageLimitStillKeepsEveryImage: zero means "no per-task cap",
+// which is what a pipeline test without a concurrency config gets; the Fetcher's
+// process-wide cap still sits underneath in production.
+func TestScrapeWithoutAnImageLimitStillKeepsEveryImage(t *testing.T) {
+	probe := &probe{}
+	refs := []source.ImageRef{
+		{Role: field.Extrafanarts, Index: 0, URL: "https://site/a.jpg"},
+		{Role: field.Extrafanarts, Index: 1, URL: "https://site/b.jpg"},
+	}
+	src := &imageProbeSource{refs: refs, probe: probe, hold: 20 * time.Millisecond}
+	step, err := newScrape(scrapeCfg("fixture"), source.NewRegistry(src), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := scrapeState("SSIS-001")
+	if err := step.Run(context.Background(), st); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(st.Scraped.Items[0].Images); got != 2 {
+		t.Errorf("images = %d, want both stills", got)
+	}
+	if got := probe.peak.Load(); got != 2 {
+		t.Errorf("peak in-flight = %d, want both to overlap (no per-task cap)", got)
 	}
 }

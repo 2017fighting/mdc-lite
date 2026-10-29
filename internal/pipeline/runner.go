@@ -3,10 +3,12 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/2017fighting/mdc-lite/internal/config"
 	"github.com/2017fighting/mdc-lite/internal/field"
@@ -27,19 +29,39 @@ import (
 type Runner struct {
 	store     *tasks.Store
 	pipelines map[string]config.Pipeline
-	env       Environment
+	envFor    func(config.Pipeline) Environment
 }
 
 // NewRunner prepares a runner over a store and the currently loaded pipelines. A
 // rerun runs against the current pipeline of that id, so a pipeline deleted since
 // the batch is a run-time failure that names the missing id.
 func NewRunner(st *tasks.Store, pipelines []config.Pipeline, env Environment) *Runner {
+	return NewRunnerWithEnvironments(st, pipelines, func(config.Pipeline) Environment { return env })
+}
+
+// NewRunnerWithEnvironments prepares a runner whose environment is chosen per
+// pipeline. It is what the server uses: `scrape.with.sources` is part of a pipeline
+// file, so two pipelines can name different source knobs (a per-source proxy, a
+// rate, a mirror domain) while sharing the process's one Fetcher.
+func NewRunnerWithEnvironments(st *tasks.Store, pipelines []config.Pipeline, envFor func(config.Pipeline) Environment) *Runner {
+	if envFor == nil {
+		// A nil factory is a caller bug, but an empty environment is still a valid
+		// one for a pipeline that never reaches `scrape`; refusing to run every task
+		// over it would hide the pipeline's own work.
+		envFor = func(config.Pipeline) Environment { return Environment{} }
+	}
 	byID := make(map[string]config.Pipeline, len(pipelines))
 	for _, p := range pipelines {
 		byID[p.ID] = p
 	}
-	return &Runner{store: st, pipelines: byID, env: env}
+	return &Runner{store: st, pipelines: byID, envFor: envFor}
 }
+
+// finishDeadline bounds the one write that records a run's ending. It is a
+// detached write on purpose: a cancelled task's `cancelled` (or a SIGTERM's
+// `interrupted`) has to reach the database even though the context that carried the
+// work is already dead.
+const finishDeadline = 10 * time.Second
 
 // RunTask runs one task. A run that ends failed is a successful call: the failure is
 // the run's outcome, recorded in the database, not an error of the caller. The
@@ -49,55 +71,94 @@ func (r *Runner) RunTask(ctx context.Context, taskID int64) (tasks.Outcome, erro
 	if err != nil {
 		return tasks.Outcome{}, err
 	}
-	files, err := r.store.TaskFiles(ctx, taskID)
+	run, err := r.store.BeginRun(ctx, taskID)
+	if err != nil {
+		return tasks.Outcome{}, err
+	}
+	return r.RunClaimed(ctx, task, run)
+}
+
+// RunClaimed runs a task whose run the caller already opened. It is the scheduler's
+// half of the lifecycle: the slot claims the task out of the queue (one
+// transaction), then hands this function the run it created.
+//
+// The ending depends on why the context died, not on the error a step happened to
+// return while it was dying:
+//   - cancelled with tasks.ErrCancelledByUser → `cancelled` (a human's decision);
+//   - any other cancellation, including SIGTERM → `interrupted` (the task goes
+//     back to the queue and tries again after a restart).
+//   - no cancellation → the outcome the steps reached (a step failure is `failed`,
+//     never the caller's error).
+func (r *Runner) RunClaimed(ctx context.Context, task tasks.Task, run tasks.Run) (tasks.Outcome, error) {
+	out, runErr := r.execute(ctx, task, run)
+	if cause := context.Cause(ctx); cause != nil {
+		if errors.Is(cause, tasks.ErrCancelledByUser) {
+			out = tasks.Outcome{Status: tasks.RunCancelled, Error: cause.Error()}
+		} else {
+			out = tasks.Outcome{Status: tasks.RunInterrupted, Error: cause.Error()}
+		}
+		return r.finish(ctx, run.ID, out)
+	}
+	if runErr != nil {
+		// A failure to read the task's rows is still the run's ending: leaving it
+		// `running` would strand the task until the next restart.
+		out = tasks.Outcome{Status: tasks.RunFailed, Error: runErr.Error()}
+	}
+	return r.finish(ctx, run.ID, out)
+}
+
+// finish writes a run's ending on a context that survives the work's cancellation.
+// The transaction is short (status + ledger + cleanup), and losing it would leave a
+// task looking alive after the process had already decided otherwise.
+func (r *Runner) finish(ctx context.Context, runID int64, out tasks.Outcome) (tasks.Outcome, error) {
+	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishDeadline)
+	defer cancel()
+	if err := r.store.FinishRun(fctx, runID, out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// execute runs the task-level suffix and reports what the run reached.
+func (r *Runner) execute(ctx context.Context, task tasks.Task, run tasks.Run) (tasks.Outcome, error) {
+	files, err := r.store.TaskFiles(ctx, task.ID)
 	if err != nil {
 		return tasks.Outcome{}, err
 	}
 	// The previous run's ledger is read before this run starts, because cleanup is
 	// "this run's products against the last run's".
-	prior, err := r.priorLedger(ctx, taskID)
+	prior, err := r.priorLedger(ctx, task.ID)
 	if err != nil {
 		return tasks.Outcome{}, err
-	}
-
-	run, err := r.store.BeginRun(ctx, taskID)
-	if err != nil {
-		return tasks.Outcome{}, err
-	}
-	finish := func(out tasks.Outcome) (tasks.Outcome, error) {
-		if err := r.store.FinishRun(ctx, run.ID, out); err != nil {
-			return out, err
-		}
-		return out, nil
 	}
 
 	p, ok := r.pipelines[task.PipelineID]
 	if !ok {
-		return finish(tasks.Outcome{
+		return tasks.Outcome{
 			Status: tasks.RunFailed,
 			Error:  fmt.Sprintf("pipeline %q no longer exists: a rerun uses the current pipeline of that name", task.PipelineID),
-		})
+		}, nil
 	}
 	if strings.TrimSpace(task.Number) == "" {
-		return finish(tasks.Outcome{
+		return tasks.Outcome{
 			Status: tasks.RunNeedsNumber,
 			Reason: tasks.ReasonNoCandidate,
 			Error:  "the task has no number yet",
-		})
+		}, nil
 	}
 
 	state := seedState(files, task.Number)
 	from := suffixStartKey(p)
 	if from == "" {
 		// The pipeline ends at parse: there is nothing to run, and nothing to write.
-		return finish(tasks.Outcome{Status: tasks.RunSucceeded, MetadataJSON: metadataJSON(state)})
+		return tasks.Outcome{Status: tasks.RunSucceeded, MetadataJSON: metadataJSON(state)}, nil
 	}
 
 	var outputStepRunID int64
 	opts := Options{
 		From: from,
 		Seed: state,
-		Env:  r.env,
+		Env:  r.envFor(p),
 		OnStep: func(ctx context.Context, o StepOutcome) error {
 			id, err := r.recordStep(ctx, run.ID, state, o)
 			if err != nil {
@@ -111,10 +172,10 @@ func (r *Runner) RunTask(ctx context.Context, taskID int64) (tasks.Outcome, erro
 	}
 	engine, err := Build(p, opts)
 	if err != nil {
-		return finish(tasks.Outcome{Status: tasks.RunFailed, Error: err.Error()})
+		return tasks.Outcome{}, err
 	}
 	if _, err := engine.Run(ctx); err != nil {
-		return finish(tasks.Outcome{Status: tasks.RunFailed, Error: err.Error()})
+		return tasks.Outcome{}, err
 	}
 
 	md := finalMetadata(state)
@@ -130,7 +191,7 @@ func (r *Runner) RunTask(ctx context.Context, taskID int64) (tasks.Outcome, erro
 	if state.Plan != nil && len(state.Plan.Items) > 0 && !engine.DryRun() {
 		manifest, err := Apply(ctx, state.Plan)
 		if err != nil {
-			return finish(tasks.Outcome{Status: tasks.RunFailed, Error: err.Error()})
+			return tasks.Outcome{}, err
 		}
 		state.Manifest = manifest
 		// Cleanup is decided before the finish transaction and performed inside it:
@@ -147,12 +208,12 @@ func (r *Runner) RunTask(ctx context.Context, taskID int64) (tasks.Outcome, erro
 		Rows:         rows,
 	}
 	if len(deletions) > 0 {
-		// The transaction's context is used, which is the caller's: a cleanup that
-		// fails rolls the finish back, so a task never looks finished with its old
-		// files still on disk.
+		// The transaction's context is used, which is the finish context: a cleanup
+		// that fails rolls the finish back, so a task never looks finished with its
+		// old files still on disk.
 		out.BeforeCommit = func(ctx context.Context) error { return RemoveStale(ctx, deletions) }
 	}
-	return finish(out)
+	return out, nil
 }
 
 // recordStep writes one step_runs row, and — for the scrape step — its source_runs

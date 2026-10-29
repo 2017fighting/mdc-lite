@@ -409,3 +409,36 @@ func TestMirrorHeadersFollowTheMirror(t *testing.T) {
 		t.Errorf("mirror Referer = %q, want the mirror's own site", seen)
 	}
 }
+
+// TestNewUsesTheSuppliedClock is the fake-clock seam: the limiter must read the
+// time and wait through the injected clock, so a test can assert a rate-limit pause
+// without spending it. A real sleep here would make the assertion slow and the
+// mechanism unobservable.
+func TestNewUsesTheSuppliedClock(t *testing.T) {
+	var slept []time.Duration
+	fixed := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	f := New(Options{
+		Rate: Rate{RequestsPerSecond: 1, Burst: 1},
+		Clock: &Clock{
+			Now:    func() time.Time { return fixed },
+			Sleep:  func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil },
+			Jitter: func(d time.Duration) time.Duration { return d },
+		},
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	for i := 0; i < 2; i++ {
+		if _, err := f.Do(context.Background(), Request{URL: srv.URL}); err != nil {
+			t.Fatalf("request %d: %v", i, err)
+		}
+	}
+	if len(slept) != 1 {
+		t.Fatalf("sleeps = %v, want exactly the second request's rate-limit wait", slept)
+	}
+	if slept[0] < time.Second {
+		t.Errorf("rate-limit wait = %s, want at least one second at 1 req/s", slept[0])
+	}
+}

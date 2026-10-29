@@ -40,6 +40,10 @@ import (
 type scrapeStep struct {
 	cfg     config.ScrapeWith
 	sources source.Registry
+	// imageSlots is `concurrency.images`: how many image fetches this task may have
+	// in flight at once. nil means uncapped; the Fetcher's process-wide request
+	// semaphore still applies underneath.
+	imageSlots chan struct{}
 	// plans is one field's candidate list, resolved once at build time: the ids
 	// this build actually has, in the order the configuration asks for them.
 	plans []fieldPlan
@@ -53,7 +57,7 @@ type fieldPlan struct {
 	ids  []string
 }
 
-func newScrape(w config.ScrapeWith, reg source.Registry) (Step, error) {
+func newScrape(w config.ScrapeWith, reg source.Registry, images int) (Step, error) {
 	plans := make([]fieldPlan, 0, len(field.All()))
 	for _, name := range field.All() {
 		ids := w.Sources.IDs()
@@ -79,7 +83,32 @@ func newScrape(w config.ScrapeWith, reg source.Registry) (Step, error) {
 		}
 		plans = append(plans, fieldPlan{name: name, ids: known})
 	}
-	return &scrapeStep{cfg: w, sources: reg, plans: plans}, nil
+	step := &scrapeStep{cfg: w, sources: reg, plans: plans}
+	if images > 0 {
+		step.imageSlots = make(chan struct{}, images)
+	}
+	return step, nil
+}
+
+// acquireImage takes one of the task's image slots, waiting for one or for the
+// caller's cancellation. It is the inner of the two request gates: the Fetcher then
+// waits for the domain's own budget before the request leaves.
+func (s *scrapeStep) acquireImage(ctx context.Context) error {
+	if s.imageSlots == nil {
+		return ctx.Err()
+	}
+	select {
+	case s.imageSlots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *scrapeStep) releaseImage() {
+	if s.imageSlots != nil {
+		<-s.imageSlots
+	}
 }
 
 func (s *scrapeStep) Type() string { return config.StepScrape }
@@ -318,14 +347,34 @@ func (r *scrapeRun) deliver(ctx context.Context, name field.Name, id string, f s
 		return false
 	}
 	var kept []ImageBlob
-	for _, ref := range refs {
-		data, err := src.FetchImage(ctx, ref)
-		if err != nil || len(data) == 0 {
-			continue
+	// One field's images are independent of each other, so they are fetched
+	// concurrently within the task's `concurrency.images` budget. The results keep
+	// the refs' order (Index is the order the site gave), so two runs of the same
+	// number produce the same metadata.
+	results := make([]*ImageBlob, len(refs))
+	var wg sync.WaitGroup
+	for i, ref := range refs {
+		if err := r.step.acquireImage(ctx); err != nil {
+			break
 		}
-		kept = append(kept, ImageBlob{
-			Role: ref.Role, Index: ref.Index, Bytes: data, Source: id, URL: ref.URL,
-		})
+		wg.Add(1)
+		go func(i int, ref source.ImageRef) {
+			defer wg.Done()
+			defer r.step.releaseImage()
+			data, err := src.FetchImage(ctx, ref)
+			if err != nil || len(data) == 0 {
+				return
+			}
+			results[i] = &ImageBlob{
+				Role: ref.Role, Index: ref.Index, Bytes: data, Source: id, URL: ref.URL,
+			}
+		}(i, ref)
+	}
+	wg.Wait()
+	for _, blob := range results {
+		if blob != nil {
+			kept = append(kept, *blob)
+		}
 	}
 	if len(kept) == 0 {
 		// Nothing arrived: the next candidate for this field gets its chance.

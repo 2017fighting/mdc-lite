@@ -81,6 +81,7 @@ func runPipeline(args []string, stdout, stderr io.Writer) int {
 		Env: pipeline.Environment{
 			TemplatesDir: l.settings.TemplatesDir,
 			Sources:      sources.Build(sources.ScrapeWith(p), sources.NewFetcher(l.settings)),
+			Images:       l.settings.Concurrency.Images,
 		},
 	})
 	if err != nil {

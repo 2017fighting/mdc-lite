@@ -17,6 +17,8 @@ import (
 
 	"github.com/2017fighting/mdc-lite/internal/api"
 	"github.com/2017fighting/mdc-lite/internal/config"
+	"github.com/2017fighting/mdc-lite/internal/pipeline"
+	"github.com/2017fighting/mdc-lite/internal/scheduler"
 	"github.com/2017fighting/mdc-lite/internal/sources"
 	"github.com/2017fighting/mdc-lite/internal/store"
 	"github.com/2017fighting/mdc-lite/internal/tasks"
@@ -262,6 +264,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	// api.Store is a non-nil interface, and the health handler's nil check would
 	// miss it and panic instead of answering 503.
 	var healthStore api.Store
+	var schedulerDone chan struct{}
 	st, err := store.Open(ctx, l.settings.DBPath)
 	if err != nil {
 		// The server still comes up: /api/health then answers 503 with the reason,
@@ -271,11 +274,12 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		defer func() { _ = st.Close() }()
 		healthStore = st
 		logger.Info("database ready", "path", st.Path(), "migrations", st.Migrations())
+		taskStore := tasks.New(st, tasks.Config{RetryLimit: l.settings.RetryLimit})
 		// The startup reset (spec §11): a killed process left runs marked running
 		// and tasks nobody will ever pick up. One transaction closes those runs,
 		// puts their tasks back in the queue (or fails the ones over retry_limit),
 		// and leaves the tasks waiting for a human alone.
-		rec, err := tasks.New(st, tasks.Config{RetryLimit: l.settings.RetryLimit}).Recover(ctx)
+		rec, err := taskStore.Recover(ctx)
 		if err != nil {
 			// Not fatal: the queue still works, and refusing to start would hide the
 			// reason from the health endpoint too.
@@ -284,6 +288,42 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 			logger.Info("startup reset",
 				"interrupted_runs", rec.Interrupted, "requeued_tasks", rec.Requeued, "failed_tasks", rec.Failed)
 		}
+
+		// One Fetcher for the whole process (the rate limit and the cooldown are
+		// per registrable domain, so two of them would double every limit), and one
+		// environment per pipeline because `scrape.with.sources` belongs to the
+		// pipeline file.
+		fetcher := sources.NewFetcher(l.settings)
+		runner := pipeline.NewRunnerWithEnvironments(taskStore, l.pipelines, func(p config.Pipeline) pipeline.Environment {
+			return pipeline.Environment{
+				Sources:      sources.Build(sources.ScrapeWith(p), fetcher),
+				TemplatesDir: l.settings.TemplatesDir,
+				Images:       l.settings.Concurrency.Images,
+			}
+		})
+		sched, err := scheduler.New(scheduler.Config{
+			Store:  taskStore,
+			Runner: runner,
+			Tasks:  l.settings.Concurrency.Tasks,
+			Logger: logger,
+		})
+		if err != nil {
+			// The configuration was already validated, so this is a programming
+			// error rather than an operator's; refusing to start is still better than
+			// a server that silently runs nothing.
+			logger.Error("the task scheduler could not start", "err", err)
+			return 1
+		}
+		schedulerDone = make(chan struct{})
+		go func() {
+			defer close(schedulerDone)
+			if err := sched.Run(ctx); err != nil {
+				logger.Error("the task scheduler stopped with an error", "err", err)
+			}
+		}()
+		// The startup reset may have put work back in the queue; start on it now
+		// rather than at the dispatcher's first fallback poll.
+		sched.Notify()
 	}
 
 	srv := api.New(Version, healthStore, web.Handler())
@@ -315,8 +355,14 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		logger.Error("shutdown did not finish cleanly", "err", err)
+	shutdownErr := httpServer.Shutdown(shutdownCtx)
+	if schedulerDone != nil {
+		// The scheduler started its own grace period when the signal cancelled the
+		// root context, at the same moment the HTTP drain began.
+		<-schedulerDone
+	}
+	if shutdownErr != nil {
+		logger.Error("shutdown did not finish cleanly", "err", shutdownErr)
 		return 1
 	}
 	return 0

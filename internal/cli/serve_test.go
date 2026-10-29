@@ -187,12 +187,47 @@ func TestServe_HealthyAnswers200(t *testing.T) {
 
 // A process that was killed leaves runs marked running and tasks nobody will pick
 // up. Starting the server again must reset them before it starts serving work:
-// that is the crash recovery the spec puts in one transaction at startup.
+// that is the crash recovery the spec puts in one transaction at startup. The
+// requeued task then runs on the normal pool, which is the other half of the same
+// contract: a recovery that did not lead to work would just be a second graveyard.
 func TestServe_StartupResetsTheWorkTheLastProcessLeft(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	pipelines := filepath.Join(dir, "pipelines")
 	if err := os.MkdirAll(pipelines, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	media := filepath.Join(dir, "ABC-123.mp4")
+	if err := os.WriteFile(media, []byte("a one-second clip is not needed: the run only hardlinks it"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A pipeline whose task-level suffix is `output`: the recovered task needs no
+	// network and no title, so the test sees the run finish instead of waiting on a
+	// scraper. `required_fields: []` is the spec's own way to make such a task end
+	// `succeeded` rather than `partial`.
+	pipelineFile := filepath.Join(pipelines, "main.yaml")
+	if err := os.WriteFile(pipelineFile, []byte(`steps:
+  - type: scan
+    with: {roots: ["`+dir+`"]}
+  - type: filter
+    with:
+      rules:
+        - name: videos
+          when: {ext_in: [".mp4"]}
+          then: include
+        - name: everything-else
+          when: {stem_matches: "^.*$"}
+          then: exclude
+  - type: group
+  - type: parse
+    with:
+      rules:
+        - {builtin: default}
+  - type: output
+    with:
+      root: "`+filepath.Join(dir, "out")+`"
+      required_fields: []
+`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(dir, "mdc.db")
@@ -210,7 +245,7 @@ func TestServe_StartupResetsTheWorkTheLastProcessLeft(t *testing.T) {
 		Groups: []tasks.Group{{
 			Number: "ABC-123",
 			Files: []tasks.InputFile{{
-				Path: filepath.Join(dir, "ABC-123.mp4"), Kind: tasks.KindVideo,
+				Path: media, Kind: tasks.KindVideo,
 				Role: tasks.RolePrimary, PartIndex: 1,
 			}},
 		}},
@@ -240,25 +275,45 @@ func TestServe_StartupResetsTheWorkTheLastProcessLeft(t *testing.T) {
 		t.Fatalf("health = %d, want 200", code)
 	}
 
-	// Recovery runs before the listener does, so by now the row is reset.
 	after, err := store.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = after.Close() }()
 	st := tasks.New(after, tasks.Config{RetryLimit: 5})
-	task, err := st.Task(ctx, taskID)
-	if err != nil {
-		t.Fatal(err)
+
+	// The reset runs before the listener, and the scheduler starts on the requeued
+	// task immediately. Poll for the terminal state rather than assuming the
+	// goroutine has already finished.
+	deadline := time.Now().Add(10 * time.Second)
+	var task tasks.Task
+	for {
+		task, err = st.Task(ctx, taskID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if task.Status.Terminal() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task status = %q, want a terminal state after the reset ran it", task.Status)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	if task.Status != tasks.StatusQueued {
-		t.Errorf("task status = %q, want queued after the restart reset", task.Status)
+	if task.Status != tasks.StatusSucceeded {
+		t.Errorf("task status = %q, want succeeded (%+v)", task.Status, task)
 	}
 	runs, err := st.Runs(ctx, taskID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(runs) != 1 || runs[0].Status != tasks.RunInterrupted || runs[0].FinishedAt == nil {
-		t.Errorf("runs = %+v, want the dead run marked interrupted", runs)
+	if len(runs) != 2 {
+		t.Fatalf("runs = %+v, want the interrupted attempt and the rerun", runs)
+	}
+	if runs[0].Status != tasks.RunInterrupted || runs[0].FinishedAt == nil {
+		t.Errorf("first run = %+v, want the dead run marked interrupted", runs[0])
+	}
+	if runs[1].Status != tasks.RunSucceeded || runs[1].FinishedAt == nil {
+		t.Errorf("second run = %+v, want the requeued task to have run and succeeded", runs[1])
 	}
 }

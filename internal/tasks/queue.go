@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // This file is the queue and the query side of the dedup gates.
@@ -16,9 +17,9 @@ import (
 // by the same write that changed its status.
 
 // NextQueued returns the oldest queued task, or ErrNoQueuedTask when there is no
-// work. It does not claim the task: the scheduler takes it out of the queue by
-// calling BeginRun, so a task read here is still a candidate for another worker
-// until then (the worker pool of a single process is the only reader).
+// work. It does not claim the task: the scheduler uses ClaimNext, which reads the
+// same row and opens its run in one transaction, so a task read here is still a
+// candidate for another worker until then.
 //
 // The order is created_at — the FIFO the spec fixes — with the id as the tiebreak
 // so two tasks created in the same instant still come out in a stable order.
@@ -42,6 +43,111 @@ func (s *Store) NextQueued(ctx context.Context) (Task, error) {
 		return Task{}, fmt.Errorf("tasks: read task %d: %w", id, err)
 	}
 	return t, nil
+}
+
+// CancelTask ends a task a slot is not running: a queued task a human called off,
+// or a needs_number task whose number they decided to skip (skipping is
+// cancelling). The terminal write releases every path, so a rescan can claim them
+// again.
+//
+// A running task is refused: its run owns the slot and its context, so stopping it
+// is the scheduler's job (cancel the context; the runner writes `cancelled`). An
+// already terminal task is refused too — there is nothing left to call off.
+func (s *Store) CancelTask(ctx context.Context, taskID int64) (Task, error) {
+	now := stamp(time.Now())
+	tx, err := s.db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, fmt.Errorf("tasks: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	task, err := readTask(ctx, tx, taskID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, ErrTaskNotFound
+	}
+	if err != nil {
+		return Task{}, fmt.Errorf("tasks: read task %d: %w", taskID, err)
+	}
+	switch {
+	case task.Status == StatusRunning:
+		return Task{}, ErrTaskRunning
+	case task.Status.Terminal():
+		return Task{}, ErrTaskTerminal
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tasks SET status = 'cancelled', last_error = '', updated_at = ? WHERE id = ?`, now, taskID,
+	); err != nil {
+		return Task{}, fmt.Errorf("tasks: cancel task %d: %w", taskID, err)
+	}
+	if err := releasePaths(ctx, tx, taskID); err != nil {
+		return Task{}, err
+	}
+	if err := refreshBatch(ctx, tx, task.BatchID, now); err != nil {
+		return Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, fmt.Errorf("tasks: commit the cancellation of task %d: %w", taskID, err)
+	}
+	task.Status = StatusCancelled
+	if task.UpdatedAt, err = parseStamp(now); err != nil {
+		return Task{}, err
+	}
+	return task, nil
+}
+
+// Requeue puts a finished task back in the queue for another run, taking its paths
+// back in the same transaction. It is a rerun's hand-off to the scheduler: the task
+// is queued exactly when it is safe to run again, and a path another active task has
+// claimed in the meantime refuses the rerun instead of processing a file twice.
+func (s *Store) Requeue(ctx context.Context, taskID int64) (Task, error) {
+	now := stamp(time.Now())
+	tx, err := s.db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, fmt.Errorf("tasks: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	task, err := readTask(ctx, tx, taskID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, ErrTaskNotFound
+	}
+	if err != nil {
+		return Task{}, fmt.Errorf("tasks: read task %d: %w", taskID, err)
+	}
+	if task.Status == StatusRunning {
+		return Task{}, ErrTaskRunning
+	}
+	if !task.Status.Terminal() {
+		return Task{}, fmt.Errorf("%w: task %d is %s", ErrNotFinished, taskID, task.Status)
+	}
+
+	conflicts, err := activeConflicts(ctx, tx, taskID)
+	if err != nil {
+		return Task{}, err
+	}
+	if len(conflicts) > 0 {
+		return Task{}, fmt.Errorf("%w: %s", ErrPathOccupied, strings.Join(conflicts, ", "))
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE task_files SET active = 1 WHERE task_id = ?`, taskID); err != nil {
+		return Task{}, fmt.Errorf("tasks: reclaim the paths of task %d: %w", taskID, err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tasks SET status = 'queued', last_error = '', updated_at = ? WHERE id = ?`, now, taskID,
+	); err != nil {
+		return Task{}, fmt.Errorf("tasks: requeue task %d: %w", taskID, err)
+	}
+	if err := refreshBatch(ctx, tx, task.BatchID, now); err != nil {
+		return Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, fmt.Errorf("tasks: commit the rerun of task %d: %w", taskID, err)
+	}
+	task.Status = StatusQueued
+	if task.UpdatedAt, err = parseStamp(now); err != nil {
+		return Task{}, err
+	}
+	return task, nil
 }
 
 // PathState is what the store knows about one path: which task has it, in what

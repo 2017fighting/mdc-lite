@@ -72,6 +72,19 @@ type Options struct {
 	// wants and what a single-source build effectively has; the product sets it
 	// from the one place concurrency is configured.
 	MaxFlight int
+	// Clock is the time source and the waiter the limiter and the retry loop use.
+	// Nil means the real clock. It exists so a test can assert a rate-limit pause or
+	// a cooldown without spending the seconds; production never sets it.
+	Clock *Clock
+}
+
+// Clock is the Fetcher's view of time: when it is now, how to wait, and how to
+// spread a retry. A fake clock makes the rate limit and the cooldown assertions
+// rather than sleeps.
+type Clock struct {
+	Now    func() time.Time
+	Sleep  func(ctx context.Context, d time.Duration) error
+	Jitter func(d time.Duration) time.Duration
 }
 
 // Request is one fetch a source asks for.
@@ -194,6 +207,22 @@ type Fetcher struct {
 // New builds the process's Fetcher.
 func New(opts Options) *Fetcher {
 	c := realClock()
+	if opts.Clock != nil {
+		c = clock{
+			now:    opts.Clock.Now,
+			sleep:  opts.Clock.Sleep,
+			jitter: opts.Clock.Jitter,
+		}
+		if c.now == nil {
+			c.now = time.Now
+		}
+		if c.sleep == nil {
+			c.sleep = sleepCtx
+		}
+		if c.jitter == nil {
+			c.jitter = addJitter
+		}
+	}
 	f := &Fetcher{
 		proxy:       strings.TrimSpace(opts.Proxy),
 		timeout:     opts.Timeout,

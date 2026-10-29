@@ -37,11 +37,15 @@ type Input struct {
 }
 
 // Environment is what the task-level steps need from outside the pipeline file:
-// the built-in sources `scrape` dispatches to, and the directory `@file` NFO
-// templates are read from.
+// the built-in sources `scrape` dispatches to, the directory `@file` NFO
+// templates are read from, and the per-task image fetch budget.
 type Environment struct {
 	Sources      source.Registry
 	TemplatesDir string
+	// Images is `concurrency.images`: how many image fetches one task may have in
+	// flight at once. Zero means no per-task cap (the Fetcher's global cap still
+	// applies); the product always passes the configured number.
+	Images int
 }
 
 // Options are the knobs `mdc run`, the preview and a monitor tick share.
@@ -193,7 +197,7 @@ var constructors = map[string]func(config.Step, Options) (Step, error){
 		if !ok {
 			return nil, fmt.Errorf("the scrape settings were not decoded (was the pipeline loaded through config.LoadPipelineFile?)")
 		}
-		return newScrape(*w, opts.Env.Sources)
+		return newScrape(*w, opts.Env.Sources, opts.Env.Images)
 	},
 	config.StepImages: func(s config.Step, _ Options) (Step, error) {
 		w, ok := s.WithValue.(*config.ImagesWith)

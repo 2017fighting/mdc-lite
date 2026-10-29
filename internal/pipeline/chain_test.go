@@ -554,3 +554,27 @@ func TestChain_ACompanionFollowsItsOwnPart(t *testing.T) {
 		t.Errorf("the subtitle must follow cd2 and keep .eng: %v", err)
 	}
 }
+
+// TestApply_DoesNotStartAFileAfterTheContextDied is the cancellation rule: the
+// context is checked *between* files, so a run that was called off writes nothing
+// further and never leaves a half-written file or a `.tmp` behind. The check is at
+// the boundary on purpose; a file being copied is not interrupted mid-stream.
+func TestApply_DoesNotStartAFileAfterTheContextDied(t *testing.T) {
+	out := t.TempDir()
+	plan := &Plan{Items: []PlanItem{{Writes: []PlannedWrite{
+		{Kind: WriteImage, Role: RolePoster, Mode: ModeBytes, Dst: filepath.Join(out, "poster.jpg"), Data: []byte("poster")},
+		{Kind: WriteNfo, Role: RoleNfo, Mode: ModeBytes, Dst: filepath.Join(out, "movie.nfo"), Data: []byte("<movie/>")},
+	}}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := Apply(ctx, plan); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Apply = %v, want context.Canceled", err)
+	}
+	entries, err := os.ReadDir(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("a cancelled apply wrote files: %v", entries)
+	}
+}

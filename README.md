@@ -35,6 +35,24 @@ bin/mdc run          --pipeline main --roots /media/in --until group --dry-run
 8. 名称归一化（标签、演员姓名）
 9. 生成nfo
 
+## 并发与取消
+
+三个数只配在 `/config/config.yaml` 一处（步骤级没有并发键，改并发要重启）：
+
+| 键 | 默认 | 管什么 |
+|---|---|---|
+| `concurrency.tasks` | 4 | 任务槽；一个槽跑一个任务，槽内任务级后缀串行 |
+| `concurrency.requests` | 8 | 进程内全局在飞请求上限（元数据与图片共用同一个 `Fetcher`） |
+| `concurrency.images` | 4 | 单任务同时取几张图（在全局信号量之前排队） |
+
+批次级前缀 `scan → filter → group` 全局单飞：监控 tick 拿不到槽就跳过本轮、不推水位线；
+手动预览与建任务排队等待。队列就是 `tasks.status='queued'` 的全局 FIFO，失败不熔断、不暂停队列。
+
+SIGTERM 优雅中断：停止取新任务 → 取消根 ctx（步骤、限速等待、退避、HTTP 一起断）→ 等最多 25s →
+仍在跑的 run 记 `interrupted`（落库走脱离取消的 ctx + 短超时）→ 退出；下次启动复位后重跑。
+用户取消走同一条 ctx 路径，任务落 `cancelled` 并释放路径占用；重跑一个正在跑的任务被拒绝。
+取消时 `output.Apply` 在文件之间停下，写盘仍走同目录 `.tmp` → `rename`，不留半截文件。
+
 ## 监控模式
 
 > 可以配置多个监控，多个监控的监控目录不能重叠，可以指定这个监控扫描到的新文件用哪个配置文件进行处理

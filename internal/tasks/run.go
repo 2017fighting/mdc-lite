@@ -84,54 +84,111 @@ func (s *Store) BeginRun(ctx context.Context, taskID int64) (Run, error) {
 	if err != nil {
 		return Run{}, fmt.Errorf("tasks: read task %d: %w", taskID, err)
 	}
-	switch task.Status {
-	case StatusRunning, StatusNeedsNumber:
-		return Run{}, fmt.Errorf("%w: task %d is %s", ErrNotQueued, taskID, task.Status)
+	run, err := beginRun(ctx, tx, task, now)
+	if err != nil {
+		return Run{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Run{}, fmt.Errorf("tasks: commit run of task %d: %w", taskID, err)
+	}
+	return run, nil
+}
+
+// ClaimNext takes the oldest queued task out of the global FIFO and opens its run
+// in one transaction. It is the scheduler's claim: two workers cannot both get the
+// same task, and a task that is read is already `running` when this returns.
+func (s *Store) ClaimNext(ctx context.Context) (Task, Run, error) {
+	now := stamp(time.Now())
+	tx, err := s.db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, Run{}, fmt.Errorf("tasks: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var id int64
+	err = tx.QueryRowContext(ctx,
+		`SELECT id FROM tasks WHERE status = 'queued' ORDER BY created_at, id LIMIT 1`,
+	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, Run{}, ErrNoQueuedTask
+	}
+	if err != nil {
+		return Task{}, Run{}, fmt.Errorf("tasks: read the queue: %w", err)
+	}
+	task, err := readTask(ctx, tx, id)
+	if err != nil {
+		return Task{}, Run{}, fmt.Errorf("tasks: read task %d: %w", id, err)
+	}
+	run, err := beginRun(ctx, tx, task, now)
+	if err != nil {
+		return Task{}, Run{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, Run{}, fmt.Errorf("tasks: claim task %d: %w", id, err)
+	}
+	return task, run, nil
+}
+
+// beginRun is the write half of both BeginRun and ClaimNext: the status check, the
+// path claim, the next run_no and the task's move to running, inside the caller's
+// transaction.
+func beginRun(ctx context.Context, tx *sql.Tx, task Task, now string) (Run, error) {
+	if err := taskCanStart(task); err != nil {
+		return Run{}, err
 	}
 
-	conflicts, err := activeConflicts(ctx, tx, taskID)
+	conflicts, err := activeConflicts(ctx, tx, task.ID)
 	if err != nil {
 		return Run{}, err
 	}
 	if len(conflicts) > 0 {
 		return Run{}, fmt.Errorf("%w: %s", ErrPathOccupied, strings.Join(conflicts, ", "))
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE task_files SET active = 1 WHERE task_id = ?`, taskID); err != nil {
-		return Run{}, fmt.Errorf("tasks: claim the paths of task %d: %w", taskID, err)
+	if _, err := tx.ExecContext(ctx, `UPDATE task_files SET active = 1 WHERE task_id = ?`, task.ID); err != nil {
+		return Run{}, fmt.Errorf("tasks: claim the paths of task %d: %w", task.ID, err)
 	}
 
 	var last int
 	if err := tx.QueryRowContext(ctx,
-		`SELECT coalesce(max(run_no), 0) FROM task_runs WHERE task_id = ?`, taskID,
+		`SELECT coalesce(max(run_no), 0) FROM task_runs WHERE task_id = ?`, task.ID,
 	).Scan(&last); err != nil {
-		return Run{}, fmt.Errorf("tasks: last run of task %d: %w", taskID, err)
+		return Run{}, fmt.Errorf("tasks: last run of task %d: %w", task.ID, err)
 	}
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO task_runs (task_id, run_no, status, started_at) VALUES (?, ?, 'running', ?)`,
-		taskID, last+1, now)
+		task.ID, last+1, now)
 	if err != nil {
-		return Run{}, fmt.Errorf("tasks: insert run of task %d: %w", taskID, err)
+		return Run{}, fmt.Errorf("tasks: insert run of task %d: %w", task.ID, err)
 	}
 	runID, err := res.LastInsertId()
 	if err != nil {
 		return Run{}, fmt.Errorf("tasks: run id: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE tasks SET status = 'running', last_error = '', updated_at = ? WHERE id = ?`, now, taskID,
+		`UPDATE tasks SET status = 'running', last_error = '', updated_at = ? WHERE id = ?`, now, task.ID,
 	); err != nil {
-		return Run{}, fmt.Errorf("tasks: mark task %d running: %w", taskID, err)
+		return Run{}, fmt.Errorf("tasks: mark task %d running: %w", task.ID, err)
 	}
 	if err := refreshBatch(ctx, tx, task.BatchID, now); err != nil {
 		return Run{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return Run{}, fmt.Errorf("tasks: commit run of task %d: %w", taskID, err)
 	}
 	started, err := parseStamp(now)
 	if err != nil {
 		return Run{}, err
 	}
-	return Run{ID: runID, TaskID: taskID, No: last + 1, Status: RunRunning, StartedAt: started}, nil
+	return Run{ID: runID, TaskID: task.ID, No: last + 1, Status: RunRunning, StartedAt: started}, nil
+}
+
+// taskCanStart refuses the two states a run cannot start from: it is already
+// running, or it is waiting for a human. Everything else may start, including a
+// terminal task (that is a rerun).
+func taskCanStart(task Task) error {
+	switch task.Status {
+	case StatusRunning, StatusNeedsNumber:
+		return fmt.Errorf("%w: task %d is %s", ErrNotQueued, task.ID, task.Status)
+	default:
+		return nil
+	}
 }
 
 // activeConflicts lists the task's paths that another active task holds. Gate one

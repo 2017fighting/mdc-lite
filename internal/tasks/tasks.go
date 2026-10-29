@@ -205,6 +205,16 @@ var (
 	// ErrNotQueued means the task cannot start a run now: it is running, or it is
 	// waiting for a human to type a number.
 	ErrNotQueued = errors.New("tasks: the task is not waiting in the queue")
+	// ErrTaskRunning means the caller tried to cancel or rerun a task a slot is
+	// already running. A task is the cancellation unit, so only its own context
+	// can stop it.
+	ErrTaskRunning = errors.New("tasks: the task is running")
+	// ErrTaskTerminal means the task already ended, so there is nothing to cancel.
+	ErrTaskTerminal = errors.New("tasks: the task already ended")
+	// ErrNotFinished means a rerun was asked of a task that has not ended yet.
+	// Rerun is the task-level suffix of a finished task (ADR-0010); a queued task
+	// is already waiting for its first run.
+	ErrNotFinished = errors.New("tasks: the task has not finished yet")
 	// ErrNotWaitingForNumber means numbers were submitted for a task that is not
 	// in needs_number.
 	ErrNotWaitingForNumber = errors.New("tasks: the task is not waiting for a number")
@@ -291,6 +301,15 @@ type Run struct {
 	FinishedAt *time.Time
 	Error      string
 }
+
+// ErrCancelledByUser is the cause a running task's context is cancelled with when
+// a human cancels it. Any other ending of that context (a deadline, the process
+// shutting down) is an interruption: the run is a victim, not a decision.
+//
+// It is a context cause rather than a field on the run because cancellation is one
+// context path all the way down to the HTTP request; the only place that has to
+// tell the two endings apart is the code that writes the run's final status.
+var ErrCancelledByUser = errors.New("tasks: cancelled by the user")
 
 // Owner is who a step run belongs to: a batch (the prefix steps) or one task run
 // (the suffix steps). Exactly one id is set.

@@ -117,6 +117,24 @@ func TestParsePipeline_UnknownKeyInsideWith(t *testing.T) {
 	}
 }
 
+func TestParsePipeline_StepsHaveNoConcurrencyBlock(t *testing.T) {
+	// Concurrency is a deployment property and lives in `config.yaml` only. A
+	// `with.concurrency` block would be a second place to tune the same three
+	// numbers (and a knob the engine does not read).
+	_, err := parse(t, `steps:
+  - type: scan
+    with:
+      roots: [/media]
+      concurrency: {tasks: 2}
+`+tail)
+	if err == nil {
+		t.Fatal("a step-level concurrency block must be refused")
+	}
+	if !strings.Contains(err.Error(), `unknown field "concurrency"`) {
+		t.Errorf("got: %v", err)
+	}
+}
+
 func TestParsePipeline_ScanHasNoExtensionsKey(t *testing.T) {
 	// Extensions are a filter rule. Filtering them at scan time would keep
 	// companion files out of the FileSet for good, which would make

@@ -605,3 +605,164 @@ func TestRunner_RecordsTheReasonCodeOfAFailedSource(t *testing.T) {
 		t.Errorf("source row err = %q, want the failure's own text", rows[0].Err)
 	}
 }
+
+// blockingSource holds its scrape until the task is cancelled, so a test can drive
+// the cancellation at a moment the engine is actually inside a step.
+type blockingSource struct {
+	started chan struct{}
+}
+
+func (s *blockingSource) ID() string           { return "fixture" }
+func (s *blockingSource) Fields() []field.Name { return field.All() }
+
+func (s *blockingSource) Scrape(ctx context.Context, _ string) (source.Result, error) {
+	select {
+	case s.started <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return source.Result{}, ctx.Err()
+}
+
+func (s *blockingSource) FetchImage(context.Context, source.ImageRef) ([]byte, error) {
+	return nil, errors.New("nothing to fetch")
+}
+
+// TestRunner_ACancelEndsTheRunAsCancelledAndReleasesThePaths is the user-cancel
+// path: the same task context the steps and the Fetcher honour, with the cause that
+// says a human decided it.
+func TestRunner_ACancelEndsTheRunAsCancelledAndReleasesThePaths(t *testing.T) {
+	e := newRunnerEnv(t)
+	cancelSrc := &blockingSource{started: make(chan struct{}, 1)}
+	e.run = NewRunner(e.store, []config.Pipeline{chainConfig(t, e.out, "")}, Environment{
+		Sources: source.NewRegistry(cancelSrc),
+	})
+	taskID := e.createTask(t, "ABC-123", "ABC-123-cd1.mp4")
+	task, err := e.store.Task(e.ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := e.store.BeginRun(e.ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	outcomeCh := make(chan tasks.Outcome, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		out, err := e.run.RunClaimed(ctx, task, run)
+		outcomeCh <- out
+		errCh <- err
+	}()
+	select {
+	case <-cancelSrc.started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the scrape step never started")
+	}
+	cancel(tasks.ErrCancelledByUser)
+
+	if err := <-errCh; err != nil {
+		t.Fatalf("RunClaimed: %v", err)
+	}
+	if out := <-outcomeCh; out.Status != tasks.RunCancelled {
+		t.Errorf("outcome = %+v, want cancelled", out)
+	}
+	after, err := e.store.Task(e.ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != tasks.StatusCancelled {
+		t.Errorf("task status = %q, want cancelled", after.Status)
+	}
+	files, err := e.store.TaskFiles(e.ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if f.Active {
+			t.Errorf("%s is still active: a cancelled task must release its paths", f.Path)
+		}
+	}
+	runs, err := e.store.Runs(e.ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].Status != tasks.RunCancelled || runs[0].FinishedAt == nil {
+		t.Errorf("runs = %+v, want one finished cancelled run", runs)
+	}
+	entries, err := os.ReadDir(e.out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tmp") {
+			t.Errorf("a cancelled run left a temp file behind: %s", entry.Name())
+		}
+	}
+}
+
+// TestRunner_AShutdownEndsTheRunAsInterruptedAndRequeuesTheTask is the SIGTERM
+// path: the process is going away, so the run is a victim (interrupted, task back
+// in the queue) rather than a decision (cancelled).
+func TestRunner_AShutdownEndsTheRunAsInterruptedAndRequeuesTheTask(t *testing.T) {
+	e := newRunnerEnv(t)
+	cancelSrc := &blockingSource{started: make(chan struct{}, 1)}
+	e.run = NewRunner(e.store, []config.Pipeline{chainConfig(t, e.out, "")}, Environment{
+		Sources: source.NewRegistry(cancelSrc),
+	})
+	taskID := e.createTask(t, "ABC-123", "ABC-123-cd1.mp4")
+	task, err := e.store.Task(e.ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := e.store.BeginRun(e.ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	outcomeCh := make(chan tasks.Outcome, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		out, err := e.run.RunClaimed(ctx, task, run)
+		outcomeCh <- out
+		errCh <- err
+	}()
+	select {
+	case <-cancelSrc.started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the scrape step never started")
+	}
+	cancel()
+
+	if err := <-errCh; err != nil {
+		t.Fatalf("RunClaimed: %v", err)
+	}
+	if out := <-outcomeCh; out.Status != tasks.RunInterrupted {
+		t.Errorf("outcome = %+v, want interrupted", out)
+	}
+	after, err := e.store.Task(e.ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != tasks.StatusQueued {
+		t.Errorf("task status = %q, want queued (the next start retries it)", after.Status)
+	}
+	files, err := e.store.TaskFiles(e.ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if !f.Active {
+			t.Errorf("%s was released: a task waiting to retry must keep it", f.Path)
+		}
+	}
+	runs, err := e.store.Runs(e.ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].Status != tasks.RunInterrupted || runs[0].FinishedAt == nil {
+		t.Errorf("runs = %+v, want one finished interrupted run", runs)
+	}
+}
