@@ -332,3 +332,80 @@ func TestProxyIsANoopForLocalTestsAndRefusedWhenMalformed(t *testing.T) {
 		t.Fatal("a proxy without a host must be refused")
 	}
 }
+
+func TestDoCapsTheRequestsInFlight(t *testing.T) {
+	// `concurrency.requests` is a process-wide cap, not a per-source one: it lives on
+	// the one seam every request crosses, so no step or source can exceed it.
+	var inflight, peak atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := inflight.Add(1)
+		for {
+			old := peak.Load()
+			if n <= old || peak.CompareAndSwap(old, n) {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+		inflight.Add(-1)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	f := New(Options{
+		Rate:      Rate{RequestsPerSecond: 1000, Burst: 100},
+		MaxFlight: 2,
+	})
+	var done atomic.Int32
+	for i := 0; i < 6; i++ {
+		go func() {
+			if _, err := f.Do(context.Background(), Request{URL: srv.URL + "/x"}); err == nil {
+				done.Add(1)
+			}
+		}()
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for done.Load() < 6 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := done.Load(); got != 6 {
+		t.Fatalf("%d of 6 requests finished; the cap blocked one forever", got)
+	}
+	if got := peak.Load(); got > 2 {
+		t.Errorf("peak in-flight = %d, want the cap of 2 never exceeded", got)
+	}
+	if got := peak.Load(); got < 2 {
+		t.Errorf("peak in-flight = %d, want the cap to be used, not throttled to one", got)
+	}
+}
+
+func TestMirrorHeadersFollowTheMirror(t *testing.T) {
+	// A header that names the site has to change when the address does: the mirror
+	// switch happens in here, so this is the only place that can do it.
+	var seen string
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Get("Referer")
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer second.Close()
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer first.Close()
+
+	f, _ := testFetcher(t, Options{Rate: Rate{RequestsPerSecond: 1000, Burst: 100}, Retries: 1})
+	resp, err := f.Do(context.Background(), Request{
+		URL:           first.URL,
+		Mirrors:       []string{second.URL},
+		Headers:       map[string]string{"Referer": "https://video.first/"},
+		MirrorHeaders: []map[string]string{{"Referer": "https://video.second/"}},
+	})
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	if resp.Status != http.StatusOK {
+		t.Fatalf("status = %d, want the mirror's 200", resp.Status)
+	}
+	if seen != "https://video.second/" {
+		t.Errorf("mirror Referer = %q, want the mirror's own site", seen)
+	}
+}

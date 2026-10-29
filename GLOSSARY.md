@@ -55,7 +55,7 @@ mdc-lite 的领域词汇表。写代码、起 issue、写测试名时用这里�
 - **冷却（cooldown）** —— 403/429/503 后该域**快速失败**（默认 5 min，只在内存），不排队。
 - **镜像域（mirror domain）** —— 源的有序域名列表；失败切换与重试**共享同一预算**。
 - **出口（egress）** —— 出网路径；不是应用的事（用户侧路由器透明分流），应用只把没打通如实报成 `egress_unavailable`。
-- **图片角色（Role）** —— `poster` / `fanart` / `extrafanart`（+ `Index`，同 Role 内 0 起）。
+- **图片角色（Role）** —— 取字段名本身：`poster` / `fanart` / `extrafanarts`（+ `Index`，同 Role 内 0 起，只数实际存在的图）；落盘时 `extrafanarts` 写成 `extrafanart/fanart{n}.ext`（1 起）。
 - **ImageRef / ImageBlob** —— `ImageRef` 是「地址 + 取它要带的头」（`{Role, Index, URL, Headers}`）；`ImageBlob` 是字节到手（`{…ImageRef, Source, Bytes, Ext}`）。
 - **魔数嗅探（magic bytes）** —— 引擎按 `FF D8` / `89 50` 判扩展名，**不信 `Content-Type`**；解码归源（如 javdb 的 `key ‖ (jpeg XOR key)`）。
 

@@ -1,0 +1,47 @@
+[
+  {
+    "path": "dmm-SSIS-001-content.json",
+    "leg": "content",
+    "url": "https://api.video.dmm.co.jp/graphql",
+    "status": 200,
+    "bytes": 2744,
+    "captured": "2026-10-29T05:42:27Z",
+    "sha256": "de722cd348e2426344bffe708b950fdcc8c0e3d1e34401cf19356ca84b80a632"
+  },
+  {
+    "path": "dmm-SSIS-001-search-ssis00001.json",
+    "leg": "search-ssis00001",
+    "url": "https://api.video.dmm.co.jp/graphql",
+    "status": 200,
+    "bytes": 101,
+    "captured": "2026-10-29T05:42:27Z",
+    "sha256": "58f48a2ee6a0abd8b1ba0f506f3665b33b6b601095e9efe1a5a95db953eb700f"
+  },
+  {
+    "path": "dmm-SSIS-001-search-ssis001.json",
+    "leg": "search-ssis001",
+    "url": "https://api.video.dmm.co.jp/graphql",
+    "status": 200,
+    "bytes": 653,
+    "captured": "2026-10-29T05:42:27Z",
+    "sha256": "3348c918692ff74e1194ece54eda94a4c92ce8418d3524f4e7c00c28c6dc6c6b"
+  },
+  {
+    "path": "dmm-ZZZZ-9999-search-zzzz09999.json",
+    "leg": "search-zzzz09999",
+    "url": "https://api.video.dmm.co.jp/graphql",
+    "status": 200,
+    "bytes": 83,
+    "captured": "2026-10-29T05:42:50Z",
+    "sha256": "c18bc0b14be4b14a9547dbc975b853ee136517e0727be275d05ec916b1216af2"
+  },
+  {
+    "path": "dmm-ZZZZ-9999-search-zzzz9999.json",
+    "leg": "search-zzzz9999",
+    "url": "https://api.video.dmm.co.jp/graphql",
+    "status": 200,
+    "bytes": 83,
+    "captured": "2026-10-29T05:42:50Z",
+    "sha256": "c18bc0b14be4b14a9547dbc975b853ee136517e0727be275d05ec916b1216af2"
+  }
+]

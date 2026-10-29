@@ -45,12 +45,27 @@
 | `filter` | 无（`rules` 必填） |
 | `group` | `max_distance: 2`、`max_files_for_levenshtein: 50`、`companion_extensions` 为字幕与图片扩展名 |
 | `parse` | 无（`rules` 必填） |
-| `scrape` | `sources` 为全局序 `[javdb, dmm, javbus, fc2]`、`timeout: 5m`；源级 `timeout` 30s、`rate` 1 req/s + burst 2 + 冷却 5m |
+| `scrape` | `sources` 为全局序 `[javdb, dmm, javbus, fc2]`、`priority` 把 14 个字段全写全（见下）、`timeout: 5m`；源级 `timeout` 30s、`rate` 1 req/s + burst 2 + 冷却 5m |
 | `images` | 无键 |
 | `nfo` | `template: default` |
 | `output` | `dir_template: {{ number }}`、`file_template: {{ number }}-cd{{ part }}`、`link: hardlink`、`required_fields: [title, fanart]`；**`root` 必填** |
 
-`scrape.with.sources` 是有序列表，每项是**裸 id** 或**带 id 的对象**：`sources: [javdb, {id: dmm, timeout: 30s, domains: [dmm.co.jp]}]`。源级的四个旋钮（`proxy` / `domains` / `rate` / `timeout`）就挂在这一项里，位置与设置不分家。`priority.<field>` 是**完整替换**全局序，不是追加。
+`scrape.with.sources` 是有序列表，每项是**裸 id** 或**带 id 的对象**：`sources: [javdb, {id: dmm, timeout: 30s, domains: [dmm.co.jp]}]`。源级的四个旋钮（`proxy` / `domains` / `rate` / `timeout`）就挂在这一项里，位置与设置不分家。
+
+`priority.<field>` 是**完整替换**全局序，不是追加；**未列出的字段用 `sources`**。出厂默认把 14 个字段全写全，且只列**声明了该字段**的源（`poster`/`rating` 只有 javdb 与 dmm；`actors`/`director`/`series`/`publisher` 没有 fc2；`plot`/`extrafanarts` 没有 javbus）。两条相关规矩：
+
+- **写到 `priority` 里的源必须声明该字段**，否则**拒绝启动**：`priority.poster: [javbus]` 会报 `文件:行:列: 第 N 步 (scrape): priority.poster names "javbus", which does not declare that field`。`Fields()` 只在启动校验与前端对照用，**运行时不据此跳过任何源**——候选列表就是全部事实。
+- **`priority` 里的 id 必须是 `sources` 里有的**，否则同样拒绝启动（`priority.title names "dmm", which is not in sources`）：没配置的源在运行期会被丢掉，那个字段就少一个候选而没人知道。
+- 文件里**写了 `sources` 但没写 `priority`**，逐字段序就是那份 `sources`（出厂表描述的是出厂源列表，用户换了源列表就以用户的为准）；**写了 `priority`** 时它整体替换出厂表，未列字段回落到 `sources`（不会与出厂表合并）。
+
+四个源各自声明的字段（`Fields()`，也就是能写进 `priority` 的集合）：
+
+| 源 | 管道 | 声明的字段 | 需要注意 |
+|---|---|---|---|
+| `javdb` | APP JSON API：搜索 → 详情 | 全部 14 个 | 要 `jdsignature`（代码常量、每请求现算）；FC2 号改写 `FC2-<digits>` 后才检索；图片走 APP CDN，源内 XOR 解码 |
+| `dmm` | GraphQL：搜索（两种 id 拼法，串行命中即停）→ 内容 | 全部 14 个 | **要日本出口**（`proxy` 旋钮就是给它用的）；`releasedate` 由 RFC3339 转 `YYYY-MM-DD`；`rating` = 五星均分 ×2；样本图第一张同时是 `fanart` |
+| `javbus` | 详情页直取（番号即地址） | `title` / `fanart` / `tags` / `releasedate` / `actors` / `director` / `runtime` / `series` / `studio` / `publisher` | cookie `dv=1`；图片要 `Referer`（源内常量）；404 = 没这条 |
+| `fc2` | 详情页直取（`/article/{末尾数字段}/`） | `title` / `plot` / `fanart` / `extrafanarts` / `tags` / `releasedate` / `runtime` / `studio` | miss 页是 **HTTP 200**，靠 `items_notfound_wp` 正向标记判；无演员表 |
 
 `domains` 是有序列表，**失败即切下一个**；一项可以写裸域（`javbus.com`，按 `https` 访问），也可以写带 scheme 的完整地址（`http://127.0.0.1:9001`）——后者是让夹具回放接管某个源的循正规做法，源里的其他每一行（选择器、cookie、Referer）都还是生产那一份。`timeout` 管**单次 HTTP 请求**（默认 30s），`scrape.with.timeout` 管**整个番号**（默认 5m）。`rate` 的 `requests_per_second` / `burst` / `cooldown` 三个字段各自独立，只写一个时其余取默认。
 
@@ -91,7 +106,8 @@ mdc source test --id <id> --number <番号> [--dump] [--pipeline <id>] [--dump-d
 - 逐字段打印 14 个源级字段：`title` 这类给出值，`plot` 这类标「not declared by this source」（能力声明里没有），`series` 这类标「declared, absent on this page」（声明了但这页没有）。**这三者是不同的答案**，混成一个就会误读一个源。
 - 再打印 `status:`（`ok` / `notfound` / `failed`）与 `reason:`（六档原因码，仅 `failed`）、耗时。
 - 源给了图片地址就真的去取一次，打印字节数与 magic bytes 判出的类型——一张「403 页面存成 cover.jpg」在这里就现形了。
-- `--dump` 把这次的原始响应逐字写进夹具目录（默认 `internal/source/<id>/testdata/captures`），并在同目录 `fixtures.json` 里记 `path` / `url` / `status` / `bytes` / `captured` / `sha256`。夹具只能这样来：**由程序自己的 Fetcher 抓、逐字不改**，写坏了它就是坏了的证据。
+- `--dump` 把这次的原始响应逐字写进夹具目录（默认 `internal/source/<id>/testdata/captures`），并在同目录 `fixtures.json` 里记 `path` / `leg` / `url` / `status` / `bytes` / `captured` / `sha256`。夹具只能这样来：**由程序自己的 Fetcher 抓、逐字不改**，写坏了它就是坏了的证据。
+- 两段式源（javdb 的搜索→详情、dmm 的搜索→内容）每次请求都留一份，文件名带 `leg`：`javdb-SSIS-001-search.json` / `javdb-SSIS-001-detail.json`、`dmm-SSIS-001-search-ssis00001.json` / `dmm-SSIS-001-content.json`。回放测试按请求本身（`q`、`queryWord`、`ppvContent(id:)`）选对应那份。
 - 退出码：`ok` 与 `notfound` 为 0（「站点没这条」是一个答案），`failed` 或图片没取到为 1。
 - `--pipeline` 选哪条流水线的 `scrape.with.sources` 提供这个源的四个旋钮；不写就用第一条带 `scrape` 的流水线。
 
@@ -117,6 +133,7 @@ mdc source test --id <id> --number <番号> [--dump] [--pipeline <id>] [--dump-d
 - 同一 type 出现两次却没给 `name`
 - `output.with.root` 缺失（必填、无默认）
 - 枚举与值级校验（`then`、`link`、`required_fields` 的字段名、模板变量名、正则、并发数 ≥1）
+- `scrape.with.sources` 里的 id 不是本二进制有的源（typo）；`priority.<field>` 里的 id 不在源列表或**不声明该字段**
 
 报错形状：`文件:行:列: 第 N 步 (type): ...`，例如
 
@@ -170,12 +187,23 @@ config/pipelines/main.yaml:24:18: step 2 (filter): unknown field "rules[0].when.
 - **`required_fields` 默认 `[title, fanart]`，`fanart` 按字节到手判**；缺则 `output` 步失败（→ 任务 `failed`），除非 `output.on_error: continue`（→ 任务 `partial`，能写的照写）。任何 14 字段缺失都让 `Metadata.Partial = true`。
 - **多分片时 primary 也带 `-cd1`**：spec §4 的「primary 裸名」与 §10 的 `file_template` 默认值冲突；取 §10——模板对**每个**分片生效（`{{ number }}-cd{{ part }}` → `ABC-123-cd1.mp4`），因为它是配置面写死的键，取证文档里的多分盘目录示例也是 `-cd1`；组内只有一个文件时仍保留源文件名。
 - **任务重跑从 `parse` 之后开始，不重跑 `parse`**：番号已经是 `tasks.number` 这一行事实（可能由人填过），重跑 `parse` 只会用文件名的推断去覆盖它。所以重跑用 `task_files` 重建 parse 产物（`Options.Seed`），再从 `scrape` 起跑；重扫目录、重跑剥离规则都不发生。
-- **`scrape` 的调度是顺序版**：按 `scrape.with.sources` 顺序逐源 `Scrape`，标量字段先到先得、多值字段整段取自同一源；图片字段只有在 `FetchImage` 成功后才算贡献（失败则轮到下一个源）。波次并发、`priority[field]` 与 `concurrency` 的上限落在同一接缝上（票 #24 / #25），不改产物形状。
-- **二进制里没有的源被跳过，不是致命错误**：出厂源序写着四个源，而这一版只编进了 javbus，所以 `scrape` 跳过 javdb/dmm/fc2 继续跑 javbus——否则「默认配置能跑出 javbus 的字段与图片」在其余三源写完之前永远不成立。想确认某个源在不在，用 `mdc source test`：它直接查注册表，缺了会点名说明本二进制知道哪些。
+- **`scrape` 按波次并发调度**：每波 = 每个未满足字段在其候选列表里的**当前首选源**去重后的集合，并发各问一次；一波回来后，每个字段取「候选序里**最早**已答且贡献了的源」——**不靠返回顺序**（每字段一个游标，位置决定优先级）。仍有缺口 → 下一波；**无缺口即停**；每个源每番号**只问一次**。某个源抽风只影响它负责的字段：它的候选位置之后的人接手，步骤本身不失败。
+- **图片字段两阶段**：`Scrape` 只给地址；只有「将要胜出」的那个源会被 `FetchImage`（**未胜出不取**），字节到手才算贡献（**胜出源全取、不封顶**）；取图失败 = 该源该字段无贡献 → 照常落到下一个候选（候选可能已经在手，或需要下一波去问）。
+- **`concurrency.requests` 是进程级在飞请求上限**，落在唯一传输接缝 `Fetcher` 上（元数据与图片同一套）：先等域名桶、再占全局槽，等待与获取都尊重 ctx。
+- **`source_runs.fields` 记的是这个源**赢下**的字段**（读合并后元数据的 `Sources`），不是它返回的全部字段：一个答案每个值都被更早的候选压掉的源，贡献是零。图片字段只有字节到手才会赢，所以这一条同时覆盖了「取不到图 = 没贡献」。
+- **镜像切换时头也跟着换**：`fetch.Request.MirrorHeaders` 给每个镜像一份头，dmm 的 `Referer: https://video.{domain}/` 因此在切到备用域时不会还指着第一个域。
+- **四个源都在这一版里**：`javdb` / `dmm` / `javbus` / `fc2`。`scrape.with.sources` 里写一个本二进制没有的 id 现在是**启动期错误**（typo 会让那个源永远不跑，静默什么都没刮），而不是被跳过——`mdc source test` 也照此点名说明本二进制知道哪些。
 
 ## 本票落下的实现裁决
 
 写在这里，因为它们是实现时才暴露出来的洞：
+
+- **`priority` 的出厂表与「换了源列表」的关系**：出厂表逐字段写明 14 个字段（只列声明了该字段的源）。文件里写了 `sources` 却没写 `priority` 时，逐字段序就是那份 `sources`——否则出厂表的 id 仍是候选，缩小的源列表会调度出零个源。写了 `priority` 时整体替换出厂表，未列字段回落到 `sources`（`ScrapeWith.UnmarshalYAML` 里做，避免 yaml 往默认 map 里合并）。校验分两处：`config` 查字段名/空表/重复 id，`internal/sources.Validate` 查 id 存在与 `Fields()` 声明——后者只有到「配置 + 二进制」都有时才成立，所以放在 `loadAll` 里，`config check` / `serve` / `run` / `source test` 一律拒绝。
+- **`priority` 里允许写未配置的源**：出厂表可能点名某条流水线没选的源（`sources: [javbus]`），那是缩小的部署而不是 typo，所以只查能力，不要求 id 在 `sources` 里。
+- **源侧归一化不留到下游**：`rating` 出 0–10（javdb `score`、dmm `reviewSummary.average` 各 ×2，`0` 视为未满足），`releasedate` 出 `YYYY-MM-DD`（dmm 的 RFC3339 先转，fc2 的 `2026/09/25` 先转），多值字段**不去重**（去重是引擎的 `tags`/`extrafanarts` 归一化，属第二批）。`rating` 的 `0` 判据落在 `scrape` 的 `contributes` 里，所以「源说了 0」不会把字段判成已满足。
+- **`Fetcher` 支持 POST**：dmm 的 GraphQL 是唯一要 POST 的站点。`fetch.Request` 因此多一个 `Method` / `Body`（空 = GET），元数据与图片仍走同一个 Fetcher、同一套代理/限速/冷却/重试/取消。`concurrency.requests` 就挂在这个接缝上（**先等域名桶、再占全局槽**），所以任何步骤、任何源都超不过它。
+- **两段式源的夹具**：`Dumper` 返回 `[]Capture`，`Capture` 带 `Leg`（`search` / `detail` / `content` / `search-<term>`）。夹具文件名带 leg（`javdb-SSIS-001-detail.json`），回放测试按请求本身选对应那份；`fixtures.json` 每行多一个 `leg`。
+- **`mdc source test` 不再要求源在该流水线的 `sources` 里**：它按 id 取源的旋钮（流水线列了就用列的那份），没列就用出厂默认。命令问的是「这个源现在说什么」，不该取决于哪条流水线碰巧选了它。
 
 - **`scrape.with.sources` 一项两形**：spec §6 说它是有序列表，§7 说源级旋钮「挂在 `scrape.with.sources.<id>` 下」——同名而形状不同。取「列表项可为字符串或对象」，于是 `sources: [javdb, {id: dmm, timeout: 30s}]` 既保住有序，又让旋钮跟着自己的 id 走。校验覆盖空 id、重复 id、未知旋钮、负值。
 - **`filter.when` 四个键互斥**：spec 只要求「未知键报错」，但一条规则同时写 `ext_in` 与 `min_size` 时语义未定义。互斥把未定义变成启动期错误；要同时卡两个条件就写两条规则。

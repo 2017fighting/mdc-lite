@@ -1,0 +1,29 @@
+[
+  {
+    "path": "javdb-SSIS-001-detail.json",
+    "leg": "detail",
+    "url": "https://jdforrepam.com/api/v4/movies/ZY5eq?from_rankings=false",
+    "status": 200,
+    "bytes": 5582,
+    "captured": "2026-10-29T05:41:22Z",
+    "sha256": "ca127d8f445fd5c5ba95cd7c94c1ebaef6afc4164b3bbbbba46493a9b5cb4e59"
+  },
+  {
+    "path": "javdb-SSIS-001-search.json",
+    "leg": "search",
+    "url": "https://jdforrepam.com/api/v2/search?from_recent=false\u0026limit=24\u0026movie_filter_by=all\u0026movie_sort_by=relevance\u0026movie_type=all\u0026page=1\u0026q=SSIS-001\u0026type=movie",
+    "status": 200,
+    "bytes": 14130,
+    "captured": "2026-10-29T05:41:22Z",
+    "sha256": "73d3d7d5625e06ba069fbbfcac063b92bf9ac9749ac1756274a6239e8c6edc04"
+  },
+  {
+    "path": "javdb-ZZZZ-9999-search.json",
+    "leg": "search",
+    "url": "https://jdforrepam.com/api/v2/search?from_recent=false\u0026limit=24\u0026movie_filter_by=all\u0026movie_sort_by=relevance\u0026movie_type=all\u0026page=1\u0026q=ZZZZ-9999\u0026type=movie",
+    "status": 200,
+    "bytes": 608,
+    "captured": "2026-10-29T05:41:44Z",
+    "sha256": "6827416260f42e0d61e6026f8b5b59b505ada9fbac219b572d7049a0c6da8cf4"
+  }
+]

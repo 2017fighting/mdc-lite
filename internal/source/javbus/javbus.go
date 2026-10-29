@@ -24,6 +24,7 @@ import (
 	"github.com/2017fighting/mdc-lite/internal/field"
 	"github.com/2017fighting/mdc-lite/internal/meta"
 	"github.com/2017fighting/mdc-lite/internal/source"
+	"github.com/2017fighting/mdc-lite/internal/source/htmlx"
 )
 
 // ID is the name configuration refers to this source by.
@@ -144,17 +145,18 @@ func (s *Source) FetchImage(ctx context.Context, ref source.ImageRef) ([]byte, e
 }
 
 // Dump implements source.Dumper: the same request `mdc source test` just made, kept
-// byte for byte so it can become a fixture.
-func (s *Source) Dump(ctx context.Context, number string) (source.Capture, error) {
+// byte for byte so it can become a fixture. javbus has one leg, so there is one
+// capture and its Leg is empty.
+func (s *Source) Dump(ctx context.Context, number string) ([]source.Capture, error) {
 	number = strings.TrimSpace(number)
 	if number == "" {
-		return source.Capture{}, errors.New("javbus: the number is empty")
+		return nil, errors.New("javbus: the number is empty")
 	}
 	resp, err := s.get(ctx, number)
 	if err != nil {
-		return source.Capture{}, err
+		return nil, err
 	}
-	return source.Capture{URL: resp.URL, Status: resp.Status, Body: resp.Body}, nil
+	return []source.Capture{{URL: resp.URL, Status: resp.Status, Body: resp.Body}}, nil
 }
 
 // get asks for one number's page: the first domain, with the rest as mirrors. The
@@ -207,7 +209,6 @@ func isAgeGate(resp *fetch.Response) bool {
 // The labels the detail page prints before each value. They are Traditional
 // Chinese because that is what the site writes.
 const (
-	labelNumber      = "識別碼"
 	labelReleaseDate = "發行日期"
 	labelRuntime     = "長度"
 	labelDirector    = "導演"
@@ -225,57 +226,55 @@ var runtimeDigits = regexp.MustCompile(`(\d+)`)
 // which is how the engine tells "this source said nothing" from "this source said
 // an empty value".
 func parse(body []byte, pageURL string) (source.Fields, error) {
-	doc, err := html.Parse(bytes.NewReader(body))
+	doc, err := htmlx.Parse(body)
 	if err != nil {
 		return source.Fields{}, fmt.Errorf("javbus: the page is not parseable HTML: %w", err)
 	}
 	var f source.Fields
 
-	if h := findNode(doc, isTitleHeading); h != nil {
-		f.Title = str(text(h))
+	if h := htmlx.Find(doc, isTitleHeading); h != nil {
+		f.Title = str(htmlx.Text(h))
 	}
 
-	info := findNode(doc, isClass("info"))
+	info := htmlx.Find(doc, htmlx.Class("info"))
 	if info != nil {
-		for _, p := range findAll(info, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "p" }) {
-			header := findNode(p, isClass("header"))
+		for _, p := range htmlx.FindAll(info, htmlx.Tag("p")) {
+			header := htmlx.Find(p, htmlx.Class("header"))
 			if header == nil {
 				continue
 			}
-			label := strings.TrimRight(strings.TrimSpace(text(header)), ":：")
+			label := strings.TrimRight(strings.TrimSpace(htmlx.Text(header)), ":：")
 			switch label {
 			case labelReleaseDate:
-				f.Releasedate = str(strings.TrimSpace(textAfter(p, header)))
+				if d := dateOnly(strings.TrimSpace(htmlx.TextAfter(p, header))); d != "" {
+					f.Releasedate = &d
+				}
 			case labelRuntime:
-				if m := runtimeDigits.FindString(strings.TrimSpace(textAfter(p, header))); m != "" {
+				if m := runtimeDigits.FindString(strings.TrimSpace(htmlx.TextAfter(p, header))); m != "" {
 					if minutes, err := strconv.Atoi(m); err == nil {
 						f.Runtime = &minutes
 					}
 				}
 			case labelDirector:
-				f.Director = linkText(p)
+				f.Director = htmlx.LinkText(p)
 			case labelStudio:
-				f.Studio = first(linkText(p))
+				f.Studio = first(htmlx.LinkText(p))
 			case labelPublisher:
-				f.Publisher = first(linkText(p))
+				f.Publisher = first(htmlx.LinkText(p))
 			case labelSeries:
-				f.Series = first(linkText(p))
+				f.Series = first(htmlx.LinkText(p))
 			}
 		}
 		// Tags are the genre checkboxes' labels. The actor names are also wrapped in
 		// `span.genre`, so the selector needs the `label` a genre has and a star link
 		// does not — otherwise every actress lands in `tags`.
-		for _, span := range findAll(info, isClass("genre")) {
-			label := findNode(span, func(n *html.Node) bool {
-				return n.Type == html.ElementNode && n.Data == "label"
-			})
+		for _, span := range htmlx.FindAll(info, htmlx.Class("genre")) {
+			label := htmlx.Find(span, htmlx.Tag("label"))
 			if label == nil {
 				continue
 			}
-			if a := findNode(label, func(n *html.Node) bool {
-				return n.Type == html.ElementNode && n.Data == "a"
-			}); a != nil {
-				if name := strings.TrimSpace(text(a)); name != "" {
+			if a := htmlx.Find(label, htmlx.Tag("a")); a != nil {
+				if name := strings.TrimSpace(htmlx.Text(a)); name != "" {
 					f.Tags = append(f.Tags, name)
 				}
 			}
@@ -286,14 +285,14 @@ func parse(body []byte, pageURL string) (source.Fields, error) {
 	// `female`; the gender is still explicit because the model's zero value is
 	// `unknown`, which the NFO writes differently.
 	for _, a := range actorLinks(doc) {
-		if name := strings.TrimSpace(text(a)); name != "" {
+		if name := strings.TrimSpace(htmlx.Text(a)); name != "" {
 			f.Actors = append(f.Actors, meta.Actor{Name: name, Gender: meta.Female})
 		}
 	}
 
-	if a := findNode(doc, isClass("bigImage")); a != nil {
-		if img := findNode(a, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "img" }); img != nil {
-			if src := attr(img, "src"); src != "" {
+	if a := htmlx.Find(doc, htmlx.Class("bigImage")); a != nil {
+		if img := htmlx.Find(a, htmlx.Tag("img")); img != nil {
+			if src := htmlx.Attr(img, "src"); src != "" {
 				ref := source.ImageRef{
 					Role: field.Fanart,
 					URL:  absolute(pageURL, src),
@@ -318,9 +317,9 @@ func parse(body []byte, pageURL string) (source.Fields, error) {
 // canonical list) or, when the page has no waterfall, from the star names above it.
 func actorLinks(doc *html.Node) []*html.Node {
 	var out []*html.Node
-	for _, box := range findAll(doc, isClass("avatar-box")) {
-		if span := findNode(box, func(n *html.Node) bool { return n.Type == html.ElementNode && n.Data == "span" }); span != nil {
-			if name := strings.TrimSpace(text(span)); name != "" {
+	for _, box := range htmlx.FindAll(doc, htmlx.Class("avatar-box")) {
+		if span := htmlx.Find(box, htmlx.Tag("span")); span != nil {
+			if name := strings.TrimSpace(htmlx.Text(span)); name != "" {
 				out = append(out, span)
 			}
 		}
@@ -328,10 +327,8 @@ func actorLinks(doc *html.Node) []*html.Node {
 	if len(out) > 0 {
 		return out
 	}
-	for _, name := range findAll(doc, isClass("star-name")) {
-		if a := findNode(name, func(n *html.Node) bool {
-			return n.Type == html.ElementNode && n.Data == "a"
-		}); a != nil {
+	for _, name := range htmlx.FindAll(doc, htmlx.Class("star-name")) {
+		if a := htmlx.Find(name, htmlx.Tag("a")); a != nil {
 			out = append(out, a)
 		}
 	}
@@ -344,88 +341,23 @@ func isTitleHeading(n *html.Node) bool {
 		return false
 	}
 	for p := n.Parent; p != nil; p = p.Parent {
-		if p.Type == html.ElementNode && hasClass(p, "container") {
+		if htmlx.HasClass(p, "container") {
 			return true
 		}
 	}
 	return false
 }
 
-func isClass(class string) func(*html.Node) bool {
-	return func(n *html.Node) bool { return hasClass(n, class) }
-}
+// dateOnly keeps the `YYYY-MM-DD` prefix of a date line. The site prints the date
+// in that shape already; the trim is here because `releasedate` has one canonical
+// form and every source produces it itself.
+var datePrefix = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`)
 
-func hasClass(n *html.Node, class string) bool {
-	if n.Type != html.ElementNode {
-		return false
-	}
-	for _, c := range strings.Fields(attr(n, "class")) {
-		if c == class {
-			return true
-		}
-	}
-	return false
-}
-
-func attr(n *html.Node, key string) string {
-	for _, a := range n.Attr {
-		if a.Key == key {
-			return a.Val
-		}
+func dateOnly(s string) string {
+	if m := datePrefix.FindString(strings.TrimSpace(s)); m != "" {
+		return m
 	}
 	return ""
-}
-
-// text is the concatenated text of a subtree, with whitespace collapsed: the page's
-// indentation is not part of any field's value.
-func text(n *html.Node) string {
-	var b strings.Builder
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.TextNode {
-			b.WriteString(n.Data)
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(n)
-	return strings.Join(strings.Fields(b.String()), " ")
-}
-
-// textAfter returns the text of a node's children that follows the given descendant,
-// which is how an info line's value is read out of `p > span.header + value`.
-func textAfter(node, after *html.Node) string {
-	var b strings.Builder
-	seen := false
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n == after {
-			seen = true
-			return
-		}
-		if n.Type == html.TextNode && seen {
-			b.WriteString(n.Data)
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(node)
-	return b.String()
-}
-
-// linkText returns the text of each link in a subtree, in order.
-func linkText(node *html.Node) []string {
-	var out []string
-	for _, a := range findAll(node, func(n *html.Node) bool {
-		return n.Type == html.ElementNode && n.Data == "a"
-	}) {
-		if s := strings.TrimSpace(text(a)); s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 func first(v []string) *string {
@@ -453,31 +385,4 @@ func absolute(pageURL, ref string) string {
 		return ref
 	}
 	return base.ResolveReference(u).String()
-}
-
-func findNode(n *html.Node, pred func(*html.Node) bool) *html.Node {
-	if pred(n) {
-		return n
-	}
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if found := findNode(c, pred); found != nil {
-			return found
-		}
-	}
-	return nil
-}
-
-func findAll(n *html.Node, pred func(*html.Node) bool) []*html.Node {
-	var out []*html.Node
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if pred(n) {
-			out = append(out, n)
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(n)
-	return out
 }

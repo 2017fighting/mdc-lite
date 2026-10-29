@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -76,10 +77,13 @@ func runSourceTest(args []string, stdout, stderr io.Writer) int {
 	}
 
 	with := sources.ScrapeWith(p)
-	reg := sources.Build(with, sources.NewFetcher(l.settings))
-	src, ok := reg.Lookup(id)
+	fetcher := sources.NewFetcher(l.settings)
+	// The pipeline's knobs for this source when it listed it, the documented defaults
+	// when it did not: a source test is about the source, not about which pipeline
+	// happens to select it.
+	src, ok := sources.For(with, id, fetcher)
 	if !ok {
-		fmt.Fprintf(stderr, "mdc source test: %q is not built into this binary (known: %s)\n", id, reg.Known())
+		fmt.Fprintf(stderr, "mdc source test: %q is not built into this binary (known: %s)\n", id, sources.Known())
 		return 1
 	}
 
@@ -117,12 +121,12 @@ func runSourceTest(args []string, stdout, stderr io.Writer) int {
 		if dir == "" {
 			dir = filepath.Join("internal", "source", src.ID(), "testdata", "captures")
 		}
-		capture, dumpErr := dumpCapture(ctx, src, number, dir)
+		captures, dumpErr := dumpCapture(ctx, src, number, dir)
 		if dumpErr != nil {
 			fmt.Fprintf(stderr, "mdc source test: --dump: %v\n", dumpErr)
 			return 1
 		}
-		out.Dump = &capture
+		out.Dump = captures
 	}
 
 	if err := writeReport(stdout, out); err != nil {
@@ -186,15 +190,15 @@ func pipelineIDs(pipelines []config.Pipeline) []string {
 // testReport is what `mdc source test` measured: the three-state answer, the field
 // rows, what each image delivery turned out to be, and where the capture came from.
 type testReport struct {
-	Source string              `json:"source"`
-	Number string              `json:"number"`
-	Status string              `json:"status"`
-	Reason string              `json:"reason,omitempty"`
-	Err    string              `json:"err,omitempty"`
-	MS     int64               `json:"ms"`
-	Fields []fieldReport       `json:"fields"`
-	Images []imageReport       `json:"images,omitempty"`
-	Dump   *source.CaptureInfo `json:"dump,omitempty"`
+	Source string               `json:"source"`
+	Number string               `json:"number"`
+	Status string               `json:"status"`
+	Reason string               `json:"reason,omitempty"`
+	Err    string               `json:"err,omitempty"`
+	MS     int64                `json:"ms"`
+	Fields []fieldReport        `json:"fields"`
+	Images []imageReport        `json:"images,omitempty"`
+	Dump   []source.CaptureInfo `json:"dump,omitempty"`
 }
 
 // fieldReport is one field's row: what this source declared, what it actually said,
@@ -342,37 +346,64 @@ func describeImageBytes(b []byte) string {
 	return fmt.Sprintf("not an image (%q…)", preview)
 }
 
-// dumpCapture writes one raw answer and its manifest entry into dir, through the
-// source's own Fetcher: the fixture is the program's bytes, never curl's.
-func dumpCapture(ctx context.Context, src source.Source, number, dir string) (source.CaptureInfo, error) {
+// dumpCapture writes every raw answer the source took and its manifest entries into
+// dir, through the source's own Fetcher: the fixture is the program's bytes, never
+// curl's.
+//
+// One capture keeps the old name (`<id>-<number>.html`); a two-leg source adds the
+// leg (`<id>-<number>-search.json`), because a fixture is replayed request by
+// request and two files claiming one path would be one file.
+func dumpCapture(ctx context.Context, src source.Source, number, dir string) ([]source.CaptureInfo, error) {
 	dumper, ok := src.(source.Dumper)
 	if !ok {
-		return source.CaptureInfo{}, fmt.Errorf("source %s cannot hand back its raw answer, so there is nothing to dump", src.ID())
+		return nil, fmt.Errorf("source %s cannot hand back its raw answer, so there is nothing to dump", src.ID())
 	}
-	capture, err := dumper.Dump(ctx, number)
+	captures, err := dumper.Dump(ctx, number)
 	if err != nil {
-		return source.CaptureInfo{}, err
+		return nil, err
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return source.CaptureInfo{}, err
+		return nil, err
 	}
-	name := fmt.Sprintf("%s-%s.html", src.ID(), strings.ReplaceAll(number, "/", "_"))
-	if err := os.WriteFile(filepath.Join(dir, name), capture.Body, 0o644); err != nil {
-		return source.CaptureInfo{}, err
+	stem := fmt.Sprintf("%s-%s", src.ID(), strings.ReplaceAll(number, "/", "_"))
+	stamp := time.Now().UTC().Format(time.RFC3339)
+	out := make([]source.CaptureInfo, 0, len(captures))
+	for _, capture := range captures {
+		name := stem + captureExt(capture.Body)
+		if capture.Leg != "" {
+			name = stem + "-" + capture.Leg + captureExt(capture.Body)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), capture.Body, 0o644); err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(capture.Body)
+		info := source.CaptureInfo{
+			Path:     name,
+			Leg:      capture.Leg,
+			URL:      capture.URL,
+			Status:   capture.Status,
+			Bytes:    len(capture.Body),
+			Captured: stamp,
+			SHA256:   hex.EncodeToString(sum[:]),
+		}
+		if err := writeManifest(filepath.Join(dir, "fixtures.json"), info); err != nil {
+			return nil, err
+		}
+		out = append(out, info)
 	}
-	sum := sha256.Sum256(capture.Body)
-	info := source.CaptureInfo{
-		Path:     name,
-		URL:      capture.URL,
-		Status:   capture.Status,
-		Bytes:    len(capture.Body),
-		Captured: time.Now().UTC().Format(time.RFC3339),
-		SHA256:   hex.EncodeToString(sum[:]),
+	return out, nil
+}
+
+// captureExt names a capture by what it holds rather than by what the source calls
+// it: a JSON answer is `.json`, anything else is the page it came from. The
+// extension is a convenience for a human reading the directory; the manifest is
+// what the tests trust.
+func captureExt(body []byte) string {
+	trimmed := bytes.TrimLeft(body, " \t\r\n")
+	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+		return ".json"
 	}
-	if err := writeManifest(filepath.Join(dir, "fixtures.json"), info); err != nil {
-		return source.CaptureInfo{}, err
-	}
-	return info, nil
+	return ".html"
 }
 
 // writeManifest adds one entry to the directory's manifest, replacing an earlier
@@ -442,10 +473,10 @@ func writeReport(w io.Writer, r testReport) error {
 	if r.Err != "" {
 		fmt.Fprintf(w, "error:   %s\n", r.Err)
 	}
-	if r.Dump != nil {
+	for _, d := range r.Dump {
 		fmt.Fprintf(w, "dumped:  %s (%d bytes, HTTP %d, sha256 %s)\n",
-			r.Dump.Path, r.Dump.Bytes, r.Dump.Status, shortHash(r.Dump.SHA256))
-		fmt.Fprintf(w, "from:    %s\n", r.Dump.URL)
+			d.Path, d.Bytes, d.Status, shortHash(d.SHA256))
+		fmt.Fprintf(w, "from:    %s\n", d.URL)
 	}
 	_, err := fmt.Fprintln(w)
 	return err

@@ -113,6 +113,25 @@ type Source interface {
 	FetchImage(ctx context.Context, ref ImageRef) ([]byte, error)
 }
 
+// NumberKey is a number's comparison form: upper-cased with the separators sites
+// spell differently dropped (`-`, `_`, spaces, the ideographic space).
+//
+// It exists because two sources have to decide "is this candidate the work I asked
+// for", and the answer must not depend on how the site punctuates. It keeps the
+// digits, so `SSIS-0011` and `SSIS-011` stay different — a near-miss neighbour is
+// exactly what this comparison has to reject.
+func NumberKey(number string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(strings.TrimSpace(number)) {
+		switch r {
+		case '-', '_', ' ', '\t', '\u3000':
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 // Registry is the set of built-in sources, keyed by id. There is no plugin
 // mechanism: a source is a Go type compiled into the binary.
 type Registry map[string]Source

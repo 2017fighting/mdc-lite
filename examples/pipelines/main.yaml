@@ -73,9 +73,27 @@ steps:
         - dmm
         - javbus
         - fc2
-      # Optional: a per-field order that replaces the global one completely.
-      # priority:
-      #   title: [javdb, dmm]
+      # The per-field order, written out for all 14 fields. A listed field replaces
+      # the global order completely (it is not padded with `sources`); an unlisted
+      # field uses `sources`. Only sources that declare a field may be listed for
+      # it — naming javbus under `poster`, say, refuses startup, because javbus has
+      # no poster and the mistake would otherwise surface as a field that is always
+      # missing.
+      priority:
+        title: [javdb, dmm, javbus, fc2]
+        plot: [javdb, dmm, fc2]
+        fanart: [javdb, dmm, javbus, fc2]
+        extrafanarts: [javdb, dmm, fc2]
+        tags: [javdb, dmm, javbus, fc2]
+        releasedate: [javdb, dmm, javbus, fc2]
+        actors: [javdb, dmm, javbus]
+        poster: [javdb, dmm]
+        director: [javdb, dmm, javbus]
+        runtime: [javdb, dmm, javbus, fc2]
+        rating: [javdb, dmm]
+        series: [javdb, dmm, javbus]
+        studio: [javdb, dmm, javbus, fc2]
+        publisher: [javdb, dmm, javbus]
       timeout: 5m
 
   - type: images

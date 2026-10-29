@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -236,12 +237,117 @@ func TestSourceTest_RequiresIdAndNumber(t *testing.T) {
 func TestSourceTest_NamesTheSourcesThisBinaryKnows(t *testing.T) {
 	f := setup(t, "")
 	write(t, f.pipelines, "main.yaml", scrapePipeline("https://www.javbus.com"))
-	code, _, errOut := run(t, "source", "test", "--id", "javdb", "--number", "SSIS-001",
+	code, _, errOut := run(t, "source", "test", "--id", "javdbx", "--number", "SSIS-001",
 		"--config", f.config, "--pipelines-dir", f.pipelines)
 	if code != 1 {
 		t.Fatalf("exit %d, want 1", code)
 	}
-	if !strings.Contains(errOut, "javbus") {
-		t.Errorf("stderr does not name what the binary does know: %s", errOut)
+	// All four factory sources are built in, so the message can name every one.
+	for _, id := range []string{"javdb", "dmm", "javbus", "fc2"} {
+		if !strings.Contains(errOut, id) {
+			t.Errorf("stderr does not name %q among what the binary does know: %s", id, errOut)
+		}
+	}
+}
+
+// javdbFixture replays the captured javdb API answers: a search by its `q` and a
+// detail by its id, both read byte for byte from `mdc source test --dump`.
+//
+// The replay translates the captured CDN addresses onto itself, the way a proxy
+// would: the fixture files on disk stay untouched (they are the evidence), and the
+// image fetches stop going out to the live CDN from a unit test.
+func javdbFixture(t *testing.T) *httptest.Server {
+	t.Helper()
+	files := map[string]string{
+		"SSIS-001":             "javdb-SSIS-001-search.json",
+		"/api/v4/movies/ZY5eq": "javdb-SSIS-001-detail.json",
+	}
+	var self string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name, ok := files[r.URL.Query().Get("q")]
+		if !ok {
+			name, ok = files[r.URL.Path]
+		}
+		if !ok {
+			// Every image address in the captures now points here.
+			_, _ = w.Write([]byte("\xff\xd8\xff\xe0 a cover"))
+			return
+		}
+		body, err := os.ReadFile(filepath.Join("..", "source", "javdb", "testdata", "captures", name))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(bytes.ReplaceAll(body, []byte("https://tp.spfcas.com/"), []byte(self+"/")))
+	}))
+	self = srv.URL
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestSourceTest_TwoLegSourcePrintsItsFieldsAndDumpsEveryLeg(t *testing.T) {
+	fx := javdbFixture(t)
+	f := setup(t, "")
+	write(t, f.pipelines, "main.yaml", `steps:
+  - type: scan
+    with: {roots: [/media]}
+  - type: filter
+    with:
+      rules:
+        - name: all
+          when: {ext_in: [.mp4]}
+          then: include
+  - type: group
+    with: {max_distance: 2, max_files_for_levenshtein: 50}
+  - type: parse
+    with: {rules: [{builtin: default}]}
+  - type: scrape
+    with:
+      sources:
+        - id: javdb
+          domains: ["`+fx.URL+`"]
+          rate: {requests_per_second: 1000, burst: 100}
+      timeout: 30s
+  - type: output
+    with: {root: /media/library}
+`)
+	dumpDir := filepath.Join(f.dir, "captures")
+
+	code, out, errOut := run(t, "source", "test", "--id", "javdb", "--number", "SSIS-001",
+		"--dump", "--dump-dir", dumpDir, "--config", f.config, "--pipelines-dir", f.pipelines)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr: %s\n%s", code, errOut, out)
+	}
+	for _, want := range []string{
+		"source:  javdb",
+		"title        ",
+		"rating       8.86",
+		"actors       葵つかさ (female), 乙白さやか (female), 平田司 (male)",
+		"status:  ok",
+		"dumped:  javdb-SSIS-001-search.json",
+		"dumped:  javdb-SSIS-001-detail.json",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report does not contain %q:\n%s", want, out)
+		}
+	}
+	for _, name := range []string{"javdb-SSIS-001-search.json", "javdb-SSIS-001-detail.json"} {
+		if _, err := os.Stat(filepath.Join(dumpDir, name)); err != nil {
+			t.Errorf("the %s capture was not written: %v", name, err)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(dumpDir, "fixtures.json"))
+	if err != nil {
+		t.Fatalf("the manifest was not written: %v", err)
+	}
+	var manifest []source.CaptureInfo
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("the manifest is not JSON: %v", err)
+	}
+	if len(manifest) != 2 {
+		t.Fatalf("manifest has %d entries, want one per leg", len(manifest))
+	}
+	if manifest[0].Leg == "" || manifest[1].Leg == "" {
+		t.Errorf("the manifest does not name the legs: %+v", manifest)
 	}
 }

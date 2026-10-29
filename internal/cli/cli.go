@@ -17,6 +17,7 @@ import (
 
 	"github.com/2017fighting/mdc-lite/internal/api"
 	"github.com/2017fighting/mdc-lite/internal/config"
+	"github.com/2017fighting/mdc-lite/internal/sources"
 	"github.com/2017fighting/mdc-lite/internal/store"
 	"github.com/2017fighting/mdc-lite/internal/tasks"
 	"github.com/2017fighting/mdc-lite/internal/web"
@@ -165,6 +166,14 @@ func loadAllWith(configPath string, flags config.Flags, reg *config.Registry) (*
 	}
 	for _, f := range files {
 		p, err := config.LoadPipelineFile(f, reg, nil)
+		if err == nil {
+			// The sources' capability declarations are only reachable once the
+			// binary's sources are built, so the check cannot live in the file's own
+			// decode. It still refuses startup: a `priority` naming a source that
+			// cannot supply the field is a mistake that would otherwise surface as a
+			// field that is always missing.
+			err = sources.Validate(p)
+		}
 		if err != nil {
 			l.problems = append(l.problems, pipelineProblem{ID: config.PipelineID(f), File: f, Err: err})
 			continue

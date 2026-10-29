@@ -227,3 +227,59 @@ func TestConfigCheckWritesNoFiles(t *testing.T) {
 		}
 	}
 }
+
+// scrapePipelineWith is a complete pipeline whose scrape step carries the given
+// `with` body: it is how the source-capability check is driven from the command line.
+func scrapePipelineWith(with string) string {
+	return `steps:
+  - type: scan
+    with: {roots: [/media]}
+  - type: filter
+    with:
+      rules:
+        - name: all
+          when: {ext_in: [.mp4]}
+          then: include
+  - type: group
+    with: {max_distance: 2, max_files_for_levenshtein: 50}
+  - type: parse
+    with: {rules: [{builtin: default}]}
+  - type: scrape
+    with:
+` + with + `
+  - type: output
+    with: {root: /media/library}
+`
+}
+
+func TestConfigCheck_RefusesAPriorityNamingASourceWithoutTheField(t *testing.T) {
+	// javbus has no poster. Naming it in priority.poster is refused at startup — the
+	// alternative is a poster that silently never arrives, with nothing to point at.
+	f := setup(t, "")
+	write(t, f.pipelines, "main.yaml", scrapePipelineWith(`      sources: [javbus, javdb]
+      priority:
+        poster: [javbus, javdb]`))
+
+	code, out, errOut := run(t, "config", "check", "--config", f.config, "--pipelines-dir", f.pipelines)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1 (stdout: %s)", code, out)
+	}
+	for _, want := range []string{"FAIL", "priority.poster", "javbus", "does not declare"} {
+		if !strings.Contains(out, want) && !strings.Contains(errOut, want) {
+			t.Errorf("the refusal does not mention %q:\n%s%s", want, out, errOut)
+		}
+	}
+}
+
+func TestConfigCheck_RefusesAnUnknownSourceId(t *testing.T) {
+	f := setup(t, "")
+	write(t, f.pipelines, "main.yaml", scrapePipelineWith(`      sources: [javbu]`))
+
+	code, out, _ := run(t, "config", "check", "--config", f.config, "--pipelines-dir", f.pipelines)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if !strings.Contains(out, "javbu") {
+		t.Errorf("the refusal does not name the typo:\n%s", out)
+	}
+}

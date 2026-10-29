@@ -1,0 +1,18 @@
+[
+  {
+    "path": "fc2-FC2-PPV-1234567.html",
+    "url": "https://adult.contents.fc2.com/article/1234567/",
+    "status": 200,
+    "bytes": 33259,
+    "captured": "2026-10-29T05:42:13Z",
+    "sha256": "04390b7f165b1b94841da71fe8166a9f164ed96f99b7424a266646c89a3b5648"
+  },
+  {
+    "path": "fc2-FC2-PPV-4982870.html",
+    "url": "https://adult.contents.fc2.com/article/4982870/",
+    "status": 200,
+    "bytes": 116192,
+    "captured": "2026-10-29T05:41:48Z",
+    "sha256": "daeac3d3db24331b13bd10116645c059d216dc0efda6858d3abe9b5d2eb8e3ed"
+  }
+]

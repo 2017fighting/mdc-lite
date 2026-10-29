@@ -74,11 +74,40 @@ type ParseRule struct {
 }
 
 // ScrapeDefaults are the documented defaults of `scrape.with`: the global source
-// order, and a 5m budget for one number's whole scrape unit.
+// order, the per-field order written out for all 14 fields, and a 5m budget for one
+// number's whole scrape unit.
+//
+// The per-field table is a complete replacement for the global order, so the
+// factory default spells out every field instead of leaving the operator to guess
+// which sources are candidates for which field. It is also capability-correct: a
+// source that does not declare a field is not in that field's list, because the
+// loader refuses `priority[field]` naming such a source.
 func ScrapeDefaults() ScrapeWith {
 	return ScrapeWith{
-		Sources: SourceOrder{{ID: "javdb"}, {ID: "dmm"}, {ID: "javbus"}, {ID: "fc2"}},
-		Timeout: Duration(5 * time.Minute),
+		Sources:  SourceOrder{{ID: "javdb"}, {ID: "dmm"}, {ID: "javbus"}, {ID: "fc2"}},
+		Priority: DefaultPriority(),
+		Timeout:  Duration(5 * time.Minute),
+	}
+}
+
+// DefaultPriority is the factory field-level order: every one of the 14 fields, in
+// the global order, minus the sources that do not declare that field.
+func DefaultPriority() map[string][]string {
+	return map[string][]string{
+		string(field.Title):        {"javdb", "dmm", "javbus", "fc2"},
+		string(field.Plot):         {"javdb", "dmm", "fc2"},
+		string(field.Fanart):       {"javdb", "dmm", "javbus", "fc2"},
+		string(field.Extrafanarts): {"javdb", "dmm", "fc2"},
+		string(field.Tags):         {"javdb", "dmm", "javbus", "fc2"},
+		string(field.Releasedate):  {"javdb", "dmm", "javbus", "fc2"},
+		string(field.Actors):       {"javdb", "dmm", "javbus"},
+		string(field.Poster):       {"javdb", "dmm"},
+		string(field.Director):     {"javdb", "dmm", "javbus"},
+		string(field.Runtime):      {"javdb", "dmm", "javbus", "fc2"},
+		string(field.Rating):       {"javdb", "dmm"},
+		string(field.Series):       {"javdb", "dmm", "javbus"},
+		string(field.Studio):       {"javdb", "dmm", "javbus", "fc2"},
+		string(field.Publisher):    {"javdb", "dmm", "javbus"},
 	}
 }
 
@@ -93,6 +122,37 @@ type ScrapeWith struct {
 	Sources  SourceOrder         `yaml:"sources"`
 	Priority map[string][]string `yaml:"priority"`
 	Timeout  Duration            `yaml:"timeout"`
+}
+
+// UnmarshalYAML keeps the priority table's two meanings apart.
+//
+// A table written in the file replaces the factory's table wholesale: an unlisted
+// field falls back to `sources`, not to the factory's list for that field. Decoding
+// into a defaulted map would merge the two, and a user who wrote one field's order
+// would silently keep the factory's order for the other thirteen.
+//
+// The factory table also belongs to the factory source list: a file that writes its
+// own `sources` but no `priority` gets that list as the per-field order. Otherwise
+// the factory table's ids would still be the candidates, a narrowed source list
+// would schedule nothing, and `sources: [javbus]` would quietly scrape nothing at
+// all.
+func (w *ScrapeWith) UnmarshalYAML(n *yaml.Node) error {
+	type plain ScrapeWith
+	// Presence is asked of the decoder, not of the raw key nodes: a `<<: *anchor`
+	// merge brings `sources` or `priority` in under a `!!merge` key, and a key walk
+	// that only matches literal names would miss it and let the factory table leak
+	// into a file that wrote its own.
+	var probe struct {
+		Sources  yaml.Node           `yaml:"sources"`
+		Priority map[string][]string `yaml:"priority"`
+	}
+	if err := n.Decode(&probe); err != nil {
+		return err
+	}
+	if probe.Sources.Kind != 0 || probe.Priority != nil {
+		w.Priority = nil
+	}
+	return n.Decode((*plain)(w))
 }
 
 // SourceOrder is the ordered global source list.
@@ -369,11 +429,37 @@ func (w *ScrapeWith) Validate() error {
 		if len(order) == 0 {
 			return fmt.Errorf("priority.%s must not be empty", f)
 		}
+		seen := map[string]bool{}
+		for _, id := range order {
+			if strings.TrimSpace(id) == "" {
+				return fmt.Errorf("priority.%s has an empty source id", f)
+			}
+			if seen[id] {
+				return fmt.Errorf("priority.%s lists %q twice", f, id)
+			}
+			seen[id] = true
+			// A field's order is drawn from the pipeline's own sources: an id the
+			// pipeline did not configure would be silently dropped at run time, and
+			// the field would quietly have one fewer candidate.
+			if !containsID(w.Sources, id) {
+				return fmt.Errorf("priority.%s names %q, which is not in sources", f, id)
+			}
+		}
 	}
 	if w.Timeout < 0 {
 		return fmt.Errorf("timeout must be >= 0")
 	}
 	return nil
+}
+
+// containsID reports whether the ordered source list names an id.
+func containsID(order SourceOrder, id string) bool {
+	for _, entry := range order {
+		if entry.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // validate checks one source's knobs. The key is the location the value was

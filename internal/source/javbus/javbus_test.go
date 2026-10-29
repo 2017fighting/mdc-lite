@@ -307,7 +307,11 @@ func TestScrapeReportsAnUnreadablePageAsParse(t *testing.T) {
 func TestScrapeDoesNotWriteATransportFailureDownAsNotFound(t *testing.T) {
 	// "We could not reach it" must never read as "it does not exist": this is the
 	// one confusion the six reason codes exist to prevent.
-	src := New(fetch.New(fetch.Options{Retries: -1}), Options{Domains: []string{"http://127.0.0.1:1"}})
+	// A reserved, never-resolving host: "the exit does not work" has to be a
+	// failure the test can create on any network. A closed local port is not one —
+	// some networks drop the packet instead of refusing it, and then the request
+	// times out instead of failing fast.
+	src := New(fetch.New(fetch.Options{Retries: -1}), Options{Domains: []string{"http://no-such-host.invalid"}})
 
 	res, err := src.Scrape(context.Background(), "SSIS-001")
 	if err == nil {
@@ -351,7 +355,7 @@ func TestFetchImageSendsTheRefererTheCdnRequires(t *testing.T) {
 func TestScrapeSwitchesToTheSecondDomain(t *testing.T) {
 	r := serveCaptures(t)
 	f := fetch.New(fetch.Options{Rate: fetch.Rate{RequestsPerSecond: 1000, Burst: 100}})
-	src := New(f, Options{Domains: []string{"http://127.0.0.1:1", r.URL}})
+	src := New(f, Options{Domains: []string{"http://no-such-host.invalid", r.URL}})
 
 	res, err := src.Scrape(context.Background(), "SSIS-001")
 	if err != nil {
@@ -371,10 +375,14 @@ func TestDumpReturnsTheRawAnswerThroughTheSameFetcher(t *testing.T) {
 	r := serveCaptures(t)
 	src := newSource(t, r)
 
-	capture, err := src.Dump(context.Background(), "SSIS-001")
+	captures, err := src.Dump(context.Background(), "SSIS-001")
 	if err != nil {
 		t.Fatalf("dump: %v", err)
 	}
+	if len(captures) != 1 {
+		t.Fatalf("javbus has one leg, so one capture; got %d", len(captures))
+	}
+	capture := captures[0]
 	if capture.Status != 200 {
 		t.Errorf("status = %d, want 200", capture.Status)
 	}
@@ -391,10 +399,14 @@ func TestDumpKeepsANotfoundPage(t *testing.T) {
 	r := serveCaptures(t)
 	src := newSource(t, r)
 
-	capture, err := src.Dump(context.Background(), "ZZZZ-9999")
+	captures, err := src.Dump(context.Background(), "ZZZZ-9999")
 	if err != nil {
 		t.Fatalf("dump: %v", err)
 	}
+	if len(captures) != 1 {
+		t.Fatalf("javbus has one leg, so one capture; got %d", len(captures))
+	}
+	capture := captures[0]
 	if capture.Status != http.StatusNotFound {
 		t.Errorf("status = %d, want the 404 kept as it came", capture.Status)
 	}

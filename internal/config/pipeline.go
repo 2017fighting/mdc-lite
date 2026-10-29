@@ -357,3 +357,14 @@ var linePrefix = regexp.MustCompile(`^line \d+: `)
 func stripLinePrefix(s string) string {
 	return linePrefix.ReplaceAllString(s, "")
 }
+
+// StepError renders the documented 文件:行:列: 第 N 步 (type) shape for a problem found
+// after the file was decoded. The source-capability check is such a problem: it needs
+// the binary's sources, which the config package cannot see, but its message belongs
+// beside every other step error.
+func StepError(p Pipeline, idx int, format string, args ...any) error {
+	if idx < 0 || idx >= len(p.Steps) {
+		return fmt.Errorf("%s: %s", p.File, fmt.Sprintf(format, args...))
+	}
+	return stepErr(p.File, p.Steps[idx], idx, format, args...)
+}

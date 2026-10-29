@@ -14,6 +14,7 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -66,11 +67,23 @@ type Options struct {
 	// number is part of the contract — but a test asserting a single attempt needs
 	// a way to say so.
 	Retries int
+	// MaxFlight caps how many requests are in flight at once across the whole
+	// process (`concurrency.requests`). Zero means no cap, which is what a test
+	// wants and what a single-source build effectively has; the product sets it
+	// from the one place concurrency is configured.
+	MaxFlight int
 }
 
-// Request is one fetch a source asks for. It is always a GET: no site this build
-// talks to wants anything else, and an unused verb knob is a knob that drifts.
+// Request is one fetch a source asks for.
+//
+// It is a GET unless the source says otherwise: dmm's GraphQL endpoint is the one
+// site in this build that wants a POST, and it wants a JSON body with it. The verb
+// and the body live here rather than in the source so that the transport keeps its
+// single job — proxy, rate limit, cooldown, retries, cancellation — for every
+// request the process makes, whatever the verb.
 type Request struct {
+	// Method is "GET" or "POST"; empty means GET.
+	Method string
 	// URL is the address to try first. It must be absolute.
 	URL string
 	// Mirrors are alternative addresses for the same request, in the order the
@@ -81,6 +94,13 @@ type Request struct {
 	// Headers are per-request headers a source must send (javbus's `Cookie: dv=1`,
 	// an image's `Referer`). They are code constants inside the source.
 	Headers map[string]string
+	// MirrorHeaders, when it has an entry, replaces Headers for the mirror at the
+	// same position: a header that names the site (dmm's `Referer:
+	// https://video.{domain}/`) has to change when the address does, and only the
+	// transport knows which one is being tried. Nil or too short means Headers.
+	MirrorHeaders []map[string]string
+	// Body is the request body, sent as-is when Method is POST.
+	Body []byte
 	// Proxy overrides the process-level exit for this source.
 	Proxy string
 	// Rate overrides the default budget and cooldown for this source.
@@ -161,6 +181,8 @@ type Fetcher struct {
 
 	lim   *limiter
 	clock clock
+	// flight is the process-wide in-flight cap, or nil when uncapped.
+	flight chan struct{}
 
 	mu      sync.Mutex
 	clients map[string]*http.Client
@@ -190,6 +212,9 @@ func New(opts Options) *Fetcher {
 	}
 	if f.retries < 0 {
 		f.retries = 0
+	}
+	if opts.MaxFlight > 0 {
+		f.flight = make(chan struct{}, opts.MaxFlight)
 	}
 	return f
 }
@@ -224,12 +249,22 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (*Response, error) {
 	}
 	var last *Error
 	for attempt := 0; attempt <= f.retries; attempt++ {
-		target := targets[min(attempt, len(targets)-1)]
+		index := min(attempt, len(targets)-1)
+		target := targets[index]
+		sent := req
+		if index > 0 && index-1 < len(req.MirrorHeaders) && req.MirrorHeaders[index-1] != nil {
+			// The header names the site, so it has to follow the address.
+			sent.Headers = req.MirrorHeaders[index-1]
+		}
 		key := bucketKey(target)
 		if err := f.lim.acquire(ctx, key, rate); err != nil {
 			return nil, err
 		}
-		resp, err := f.once(ctx, client, target, req.Headers, timeout)
+		if err := f.enter(ctx); err != nil {
+			return nil, err
+		}
+		resp, err := f.once(ctx, client, target, sent, timeout)
+		f.leave()
 		if err == nil {
 			return resp, nil
 		}
@@ -259,6 +294,31 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (*Response, error) {
 	return nil, last
 }
 
+// enter takes one of the process's in-flight slots, waiting for one or for the
+// caller to give up. The slot is taken *after* the domain bucket: a request queued on
+// its domain must not hold a global slot while it waits.
+func (f *Fetcher) enter(ctx context.Context) error {
+	if f.flight == nil {
+		return nil
+	}
+	select {
+	case f.flight <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (f *Fetcher) leave() {
+	if f.flight == nil {
+		return
+	}
+	select {
+	case <-f.flight:
+	default:
+	}
+}
+
 // retryable is the closed list of failures worth another attempt: a connection
 // that did not come up (dial error, TLS EOF, a reset) and a 5xx. A 404 is an
 // answer, another 4xx is a refusal, a timeout already used its budget, and a
@@ -269,16 +329,24 @@ func retryable(code string) bool {
 
 // once performs one attempt: no retry loop, no cooldown bookkeeping. It returns a
 // Response for 2xx and 404, and a classified *Error for everything else.
-func (f *Fetcher) once(ctx context.Context, client *http.Client, target *url.URL, headers map[string]string, timeout time.Duration) (*Response, error) {
+func (f *Fetcher) once(ctx context.Context, client *http.Client, target *url.URL, request Request, timeout time.Duration) (*Response, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, target.String(), nil)
+	method := request.Method
+	if method == "" {
+		method = http.MethodGet
+	}
+	var payload io.Reader
+	if len(request.Body) > 0 {
+		payload = bytes.NewReader(request.Body)
+	}
+	req, err := http.NewRequestWithContext(reqCtx, method, target.String(), payload)
 	if err != nil {
 		return nil, &Error{Code: source.ReasonParse, URL: target.String(), Err: err}
 	}
 	req.Header.Set("User-Agent", BrowserUA)
-	for k, v := range headers {
+	for k, v := range request.Headers {
 		req.Header.Set(k, v)
 	}
 	resp, err := client.Do(req)
