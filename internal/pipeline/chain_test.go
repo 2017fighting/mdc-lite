@@ -565,6 +565,12 @@ func TestApply_DoesNotStartAFileAfterTheContextDied(t *testing.T) {
 		{Kind: WriteImage, Role: RolePoster, Mode: ModeBytes, Dst: filepath.Join(out, "poster.jpg"), Data: []byte("poster")},
 		{Kind: WriteNfo, Role: RoleNfo, Mode: ModeBytes, Dst: filepath.Join(out, "movie.nfo"), Data: []byte("<movie/>")},
 	}}}}
+	// A `.tmp` at one of this plan's own destinations is exactly what a cancelled
+	// atomic write leaves behind; it must not survive the cancellation.
+	orphan := filepath.Join(out, "poster.jpg.tmp")
+	if err := os.WriteFile(orphan, []byte("a half-written file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := Apply(ctx, plan); !errors.Is(err, context.Canceled) {
@@ -575,6 +581,6 @@ func TestApply_DoesNotStartAFileAfterTheContextDied(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(entries) != 0 {
-		t.Fatalf("a cancelled apply wrote files: %v", entries)
+		t.Fatalf("a cancelled apply left files behind: %v", entries)
 	}
 }

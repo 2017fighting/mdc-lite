@@ -60,8 +60,9 @@ func NewRunnerWithEnvironments(st *tasks.Store, pipelines []config.Pipeline, env
 // finishDeadline bounds the one write that records a run's ending. It is a
 // detached write on purpose: a cancelled task's `cancelled` (or a SIGTERM's
 // `interrupted`) has to reach the database even though the context that carried the
-// work is already dead.
-const finishDeadline = 10 * time.Second
+// work is already dead. It is short enough that the scheduler's 25s grace plus this
+// write still fits the container's default 30s termination grace.
+const finishDeadline = 3 * time.Second
 
 // RunTask runs one task. A run that ends failed is a successful call: the failure is
 // the run's outcome, recorded in the database, not an error of the caller. The

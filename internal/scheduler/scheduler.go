@@ -32,10 +32,12 @@ const DefaultGrace = 25 * time.Second
 // command wrote.
 const DefaultPoll = 500 * time.Millisecond
 
-// finishDeadline bounds the write that records an interrupted run after the grace
-// period. It uses a detached context: the process is on its way out and the root
-// context is already cancelled.
-const finishDeadline = 10 * time.Second
+// shutdownWriteBudget bounds the writes that record the survivors after the grace
+// period. The budget is deliberately small: Grace (25s) + this (3s) stays under the
+// container's default 30s terminationGracePeriodSeconds, so the `interrupted` rows
+// reach the database instead of dying with a SIGKILL. The context is detached from
+// the cancelled root for the same reason.
+const shutdownWriteBudget = 3 * time.Second
 
 // Errors callers distinguish.
 var (
@@ -93,6 +95,7 @@ type Scheduler struct {
 // execution is one task in a slot: the run it owns, the cancel that reaches its
 // context, and the signal that the slot is free again.
 type execution struct {
+	ctx    context.Context
 	run    tasks.Run
 	cancel context.CancelCauseFunc
 	done   chan struct{}
@@ -156,14 +159,6 @@ func (s *Scheduler) Notify() {
 	}
 }
 
-// Running reports how many tasks have a slot right now. It is for logs and tests,
-// not for the API surface.
-func (s *Scheduler) Running() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.running)
-}
-
 // dispatch fills the free slots with the oldest queued tasks. A slot is taken
 // before the claim: a task is never marked running while it waits for a slot.
 func (s *Scheduler) dispatch(ctx context.Context) {
@@ -206,7 +201,7 @@ func (s *Scheduler) claim(ctx context.Context) (context.Context, tasks.Task, tas
 		return nil, tasks.Task{}, tasks.Run{}, err
 	}
 	taskCtx, cancel := context.WithCancelCause(ctx)
-	s.running[task.ID] = &execution{run: run, cancel: cancel, done: make(chan struct{})}
+	s.running[task.ID] = &execution{ctx: taskCtx, run: run, cancel: cancel, done: make(chan struct{})}
 	return taskCtx, task, run, nil
 }
 
@@ -253,9 +248,18 @@ func (s *Scheduler) Cancel(ctx context.Context, taskID int64) error {
 			ex := s.running[taskID]
 			s.mu.Unlock()
 			if ex == nil {
-				// The claim transaction committed but this scheduler does not own the
-				// task (single replica makes this a bug, not a race); do not pretend
-				// to have cancelled it.
+				// The run ended between the read and the lookup. Report what is
+				// actually true now rather than the snapshot we started from.
+				after, err := s.cfg.Store.Task(ctx, taskID)
+				if err != nil {
+					return err
+				}
+				if after.Status.Terminal() {
+					return ErrTaskTerminal
+				}
+				if after.Status != tasks.StatusRunning {
+					continue
+				}
 				return ErrTaskRunning
 			}
 			ex.cancel(tasks.ErrCancelledByUser)
@@ -269,12 +273,14 @@ func (s *Scheduler) Cancel(ctx context.Context, taskID int64) error {
 			return ErrTaskTerminal
 		default:
 			_, err := s.cfg.Store.CancelTask(ctx, taskID)
-			if errors.Is(err, tasks.ErrTaskRunning) {
+			switch {
+			case errors.Is(err, tasks.ErrTaskRunning):
 				// The dispatcher claimed it between the read and the write. Fall
 				// through to the running branch on the next read.
 				continue
-			}
-			if err == nil {
+			case errors.Is(err, tasks.ErrTaskTerminal):
+				return ErrTaskTerminal
+			case err == nil:
 				s.Notify()
 			}
 			return err
@@ -357,13 +363,19 @@ func (s *Scheduler) shutdown(root context.Context) {
 	if len(exs) == 0 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(root), finishDeadline)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(root), shutdownWriteBudget)
 	defer cancel()
 	for _, ex := range exs {
-		err := s.cfg.Store.FinishRun(ctx, ex.run.ID, tasks.Outcome{Status: tasks.RunInterrupted})
+		out := tasks.Outcome{Status: tasks.RunInterrupted}
+		if errors.Is(context.Cause(ex.ctx), tasks.ErrCancelledByUser) {
+			// A human cancelled it while the process was going down; their decision is
+			// the ending, not the shutdown's.
+			out = tasks.Outcome{Status: tasks.RunCancelled, Error: tasks.ErrCancelledByUser.Error()}
+		}
+		err := s.cfg.Store.FinishRun(ctx, ex.run.ID, out)
 		if err != nil && !errors.Is(err, tasks.ErrRunFinished) {
-			s.logger.Error("a run that outlived the grace period could not be marked interrupted",
-				"run", ex.run.ID, "err", err)
+			s.logger.Error("a run that outlived the grace period could not be finished",
+				"run", ex.run.ID, "status", out.Status, "err", err)
 		}
 	}
 }

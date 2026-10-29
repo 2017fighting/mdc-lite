@@ -32,6 +32,11 @@ func Apply(ctx context.Context, plan *Plan) (*Manifest, error) {
 	for _, item := range plan.Items {
 		for _, w := range item.Writes {
 			if err := ctx.Err(); err != nil {
+				// The write was not started, but a same-directory temp for this very
+				// destination can be left by an earlier attempt at the same file. It
+				// is a planned destination of this run, so removing it is safe; a
+				// complete file is never touched.
+				removeTemp(w.Dst)
 				return m, err
 			}
 			row, err := applyWrite(w)
@@ -42,6 +47,16 @@ func Apply(ctx context.Context, plan *Plan) (*Manifest, error) {
 		}
 	}
 	return m, nil
+}
+
+// removeTemp drops a destination's atomic-write temp, if one is there. It is
+// best-effort: the temp is not the product, and a failure to remove it must not
+// mask the cancellation that asked for the cleanup.
+func removeTemp(dst string) {
+	if dst == "" {
+		return
+	}
+	_ = os.Remove(dst + ".tmp")
 }
 
 // applyWrite applies one planned write.
