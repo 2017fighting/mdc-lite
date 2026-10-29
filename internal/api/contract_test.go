@@ -87,6 +87,13 @@ steps:
 // no candidate, and one file the filter turns away.
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	return newFixtureWith(t, nil)
+}
+
+// newFixtureWith is newFixture with a say over the settings: the picker's mount
+// labels come from `browse_roots`, so a test of the Deck needs to set them.
+func newFixtureWith(t *testing.T, mutate func(*config.Settings)) *fixture {
+	t.Helper()
 	dir := t.TempDir()
 	f := &fixture{t: t, media: filepath.Join(dir, "media"), out: filepath.Join(dir, "out")}
 	writeFile(t, filepath.Join(f.media, "ABC-123.mp4"), []byte("video one"))
@@ -116,6 +123,9 @@ func newFixture(t *testing.T) *fixture {
 	settings.PipelinesDir = pipelinesDir
 	settings.DBPath = raw.Path()
 	settings.BrowseRoots = []config.BrowseRoot{{Path: f.media, Label: "/media"}}
+	if mutate != nil {
+		mutate(&settings)
+	}
 
 	f.raw = raw
 	f.st = tasks.New(raw, tasks.Config{RetryLimit: settings.RetryLimit})
@@ -293,12 +303,64 @@ func TestDirs_ListsOnlyDirectoriesInsideTheRoots(t *testing.T) {
 	}
 }
 
+// The Deck draws the mount label on the path and one entry per browse root, so the
+// picker's answer has to carry both. It is additive: the pre-existing fields are
+// unchanged, which is why the endpoint's contract stays `path` + `stats`.
+func TestDirs_ReportsEveryRootAndTheMountLabelOfTheCurrentPath(t *testing.T) {
+	media := filepath.Join(t.TempDir(), "media")
+	other := filepath.Join(t.TempDir(), "second")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := newFixtureWith(t, func(s *config.Settings) {
+		s.BrowseRoots = []config.BrowseRoot{
+			{Path: media, Label: "媒体库"},
+			{Path: other, Label: "VR 专区"},
+		}
+	})
+	sub := filepath.Join(media, "2024")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var res service.BrowseResult
+	f.doJSON(http.MethodGet, "/api/fs/dirs?path="+sub, nil, &res)
+	if res.Path != sub {
+		t.Errorf("path = %q", res.Path)
+	}
+	if res.Label != "媒体库" {
+		t.Errorf("label = %q, want the mount label of the containing root", res.Label)
+	}
+	if len(res.Roots) != 2 {
+		t.Fatalf("roots = %+v, want both browse_roots", res.Roots)
+	}
+	if res.Roots[0].Path != media || res.Roots[0].Label != "媒体库" {
+		t.Errorf("roots[0] = %+v", res.Roots[0])
+	}
+	if res.Roots[1].Path != other || res.Roots[1].Label != "VR 专区" {
+		t.Errorf("roots[1] = %+v", res.Roots[1])
+	}
+}
+
 func TestDirs_OutOfRootPathIs400RootNotBrowsable(t *testing.T) {
 	f := newFixture(t)
 	outside := t.TempDir()
 	f.wantError(http.MethodGet, "/api/fs/dirs?path="+outside, nil, http.StatusBadRequest, "root_not_browsable")
 	f.wantError(http.MethodGet, "/api/fs/dirs?path="+filepath.Join(f.media, "nope"), nil, http.StatusNotFound, "not_found")
-	f.wantError(http.MethodGet, "/api/fs/dirs", nil, http.StatusBadRequest, "bad_request")
+}
+
+// Without a path the picker answers the whitelist itself: the Deck's entry points
+// have to come from somewhere, and it must not list a directory nobody named.
+func TestDirs_WithoutAPathAnswersTheEntryPointsOnly(t *testing.T) {
+	f := newFixture(t)
+	var res service.BrowseResult
+	f.doJSON(http.MethodGet, "/api/fs/dirs", nil, &res)
+	if res.Path != "" || len(res.Dirs) != 0 {
+		t.Errorf("bootstrap listed something: path=%q dirs=%+v", res.Path, res.Dirs)
+	}
+	if len(res.Roots) != 1 || res.Roots[0].Path != f.media {
+		t.Errorf("roots = %+v, want the one browse root", res.Roots)
+	}
 }
 
 func TestPreview_Is202ThenPollableWithTheTableShape(t *testing.T) {
@@ -324,8 +386,10 @@ func TestPreview_Is202ThenPollableWithTheTableShape(t *testing.T) {
 	if res.State != service.PreviewSucceeded {
 		t.Fatalf("state = %q (error %+v)", res.State, res.Error)
 	}
-	if res.WalkedFiles == 0 || res.Matched == 0 {
-		t.Errorf("walked/matched = %d/%d", res.WalkedFiles, res.Matched)
+	// Two videos and notes.txt are walked; the filter keeps the four videos and
+	// turns away notes.txt. `matched` is the survivors, not the rejections.
+	if res.WalkedFiles != 5 || res.Matched != 4 {
+		t.Errorf("walked/matched = %d/%d, want 5/4", res.WalkedFiles, res.Matched)
 	}
 	if len(res.Groups) != 3 {
 		t.Fatalf("groups = %d, want 3 (resolved, ambiguous, no_candidate): %+v", len(res.Groups), res.Groups)
@@ -370,6 +434,27 @@ func TestPreview_Is202ThenPollableWithTheTableShape(t *testing.T) {
 			}
 		}
 	}
+
+	// The scan page folds the files a rule kept out below the table, each with the
+	// rule's name. The corpus' `notes.txt` is the one `everything-else` rejects.
+	if res.FilteredTotal != 1 || len(res.Filtered) != 1 {
+		t.Fatalf("filtered = %+v (total %d), want notes.txt once", res.Filtered, res.FilteredTotal)
+	}
+	if filepath.Base(res.Filtered[0].Path) != "notes.txt" || res.Filtered[0].Rule != "everything-else" {
+		t.Errorf("filtered[0] = %+v", res.Filtered[0])
+	}
+	var filteredShape struct {
+		Filtered []map[string]json.RawMessage `json:"filtered"`
+	}
+	f.doJSON(http.MethodGet, "/api/scan/previews/"+started.PreviewID, nil, &filteredShape)
+	if len(filteredShape.Filtered) != 1 {
+		t.Fatalf("filtered shape = %+v", filteredShape.Filtered)
+	}
+	for _, key := range []string{"path", "rule"} {
+		if _, ok := filteredShape.Filtered[0][key]; !ok {
+			t.Errorf("a filtered file is missing %q: %v", key, filteredShape.Filtered[0])
+		}
+	}
 }
 
 func TestPreview_RejectsBadRequestsBefore202(t *testing.T) {
@@ -405,6 +490,33 @@ func TestCreateTasks_ReturnsTheBatchAndTheSkippedPaths(t *testing.T) {
 	if filtered == nil || !strings.HasSuffix(filtered.Path, "notes.txt") {
 		t.Errorf("skipped = %+v, want notes.txt as filtered", res.Skipped)
 	}
+}
+
+// The scan page ticks groups, not files, because a work's parts must travel
+// together. That selection has to reach the batch: a body naming one primary creates
+// exactly that group's task, and a selection naming nothing in the walk is refused
+// rather than quietly creating an empty batch.
+func TestCreateTasks_HonoursTheScanPagesGroupSelection(t *testing.T) {
+	f := newFixture(t)
+	var res service.CreateBatchResult
+	f.doJSON(http.MethodPost, "/api/tasks", service.CreateBatchRequest{
+		Pipeline: "main",
+		Roots:    []string{f.media},
+		Groups:   []string{filepath.Join(f.media, "ABC-123.mp4")},
+	}, &res)
+	if res.Created != 1 {
+		t.Fatalf("created = %d, want the one selected group", res.Created)
+	}
+	page := f.listTasks("")
+	if page.Total != 1 || page.Items[0].Number != "ABC-123" {
+		t.Errorf("tasks = %+v, want only ABC-123", page.Items)
+	}
+
+	f.wantError(http.MethodPost, "/api/tasks", service.CreateBatchRequest{
+		Pipeline: "main",
+		Roots:    []string{f.media},
+		Groups:   []string{filepath.Join(f.media, "gone.mp4")},
+	}, http.StatusBadRequest, "empty_selection")
 }
 
 func TestCreateTasks_RefusesWhatCannotBecomeABatch(t *testing.T) {

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/2017fighting/mdc-lite/internal/pipeline"
@@ -23,6 +25,11 @@ type CreateBatchRequest struct {
 	Pipeline string   `json:"pipeline"`
 	Roots    []string `json:"roots"`
 	Exclude  []string `json:"exclude,omitempty"`
+	// Groups is the scan page's per-group selection: the primary paths of the groups
+	// the human ticked. Absent means every group the walk found (a CLI trigger), so
+	// the field is additive. The walk is unchanged — the same groups the preview
+	// showed are the ones being filtered here, which is the parity §14 promises.
+	Groups []string `json:"groups,omitempty"`
 }
 
 // SkippedPath is one path that became no part of any task, with the machine code
@@ -97,6 +104,12 @@ func (s *Service) CreateBatch(ctx context.Context, req CreateBatchRequest) (Crea
 	for _, path := range missing {
 		in.Skipped = append(in.Skipped, tasks.SkippedPath{Path: path, Reason: tasks.ReasonNotFound})
 	}
+	if len(req.Groups) > 0 {
+		in.Groups, err = selectGroups(in.Groups, req.Groups)
+		if err != nil {
+			return CreateBatchResult{}, err
+		}
+	}
 	if len(in.Groups) == 0 && len(in.Skipped) == 0 {
 		return CreateBatchResult{}, badRequest(CodeEmptySelection, "the selection matched no files")
 	}
@@ -113,6 +126,44 @@ func (s *Service) CreateBatch(ctx context.Context, req CreateBatchRequest) (Crea
 		out.Skipped = append(out.Skipped, SkippedPath{Path: sk.Path, Reason: sk.Reason})
 	}
 	return out, nil
+}
+
+// selectGroups keeps only the groups whose primary was ticked. The scan page's
+// checkboxes are per group because a work's parts must travel together; the filter
+// runs after the same walk, so "the groups I saw in the preview" is what is kept.
+func selectGroups(groups []tasks.Group, selected []string) ([]tasks.Group, error) {
+	wanted := make(map[string]bool, len(selected))
+	for _, path := range selected {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return nil, badRequestf(CodeBadRequest, "%s: %v", path, err)
+		}
+		wanted[abs] = true
+	}
+	kept := make([]tasks.Group, 0, len(groups))
+	for _, g := range groups {
+		if wanted[primaryOf(g)] {
+			kept = append(kept, g)
+		}
+	}
+	if len(kept) == 0 {
+		return nil, badRequest(CodeEmptySelection, "none of the selected groups is in this walk: the tree changed since the preview")
+	}
+	return kept, nil
+}
+
+// primaryOf is the group's primary path: the one file with the primary role.
+func primaryOf(g tasks.Group) string {
+	for _, f := range g.Files {
+		if f.Role == tasks.RolePrimary {
+			return f.Path
+		}
+	}
+	return ""
 }
 
 // BatchView is one row of the batch dropdown. The list page only needs the id and

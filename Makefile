@@ -1,5 +1,5 @@
 # mdc-lite build entry points. `make` on its own runs the fast gate that CI runs
-# on every pull request: vet + unit tests + lint + frontend build/typecheck.
+# on every pull request: vet + unit tests + lint + frontend tests/typecheck.
 
 BINARY := bin/mdc
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -54,9 +54,18 @@ typecheck:
 		echo "web/: no package.json yet, nothing to typecheck"; \
 	fi
 
+## test-web: the frontend's own tests (vitest, jsdom)
+.PHONY: test-web
+test-web:
+	@if [ -f $(WEB_DIR)/package.json ]; then \
+		cd $(WEB_DIR) && npm ci --no-audit --no-fund && npm test; \
+	else \
+		echo "web/: no package.json yet, nothing to test"; \
+	fi
+
 ## check: everything a pull request must pass
 .PHONY: check
-check: vet test lint typecheck
+check: vet test lint typecheck test-web
 
 ## run: run the server against examples/
 .PHONY: run

@@ -35,7 +35,7 @@ jobs:
           version: v2.14.0
 
   web:
-    name: frontend build + typecheck
+    name: frontend test + build + typecheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +47,9 @@ jobs:
       - name: install
         working-directory: web
         run: npm ci --no-audit --no-fund
+      - name: test
+        working-directory: web
+        run: npm test
       - name: typecheck
         working-directory: web
         run: npm run typecheck

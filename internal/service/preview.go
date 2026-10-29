@@ -61,6 +61,18 @@ type PreviewGroup struct {
 	Occupied bool `json:"occupied"`
 }
 
+// PreviewFilteredLimit is how many rejected files a preview returns. The list is folded
+// under the table for the operator to check a rule against; two hundred rows are
+// enough to recognise a wrong rule, and the total says how many there really were.
+const PreviewFilteredLimit = 200
+
+// PreviewFiltered is one file a filter rule kept out: the path, and the rule's name
+// (`no_match` when no rule claimed it). The scan page's folded list is this.
+type PreviewFiltered struct {
+	Path string `json:"path"`
+	Rule string `json:"rule"`
+}
+
 // PreviewError is why a preview failed. It uses the standard machine-code shape, so
 // the frontend can pick its wording from the same table as every other error.
 type PreviewError struct {
@@ -76,7 +88,12 @@ type PreviewResult struct {
 	// show, before grouping folds parts into one work.
 	Matched int            `json:"matched"`
 	Groups  []PreviewGroup `json:"groups"`
-	Error   *PreviewError  `json:"error,omitempty"`
+	// Filtered is the files a rule kept out, capped at PreviewFilteredLimit;
+	// FilteredTotal is how many were rejected in all. Both are additive: a client
+	// that only knows groups keeps working.
+	Filtered      []PreviewFiltered `json:"filtered"`
+	FilteredTotal int               `json:"filtered_total"`
+	Error         *PreviewError     `json:"error,omitempty"`
 }
 
 // preview is one in-flight or finished preview.
@@ -179,7 +196,7 @@ func (s *Service) StartPreview(ctx context.Context, req PreviewRequest) (string,
 		// The preview outlives the request that asked for it: the client got its id
 		// and will poll, so a cancelled request must not abort the walk.
 		ctx := context.Background()
-		out := PreviewResult{State: PreviewSucceeded, Groups: []PreviewGroup{}}
+		out := PreviewResult{State: PreviewSucceeded, Groups: []PreviewGroup{}, Filtered: []PreviewFiltered{}}
 		var run *pipeline.Result
 		err := s.prefix(ctx, func(ctx context.Context) error {
 			var steps []pipeline.StepOutcome
@@ -203,7 +220,7 @@ func (s *Service) StartPreview(ctx context.Context, req PreviewRequest) (string,
 // the database; without one every row says "not occupied", which is what a process
 // whose database never opened can honestly say.
 func (s *Service) previewResult(ctx context.Context, run *pipeline.Result) PreviewResult {
-	out := PreviewResult{State: PreviewSucceeded, Groups: []PreviewGroup{}}
+	out := PreviewResult{State: PreviewSucceeded, Groups: []PreviewGroup{}, Filtered: []PreviewFiltered{}}
 	if run == nil || run.State == nil {
 		return out
 	}
@@ -214,7 +231,18 @@ func (s *Service) previewResult(ctx context.Context, run *pipeline.Result) Previ
 		out.WalkedFiles = st.ScanRun.Files
 	}
 	if st.FilterRun != nil {
-		out.Matched = st.FilterRun.Out
+		// FilterSummary.In is the count that came out of the filter (the other
+		// number, Out, is what a rule kept out), so the table's `matched` is In.
+		out.Matched = st.FilterRun.In
+	}
+	if st.Candidates != nil {
+		out.FilteredTotal = len(st.Candidates.Rejected)
+		for _, rejected := range st.Candidates.Rejected {
+			if len(out.Filtered) == PreviewFilteredLimit {
+				break
+			}
+			out.Filtered = append(out.Filtered, PreviewFiltered{Path: rejected.File.Path, Rule: rejected.Rule})
+		}
 	}
 
 	// The dedup gate is answered for every primary in one query.

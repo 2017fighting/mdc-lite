@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/2017fighting/mdc-lite/internal/config"
 )
 
 // This file is the container-internal directory picker's only endpoint:
@@ -42,11 +44,24 @@ type BrowseDir struct {
 	Videos  *int `json:"videos,omitempty"`
 }
 
-// BrowseResult is the picker's answer: the directory that was read, plus its direct
-// children, sorted by name. An empty directory is `[]`, never null.
+// BrowseRootView is one entry of the picker: a `browse_roots` path with its mount
+// label. The Deck draws every one of them as an entry point, which is how the roots
+// themselves replace the prototype's preset chips.
+type BrowseRootView struct {
+	Path  string `json:"path"`
+	Label string `json:"label"`
+}
+
+// BrowseResult is the picker's answer: the directory that was read, its mount label,
+// the whitelist's entry points, and its direct children sorted by name. An empty
+// directory is `[]`, never null.
 type BrowseResult struct {
-	Path string      `json:"path"`
-	Dirs []BrowseDir `json:"dirs"`
+	Path string `json:"path"`
+	// Label is the mount label of the browse root Path lives under. It is the one
+	// place the UI can show "this is the VR share" rather than a bare path.
+	Label string           `json:"label"`
+	Roots []BrowseRootView `json:"roots"`
+	Dirs  []BrowseDir      `json:"dirs"`
 }
 
 // Browse lists the child directories of path when path is inside `browse_roots`.
@@ -57,7 +72,11 @@ type BrowseResult struct {
 func (s *Service) Browse(_ context.Context, path string, stats bool) (BrowseResult, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return BrowseResult{}, badRequest(CodeBadRequest, "path is required")
+		// Bootstrap: the Deck draws one entry point per `browse_roots` entry, and it
+		// cannot guess those paths. Asking without a path therefore answers the
+		// whitelist and lists nothing — it never lists a directory the caller did
+		// not name.
+		return BrowseResult{Roots: s.browseRootViews(), Dirs: []BrowseDir{}}, nil
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -81,7 +100,12 @@ func (s *Service) Browse(_ context.Context, path string, stats bool) (BrowseResu
 	if err != nil {
 		return BrowseResult{}, badRequest(CodeBadRequest, err.Error())
 	}
-	out := BrowseResult{Path: abs, Dirs: make([]BrowseDir, 0, len(entries))}
+	out := BrowseResult{
+		Path:  abs,
+		Label: s.labelOf(abs),
+		Roots: s.browseRootViews(),
+		Dirs:  make([]BrowseDir, 0, len(entries)),
+	}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -102,16 +126,44 @@ func (s *Service) Browse(_ context.Context, path string, stats bool) (BrowseResu
 
 // browsable reports whether abs is one of the roots or below one.
 func (s *Service) browsable(abs string) bool {
-	for _, root := range s.settings.BrowseRoots {
+	return s.approvingRoot(abs) != nil
+}
+
+// approvingRoot is the `browse_roots` entry that makes abs browsable, or nil when
+// the whitelist does not cover it.
+func (s *Service) approvingRoot(abs string) *config.BrowseRoot {
+	for i, root := range s.settings.BrowseRoots {
 		rootAbs, err := filepath.Abs(root.Path)
 		if err != nil {
 			continue
 		}
 		if withinPath(abs, rootAbs) {
-			return true
+			return &s.settings.BrowseRoots[i]
 		}
 	}
-	return false
+	return nil
+}
+
+// labelOf is the mount label for a browsable path, empty when nothing covers it.
+func (s *Service) labelOf(abs string) string {
+	if root := s.approvingRoot(abs); root != nil {
+		return root.Label
+	}
+	return ""
+}
+
+// browseRootViews is the whitelist as the Deck's entry points. Labels fall back to
+// the path, which is what the config loader does too (a label is a convenience).
+func (s *Service) browseRootViews() []BrowseRootView {
+	out := make([]BrowseRootView, 0, len(s.settings.BrowseRoots))
+	for _, root := range s.settings.BrowseRoots {
+		label := root.Label
+		if label == "" {
+			label = root.Path
+		}
+		out = append(out, BrowseRootView{Path: root.Path, Label: label})
+	}
+	return out
 }
 
 // describeBrowseRoots renders the whitelist for the error message, so an operator
