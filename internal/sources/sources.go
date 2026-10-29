@@ -24,6 +24,14 @@ func NewFetcher(settings config.Settings) *fetch.Fetcher {
 	return fetch.New(fetch.Options{Proxy: settings.Proxy})
 }
 
+// factories build one source from its knobs. This map is the whole list of sources
+// the binary has, in one place; adding the next source is one entry.
+var factories = map[string]func(config.SourceWith, *fetch.Fetcher) source.Source{
+	javbus.ID: func(w config.SourceWith, f *fetch.Fetcher) source.Source {
+		return javbus.New(f, javbusOptions(w))
+	},
+}
+
 // Build assembles the registry the scrape step dispatches to, from the pipeline's
 // `scrape.with.sources` list.
 //
@@ -34,9 +42,8 @@ func NewFetcher(settings config.Settings) *fetch.Fetcher {
 func Build(w config.ScrapeWith, f *fetch.Fetcher) source.Registry {
 	reg := source.Registry{}
 	for _, entry := range w.Sources {
-		switch entry.ID {
-		case javbus.ID:
-			reg[javbus.ID] = javbus.New(f, javbusOptions(entry.SourceWith))
+		if build, ok := factories[entry.ID]; ok {
+			reg[entry.ID] = build(entry.SourceWith, f)
 		}
 	}
 	return reg

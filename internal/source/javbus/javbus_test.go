@@ -85,7 +85,7 @@ func serveCaptures(t *testing.T) *replay {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
-			w.Write([]byte("\xff\xd8\xff\xe0 cover bytes"))
+			_, _ = w.Write([]byte("\xff\xd8\xff\xe0 cover bytes"))
 			return
 		}
 		name := fmt.Sprintf("javbus-%s.html", strings.TrimPrefix(req.URL.Path, "/"))
@@ -95,7 +95,7 @@ func serveCaptures(t *testing.T) *replay {
 			return
 		}
 		w.WriteHeader(c.Status)
-		w.Write(captureBody(t, c.Path))
+		_, _ = w.Write(captureBody(t, c.Path))
 	}))
 	t.Cleanup(r.Close)
 	return r
@@ -275,7 +275,7 @@ func TestScrapeReportsTheAgeGateAsBlocked(t *testing.T) {
 	// notfound and not parse — the source recognises it and says so.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/doc/driver-verify" {
-			w.Write([]byte("<html><head><title>Age Verification JavBus</title></head><body>gate</body></html>"))
+			_, _ = w.Write([]byte("<html><head><title>Age Verification JavBus</title></head><body>gate</body></html>"))
 			return
 		}
 		http.Redirect(w, r, "/doc/driver-verify?referer="+r.URL.Path, http.StatusFound)
@@ -292,7 +292,7 @@ func TestScrapeReportsTheAgeGateAsBlocked(t *testing.T) {
 
 func TestScrapeReportsAnUnreadablePageAsParse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("<html><body><p>maintenance</p></body></html>"))
+		_, _ = w.Write([]byte("<html><body><p>maintenance</p></body></html>"))
 	}))
 	defer srv.Close()
 

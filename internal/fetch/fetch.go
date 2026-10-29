@@ -285,7 +285,11 @@ func (f *Fetcher) once(ctx context.Context, client *http.Client, target *url.URL
 	if err != nil {
 		return nil, f.classify(ctx, target, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// The body is read before this runs; a close error on a body we finished
+		// reading has nothing left to tell us.
+		_ = resp.Body.Close()
+	}()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 	if err != nil {

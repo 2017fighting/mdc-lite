@@ -78,14 +78,14 @@ func newJavbusFixture(t *testing.T) *javbusFixture {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
-			w.Write([]byte("\xff\xd8\xff\xe0 the cover"))
+			_, _ = w.Write([]byte("\xff\xd8\xff\xe0 the cover"))
 		case strings.HasSuffix(r.URL.Path, "/SSIS-001"):
-			w.Write(captureBody(t, "javbus-SSIS-001.html"))
+			_, _ = w.Write(captureBody(t, "javbus-SSIS-001.html"))
 		case strings.HasSuffix(r.URL.Path, "/IPX-535"):
-			w.Write(captureBody(t, "javbus-IPX-535.html"))
+			_, _ = w.Write(captureBody(t, "javbus-IPX-535.html"))
 		default:
 			w.WriteHeader(http.StatusNotFound)
-			w.Write(captureBody(t, "javbus-ZZZZ-9999.html"))
+			_, _ = w.Write(captureBody(t, "javbus-ZZZZ-9999.html"))
 		}
 	}))
 	t.Cleanup(f.Close)

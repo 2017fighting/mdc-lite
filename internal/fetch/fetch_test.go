@@ -43,7 +43,7 @@ func TestDoSendsTheBrowserUAAndThePerRequestHeaders(t *testing.T) {
 	var gotUA, gotCookie string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUA, gotCookie = r.UserAgent(), r.Header.Get("Cookie")
-		w.Write([]byte("page"))
+		_, _ = w.Write([]byte("page"))
 	}))
 	defer srv.Close()
 
@@ -73,7 +73,7 @@ func TestDoRetriesA5xxTwiceThenSucceeds(t *testing.T) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
 
@@ -162,7 +162,7 @@ func TestDoPunishesAndThenFailsFastForTheWholeDomain(t *testing.T) {
 					w.WriteHeader(status)
 					return
 				}
-				w.Write([]byte("ok"))
+				_, _ = w.Write([]byte("ok"))
 			}))
 			defer srv.Close()
 
@@ -224,7 +224,7 @@ func TestMirrorSwitchSharesTheRetryBudget(t *testing.T) {
 
 func TestMirrorSwitchMovesOnAfterAConnectionError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("from the mirror"))
+		_, _ = w.Write([]byte("from the mirror"))
 	}))
 	defer srv.Close()
 
@@ -257,7 +257,7 @@ func TestDoClassifiesATimeoutAndDoesNotRetryIt(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		time.Sleep(80 * time.Millisecond)
-		w.Write([]byte("too late"))
+		_, _ = w.Write([]byte("too late"))
 	}))
 	defer srv.Close()
 
@@ -299,7 +299,7 @@ func TestDoHonoursCancellationDuringABackoff(t *testing.T) {
 
 func TestDoWaitsForTheRateLimitBetweenRequests(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
 
@@ -323,7 +323,7 @@ func TestDoRejectsANonHTTPURL(t *testing.T) {
 
 func TestProxyIsANoopForLocalTestsAndRefusedWhenMalformed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
 
