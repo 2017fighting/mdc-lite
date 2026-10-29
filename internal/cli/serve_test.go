@@ -317,3 +317,107 @@ func TestServe_StartupResetsTheWorkTheLastProcessLeft(t *testing.T) {
 		t.Errorf("second run = %+v, want the requeued task to have run and succeeded", runs[1])
 	}
 }
+
+// The endpoints are wired to the in-process service, not to a second copy of the
+// rules: `mdc serve` answers the pipeline list and files a batch from the same code
+// the CLI uses. This is the wiring test — the contract itself is asserted in
+// internal/api.
+func TestServe_FilesABatchThroughTheService(t *testing.T) {
+	dir := t.TempDir()
+	pipelines := filepath.Join(dir, "pipelines")
+	if err := os.MkdirAll(pipelines, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	media := filepath.Join(dir, "ABC-123.mp4")
+	if err := os.WriteFile(media, []byte("a clip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pipelineFile := filepath.Join(pipelines, "main.yaml")
+	if err := os.WriteFile(pipelineFile, []byte(`steps:
+  - type: scan
+    with: {roots: ["`+dir+`"]}
+  - type: filter
+    with:
+      rules:
+        - name: videos
+          when: {ext_in: [".mp4"]}
+          then: include
+        - name: everything-else
+          when: {stem_matches: "^.*$"}
+          then: exclude
+  - type: group
+  - type: parse
+    with:
+      rules:
+        - {builtin: default}
+  - type: output
+    with:
+      root: "`+filepath.Join(dir, "out")+`"
+      required_fields: []
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base, logf := serve(t, "--config", filepath.Join(dir, "config.yaml"),
+		"--pipelines-dir", pipelines, "--db-path", filepath.Join(dir, "mdc.db"))
+	defer logf()
+
+	var pipelinesBody struct {
+		Items []struct {
+			ID    string   `json:"id"`
+			Steps []string `json:"steps"`
+		} `json:"items"`
+	}
+	if code := getJSON(t, base+"/api/pipelines", &pipelinesBody); code != http.StatusOK {
+		t.Fatalf("GET /api/pipelines: %d", code)
+	}
+	if len(pipelinesBody.Items) != 1 || pipelinesBody.Items[0].ID != "main" {
+		t.Fatalf("pipelines = %+v", pipelinesBody.Items)
+	}
+
+	body, err := json.Marshal(map[string]any{"pipeline": "main", "roots": []string{dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(base+"/api/tasks", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		payload, _ := io.ReadAll(resp.Body)
+		t.Fatalf("POST /api/tasks: %d, body %s", resp.StatusCode, payload)
+	}
+	var created struct {
+		BatchID int64 `json:"batch_id"`
+		Created int   `json:"created"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created.BatchID == 0 || created.Created != 1 {
+		t.Fatalf("created = %+v", created)
+	}
+
+	// The scheduler picks the task up immediately; the list endpoint must show it
+	// whatever state it reaches, and it must reach a terminal state without network.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var page struct {
+			Total int `json:"total"`
+			Items []struct {
+				Status string `json:"status"`
+			} `json:"items"`
+		}
+		if code := getJSON(t, base+"/api/tasks", &page); code != http.StatusOK {
+			t.Fatalf("GET /api/tasks: %d", code)
+		}
+		if page.Total == 1 && len(page.Items) == 1 &&
+			(page.Items[0].Status == "succeeded" || page.Items[0].Status == "partial") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the task never finished: %+v", page)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

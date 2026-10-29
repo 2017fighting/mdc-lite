@@ -19,6 +19,7 @@ import (
 	"github.com/2017fighting/mdc-lite/internal/config"
 	"github.com/2017fighting/mdc-lite/internal/pipeline"
 	"github.com/2017fighting/mdc-lite/internal/scheduler"
+	"github.com/2017fighting/mdc-lite/internal/service"
 	"github.com/2017fighting/mdc-lite/internal/sources"
 	"github.com/2017fighting/mdc-lite/internal/store"
 	"github.com/2017fighting/mdc-lite/internal/tasks"
@@ -260,11 +261,29 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// The interface value, not the concrete pointer: a nil *store.Store stored in
-	// api.Store is a non-nil interface, and the health handler's nil check would
-	// miss it and panic instead of answering 503.
-	var healthStore api.Store
-	var schedulerDone chan struct{}
+	// One Fetcher for the whole process (the rate limit and the cooldown are per
+	// registrable domain, so two of them would double every limit), and one
+	// environment per pipeline because `scrape.with.sources` belongs to the
+	// pipeline file. The runner and the service share it: a preview and a task run
+	// must see the same sources.
+	fetcher := sources.NewFetcher(l.settings)
+	envFor := func(p config.Pipeline) pipeline.Environment {
+		return pipeline.Environment{
+			Sources:      sources.Build(sources.ScrapeWith(p), fetcher),
+			TemplatesDir: l.settings.TemplatesDir,
+			Images:       l.settings.Concurrency.Images,
+		}
+	}
+
+	// The service is built even when the database did not open: the picker and the
+	// pipeline list do not need rows, and health has to answer 503 with a reason
+	// rather than the process refusing to start.
+	var (
+		db            *store.Store
+		taskStore     *tasks.Store
+		sched         *scheduler.Scheduler
+		schedulerDone chan struct{}
+	)
 	st, err := store.Open(ctx, l.settings.DBPath)
 	if err != nil {
 		// The server still comes up: /api/health then answers 503 with the reason,
@@ -272,9 +291,9 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		logger.Error("database is not available", "path", l.settings.DBPath, "err", err)
 	} else {
 		defer func() { _ = st.Close() }()
-		healthStore = st
+		db = st
 		logger.Info("database ready", "path", st.Path(), "migrations", st.Migrations())
-		taskStore := tasks.New(st, tasks.Config{RetryLimit: l.settings.RetryLimit})
+		taskStore = tasks.New(st, tasks.Config{RetryLimit: l.settings.RetryLimit})
 		// The startup reset (spec §11): a killed process left runs marked running
 		// and tasks nobody will ever pick up. One transaction closes those runs,
 		// puts their tasks back in the queue (or fails the ones over retry_limit),
@@ -289,19 +308,8 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 				"interrupted_runs", rec.Interrupted, "requeued_tasks", rec.Requeued, "failed_tasks", rec.Failed)
 		}
 
-		// One Fetcher for the whole process (the rate limit and the cooldown are
-		// per registrable domain, so two of them would double every limit), and one
-		// environment per pipeline because `scrape.with.sources` belongs to the
-		// pipeline file.
-		fetcher := sources.NewFetcher(l.settings)
-		runner := pipeline.NewRunnerWithEnvironments(taskStore, l.pipelines, func(p config.Pipeline) pipeline.Environment {
-			return pipeline.Environment{
-				Sources:      sources.Build(sources.ScrapeWith(p), fetcher),
-				TemplatesDir: l.settings.TemplatesDir,
-				Images:       l.settings.Concurrency.Images,
-			}
-		})
-		sched, err := scheduler.New(scheduler.Config{
+		runner := pipeline.NewRunnerWithEnvironments(taskStore, l.pipelines, envFor)
+		sched, err = scheduler.New(scheduler.Config{
 			Store:  taskStore,
 			Runner: runner,
 			Tasks:  l.settings.Concurrency.Tasks,
@@ -326,7 +334,21 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		sched.Notify()
 	}
 
-	srv := api.New(Version, healthStore, web.Handler())
+	svc, err := service.New(service.Config{
+		Settings:  l.settings,
+		Pipelines: l.pipelines,
+		DB:        db,
+		Tasks:     taskStore,
+		Scheduler: schedulerAdapter(sched),
+		EnvFor:    envFor,
+		Logger:    logger,
+	})
+	if err != nil {
+		logger.Error("the application service could not start", "err", err)
+		return 1
+	}
+
+	srv := api.NewWithService(Version, svc, web.Handler())
 	httpServer := &http.Server{
 		Addr:              l.settings.Listen,
 		Handler:           srv.Handler(),
@@ -374,4 +396,14 @@ func newLogger(w io.Writer, s config.LogSettings) *slog.Logger {
 		return slog.New(slog.NewJSONHandler(w, opts))
 	}
 	return slog.New(slog.NewTextHandler(w, opts))
+}
+
+// schedulerAdapter keeps a nil *scheduler.Scheduler out of the service's interface
+// field: a typed nil would be non-nil to the interface and panics on the first call
+// instead of reading as "there is no scheduler".
+func schedulerAdapter(s *scheduler.Scheduler) service.Scheduler {
+	if s == nil {
+		return nil
+	}
+	return s
 }

@@ -83,9 +83,10 @@ func (s *parseStep) Run(ctx context.Context, st *State) error {
 	}
 	out := &Parsed{}
 	summary := &ParseSummary{
-		Groups:     len(st.Groups.Groups),
-		Unresolved: newCounts(),
-		conflicts:  map[string]bool{},
+		Groups:           len(st.Groups.Groups),
+		Unresolved:       newCounts(),
+		CandidateNumbers: map[string][]string{},
+		conflicts:        map[string]bool{},
 	}
 	for _, grp := range st.Groups.Groups {
 		if err := ctx.Err(); err != nil {
@@ -144,7 +145,7 @@ func (s *parseStep) parseGroup(grp Group, out *Parsed, summary *ParseSummary) er
 	case len(primary) > 1:
 		// The primary's own text offers several numbers and none of them is the
 		// less specific reading of another: ask, do not guess.
-		s.unresolve(out, summary, grp, ReasonAmbiguous, primary)
+		s.unresolve(out, summary, grp, ReasonAmbiguous, primary, parsed.Parts)
 		return nil
 	case len(union) == 1:
 		// The primary produced nothing, and the rest of the group agreed on one
@@ -153,10 +154,10 @@ func (s *parseStep) parseGroup(grp Group, out *Parsed, summary *ParseSummary) er
 		parsed.PrimaryFailed = true
 		summary.PrimaryFailed++
 	case len(union) == 0:
-		s.unresolve(out, summary, grp, ReasonNoCandidate, nil)
+		s.unresolve(out, summary, grp, ReasonNoCandidate, nil, parsed.Parts)
 		return nil
 	default:
-		s.unresolve(out, summary, grp, ReasonAmbiguous, union)
+		s.unresolve(out, summary, grp, ReasonAmbiguous, union, parsed.Parts)
 		return nil
 	}
 
@@ -171,8 +172,9 @@ func (s *parseStep) parseGroup(grp Group, out *Parsed, summary *ParseSummary) er
 	return nil
 }
 
-// unresolve records a group a human has to fill in.
-func (s *parseStep) unresolve(out *Parsed, summary *ParseSummary, grp Group, reason string, candidates []string) {
+// unresolve records a group a human has to fill in, and the numbers each of its
+// files offered so the panel can show them as chips.
+func (s *parseStep) unresolve(out *Parsed, summary *ParseSummary, grp Group, reason string, candidates []string, parts [][]string) {
 	files := make([]FileRef, len(grp.Parts))
 	for i, p := range grp.Parts {
 		files[i] = p.File
@@ -185,6 +187,30 @@ func (s *parseStep) unresolve(out *Parsed, summary *ParseSummary, grp Group, rea
 		Candidates: candidates,
 	})
 	summary.Unresolved[reason]++
+	s.recordCandidates(summary, grp, candidates, parts)
+}
+
+// recordCandidates files one unresolved group's numbers under the paths they came
+// from. A file's own reading is what its row offers; the primary falls back to the
+// group's union when its own text offered nothing, because that is the set the
+// human is being asked to choose from.
+func (s *parseStep) recordCandidates(summary *ParseSummary, grp Group, union []string, parts [][]string) {
+	for i, p := range grp.Parts {
+		if len(summary.CandidateNumbers) >= maxCandidateFiles {
+			return
+		}
+		var numbers []string
+		if i < len(parts) {
+			numbers = parts[i]
+		}
+		if i == 0 && len(numbers) == 0 {
+			numbers = union
+		}
+		if len(numbers) == 0 {
+			continue
+		}
+		summary.CandidateNumbers[p.File.Path] = append([]string(nil), numbers...)
+	}
 }
 
 // candidates runs every rule over one stem. It returns what each match read, and

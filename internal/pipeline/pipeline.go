@@ -623,29 +623,29 @@ func counts(m map[string]int) string {
 // ScanSummary is the scan step's summary projection: how much was walked, how
 // much came out, and why the rest did not.
 type ScanSummary struct {
-	Roots   int
-	Walked  int
-	Files   int
-	Skipped map[string]int
+	Roots   int            `json:"roots"`
+	Walked  int            `json:"walked"`
+	Files   int            `json:"files"`
+	Skipped map[string]int `json:"skipped"`
 }
 
 // FilterSummary is the filter step's summary projection. Skipped is keyed by
 // rule name — that is what the rule's name is for.
 type FilterSummary struct {
-	In      int
-	Out     int
-	Skipped map[string]int
+	In      int            `json:"in"`
+	Out     int            `json:"out"`
+	Skipped map[string]int `json:"skipped"`
 }
 
 // GroupSummary is the group step's summary projection.
 type GroupSummary struct {
-	Groups         int
-	Videos         int
-	Companions     int
-	DuplicateStems int
-	DuplicateFiles int
-	Unmatched      int
-	Warnings       int
+	Groups         int `json:"groups"`
+	Videos         int `json:"videos"`
+	Companions     int `json:"companions"`
+	DuplicateStems int `json:"duplicate_stems"`
+	DuplicateFiles int `json:"duplicate_files"`
+	Unmatched      int `json:"unmatched"`
+	Warnings       int `json:"warnings"`
 }
 
 // String renders the group summary as one line.
@@ -671,19 +671,36 @@ func (s GroupSummary) String() string {
 // needs a human, and where the group's parts disagreed. Conflicts is a list of
 // numbers rather than a count because the point of recording one is to show it.
 type ParseSummary struct {
-	Groups   int
-	Parts    int
-	Resolved int
+	Groups   int `json:"groups"`
+	Parts    int `json:"parts"`
+	Resolved int `json:"resolved"`
 	// Unresolved is keyed by reason (no_candidate / ambiguous / duplicate_stem).
-	Unresolved map[string]int
+	Unresolved map[string]int `json:"unresolved"`
 	// Conflicts is the sorted, distinct set of numbers other parts read that the
 	// decided number was not.
-	Conflicts     []string
-	PrimaryFailed int
+	Conflicts     []string `json:"conflicts"`
+	PrimaryFailed int      `json:"primary_failed"`
+	// CandidateNumbers is the per-file chip list the needs-number panel shows: path
+	// → the numbers that file's own stem offered. The primary also gets the group's
+	// union when its own text offered nothing, so a human has something to click.
+	//
+	// The JSON key is `candidates` because that is what the API's groups and task
+	// files call the chips; note that it is a different sense of the word than the
+	// filter's Candidates, which are the files that entered processing.
+	//
+	// It is a projection of the unresolved sets only — a resolved group already has
+	// its answer — and it stops after maxCandidateFiles entries, because a summary
+	// that grows with the batch would be an artifact, not a projection.
+	CandidateNumbers map[string][]string `json:"candidates"`
 	// conflicts accumulates the set while the step runs; Conflicts is its sorted
 	// projection, so the summary is stable across runs.
 	conflicts map[string]bool
 }
+
+// maxCandidateFiles bounds how many files one parse summary records candidates
+// for. A batch that needs more than this is not waiting for a human to click
+// chips: the panel would be unusable long before the cap.
+const maxCandidateFiles = 200
 
 // String renders the parse summary as one line.
 func (s ParseSummary) String() string {

@@ -484,26 +484,9 @@ func (s *Store) Runs(ctx context.Context, taskID int64) ([]Run, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tasks: read runs of task %d: %w", taskID, err)
 	}
-	defer func() { _ = rows.Close() }()
 	var out []Run
-	for rows.Next() {
-		var (
-			r        Run
-			started  string
-			finished sql.NullString
-		)
-		if err := rows.Scan(&r.ID, &r.TaskID, &r.No, &r.Status, &started, &finished, &r.Error); err != nil {
-			return nil, err
-		}
-		if r.StartedAt, err = parseStamp(started); err != nil {
-			return nil, err
-		}
-		if r.FinishedAt, err = nullStamp(finished); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
+	err = scanRuns(rows, func(r Run) { out = append(out, r) })
+	return out, err
 }
 
 // Steps reads the step runs of one owner, in pipeline order.
@@ -525,25 +508,9 @@ func (s *Store) Steps(ctx context.Context, o Owner) ([]Step, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tasks: read step runs: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
 	var out []Step
-	for rows.Next() {
-		var (
-			st                 Step
-			started            string
-			batchID, taskRunID sql.NullInt64
-		)
-		if err := rows.Scan(&st.ID, &st.Idx, &st.Type, &st.Name, &st.Status, &started, &st.MS,
-			&st.SummaryJSON, &st.Error, &batchID, &taskRunID); err != nil {
-			return nil, err
-		}
-		st.BatchID, st.TaskRunID = batchID.Int64, taskRunID.Int64
-		if st.StartedAt, err = parseStamp(started); err != nil {
-			return nil, err
-		}
-		out = append(out, st)
-	}
-	return out, rows.Err()
+	err = scanSteps(rows, func(st Step) { out = append(out, st) })
+	return out, err
 }
 
 // FileRows reads the output ledger of one run.
@@ -558,21 +525,7 @@ func (s *Store) FileRows(ctx context.Context, taskRunID int64) ([]FileRow, error
 	if err != nil {
 		return nil, fmt.Errorf("tasks: read %d's ledger: %w", taskRunID, err)
 	}
-	defer func() { _ = rows.Close() }()
 	var out []FileRow
-	for rows.Next() {
-		var (
-			r       FileRow
-			created string
-		)
-		if err := rows.Scan(&r.ID, &r.TaskID, &r.TaskRunID, &r.StepRunID, &r.Kind, &r.Role, &r.Idx,
-			&r.Src, &r.Dst, &r.Bytes, &r.SHA256, &r.Action, &created); err != nil {
-			return nil, err
-		}
-		if r.CreatedAt, err = parseStamp(created); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
+	err = scanFileRows(rows, func(r FileRow) { out = append(out, r) })
+	return out, err
 }

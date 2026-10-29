@@ -162,11 +162,6 @@ type PathState struct {
 	Active bool
 }
 
-// pathChunk is how many paths one IN list carries. SQLite's default variable limit
-// is well above this; the chunk is small enough that a preview of a large directory
-// never builds a query the driver has to refuse.
-const pathChunk = 400
-
 // LookupPaths answers both dedup gates for a set of paths, without claiming
 // anything: the preview needs to know which rows are occupied (gate one refuses
 // those) and which paths a finished task already handled (gate two only hints that
@@ -183,15 +178,15 @@ func (s *Store) LookupPaths(ctx context.Context, paths []string) (map[string]Pat
 	if err != nil {
 		return nil, err
 	}
-	for start := 0; start < len(paths); start += pathChunk {
-		chunk := paths[start:min(start+pathChunk, len(paths))]
+	for start := 0; start < len(paths); start += queryChunk {
+		chunk := paths[start:min(start+queryChunk, len(paths))]
 		args := make([]any, len(chunk))
 		for i, p := range chunk {
 			args[i] = p
 		}
 		query := `SELECT f.path, f.task_id, t.status, f.active
 		            FROM task_files f JOIN tasks t ON t.id = f.task_id
-		           WHERE f.path IN (?` + strings.Repeat(", ?", len(chunk)-1) + `)
+		           WHERE f.path IN (` + placeholders(len(chunk)) + `)
 		           ORDER BY f.active DESC, f.task_id DESC`
 		rows, err := db.QueryContext(ctx, query, args...)
 		if err != nil {

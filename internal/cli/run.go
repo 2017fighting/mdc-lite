@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/2017fighting/mdc-lite/internal/config"
 	"github.com/2017fighting/mdc-lite/internal/pipeline"
+	"github.com/2017fighting/mdc-lite/internal/service"
 	"github.com/2017fighting/mdc-lite/internal/sources"
 )
 
@@ -63,37 +65,36 @@ func runPipeline(args []string, stdout, stderr io.Writer) int {
 		}
 		return 1
 	}
-	p, ok := findPipeline(l.pipelines, pipelineID)
-	if !ok {
-		known := make([]string, len(l.pipelines))
-		for i, one := range l.pipelines {
-			known[i] = one.ID
-		}
-		fmt.Fprintf(stderr, "mdc run: no pipeline %q in %s (have: %s)\n",
-			pipelineID, l.settings.PipelinesDir, strings.Join(known, ", "))
-		return 1
-	}
 
-	engine, err := pipeline.Build(p, pipeline.Options{
-		Input:  pipeline.Input{Roots: roots},
-		Until:  until,
-		DryRun: dryRun,
-		Env: pipeline.Environment{
-			TemplatesDir: l.settings.TemplatesDir,
-			Sources:      sources.Build(sources.ScrapeWith(p), sources.NewFetcher(l.settings)),
-			Images:       l.settings.Concurrency.Images,
+	// The same service the server adapts: `mdc run` opens no database and starts no
+	// listener, but it does not own a second copy of the wiring either.
+	fetcher := sources.NewFetcher(l.settings)
+	svc, err := service.New(service.Config{
+		Settings:  l.settings,
+		Pipelines: l.pipelines,
+		EnvFor: func(p config.Pipeline) pipeline.Environment {
+			return pipeline.Environment{
+				Sources:      sources.Build(sources.ScrapeWith(p), fetcher),
+				TemplatesDir: l.settings.TemplatesDir,
+				Images:       l.settings.Concurrency.Images,
+			}
 		},
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
+		fmt.Fprintf(stderr, "mdc run: %v\n", err)
 		return 1
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	res, err := engine.Run(ctx)
+	res, err := svc.RunPipeline(ctx, service.RunRequest{
+		Pipeline: pipelineID,
+		Roots:    roots,
+		Until:    until,
+		DryRun:   dryRun,
+	})
 	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
+		printServiceError(stderr, err)
 		return 1
 	}
 	res.Print(stdout)
@@ -116,13 +117,15 @@ func runPipeline(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func findPipeline(pipelines []config.Pipeline, id string) (config.Pipeline, bool) {
-	for _, p := range pipelines {
-		if p.ID == id {
-			return p, true
-		}
+// printServiceError prints a failure the way the CLI should: the service's message
+// without its machine-code prefix (the code is for the UI's local table).
+func printServiceError(w io.Writer, err error) {
+	var se *service.Error
+	if errors.As(err, &se) {
+		fmt.Fprintln(w, se.Message)
+		return
 	}
-	return config.Pipeline{}, false
+	fmt.Fprintln(w, err)
 }
 
 // pathList is a repeatable path flag that also accepts a comma-separated list,

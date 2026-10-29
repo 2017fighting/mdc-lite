@@ -47,6 +47,15 @@ func ToIntake(trigger tasks.Trigger, triggerRef string, res *Result) tasks.Intak
 		}
 		in.Groups = append(in.Groups, out)
 	}
+	// The files filter turned away are input the trigger handed over, so they are
+	// part of the batch's `skipped` list with the reason the API reports. Scan's own
+	// skips (hidden, excluded, a download in progress) are not here: they are not
+	// part of the selection, they are the walk's own boundaries.
+	if res.State.Candidates != nil {
+		for _, r := range res.State.Candidates.Rejected {
+			in.Skipped = append(in.Skipped, tasks.SkippedPath{Path: r.File.Path, Reason: tasks.ReasonFiltered})
+		}
+	}
 	return in
 }
 
