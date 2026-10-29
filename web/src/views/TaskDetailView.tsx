@@ -32,21 +32,21 @@ import { navigate } from '../lib/router'
 // waits for a number — the same panel the 待补号 page shows. There is no log view:
 // `step_runs` and `source_runs` are the queryable trace (spec §15).
 
-const FIELDS: { field: keyof MetadataView; label: string }[] = [
-  { field: 'title', label: 'title 标题' },
-  { field: 'plot', label: 'plot 简介' },
-  { field: 'fanart', label: 'fanart 背景图' },
-  { field: 'extrafanarts', label: 'extrafanarts 剧照' },
-  { field: 'tags', label: 'tags 标签' },
-  { field: 'releasedate', label: 'releasedate 发行日期' },
-  { field: 'actors', label: 'actors 演员' },
-  { field: 'poster', label: 'poster 海报' },
-  { field: 'director', label: 'director 导演' },
-  { field: 'runtime', label: 'runtime 时长' },
-  { field: 'rating', label: 'rating 评分' },
-  { field: 'series', label: 'series 系列' },
-  { field: 'studio', label: 'studio 制作商' },
-  { field: 'publisher', label: 'publisher 发行商' },
+const FIELDS: { field: keyof MetadataView; cn: string }[] = [
+  { field: 'title', cn: '标题' },
+  { field: 'plot', cn: '简介' },
+  { field: 'fanart', cn: '背景图' },
+  { field: 'extrafanarts', cn: '剧照' },
+  { field: 'tags', cn: '标签' },
+  { field: 'releasedate', cn: '发行日期' },
+  { field: 'actors', cn: '演员' },
+  { field: 'poster', cn: '海报' },
+  { field: 'director', cn: '导演' },
+  { field: 'runtime', cn: '时长' },
+  { field: 'rating', cn: '评分' },
+  { field: 'series', cn: '系列' },
+  { field: 'studio', cn: '制作商' },
+  { field: 'publisher', cn: '发行商' },
 ]
 
 const TABS = [
@@ -238,9 +238,9 @@ export function TaskDetailView({ id }: { id: number }) {
               </div>
               <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
                 {tab === 'fields' ? <FieldsTab task={task} /> : null}
-                {tab === 'steps' ? <StepsTab steps={task.step_runs} /> : null}
-                {tab === 'sources' ? <SourcesTab sources={task.source_runs} /> : null}
-                {tab === 'files' ? <LedgerTab rows={task.file_rows} /> : null}
+                {tab === 'steps' ? <StepsTab steps={task.step_runs} onRefresh={detail.reload} /> : null}
+                {tab === 'sources' ? <SourcesTab sources={task.source_runs} onRefresh={detail.reload} /> : null}
+                {tab === 'files' ? <LedgerTab rows={task.file_rows} onRefresh={detail.reload} /> : null}
               </div>
             </Card>
 
@@ -276,8 +276,8 @@ function ImageStrip({ task, onOpen }: { task: TaskDetail; onOpen: (src: string, 
           {poster ? (
             <button type="button" className="relative block w-full" onClick={() => onOpen(imageSrc(poster.url, 640), 'poster')}>
               <img src={imageSrc(poster.url, 320)} alt="poster" className="poster w-full rounded-md border border-line" />
-              <Badge className="absolute bottom-1 left-1 border-line bg-surface/90 text-text-muted" title="封套右侧裁切 2:3">
-                ✂ 裁切 2:3
+              <Badge className="absolute bottom-1 left-1 border-line bg-surface/90 text-text-muted" title="✂ 封套右侧裁切 2:3">
+                ✂ 封套右侧裁切 2:3
               </Badge>
             </button>
           ) : (
@@ -400,15 +400,15 @@ function FieldsTab({ task }: { task: TaskDetail }) {
             </td>
             <td className="text-micro text-text-muted">parse</td>
           </tr>
-          {FIELDS.map(({ field, label }) => {
+          {FIELDS.map(({ field, cn }) => {
             const isMissing = missing.has(field)
             const source = task.metadata.sources[field] ?? ''
             const value = fieldValue(task, field)
             return (
               <tr key={field} className={isMissing ? 'bg-danger-tint/40' : undefined}>
                 <th scope="row" className="bg-surface text-left">
-                  <Mono className="text-micro">{label.split(' ')[0]}</Mono>
-                  <span className="ml-1 text-micro text-text-muted">{label.split(' ')[1] ?? ''}</span>
+                  <Mono className="text-micro">{field}</Mono>
+                  <span className="ml-1 text-micro text-text-muted">{cn}</span>
                 </th>
                 <td className={isMissing ? 'text-danger-ink' : 'text-cell'}>
                   {isMissing ? (
@@ -432,9 +432,15 @@ function FieldsTab({ task }: { task: TaskDetail }) {
   )
 }
 
-function StepsTab({ steps }: { steps: StepView[] }) {
+function StepsTab({ steps, onRefresh }: { steps: StepView[]; onRefresh: () => void }) {
   if (!steps.length) {
-    return <EmptyState title="还没有步骤留痕" hint="任务可能还没开始跑，或使用的是不含步骤的流水线。" />
+    return (
+      <EmptyState
+        title="还没有步骤留痕"
+        hint="任务可能还没开始跑，或使用的是不含步骤的流水线。"
+        action={<Button size="sm" onClick={onRefresh}>刷新</Button>}
+      />
+    )
   }
   return (
     <div className="table-wrap">
@@ -472,12 +478,13 @@ function StepsTab({ steps }: { steps: StepView[] }) {
   )
 }
 
-function SourcesTab({ sources }: { sources: SourceRunView[] }) {
+function SourcesTab({ sources, onRefresh }: { sources: SourceRunView[]; onRefresh: () => void }) {
   if (!sources.length) {
     return (
       <EmptyState
         title="还没有源留痕"
         hint="任务可能还没跑到 scrape（例如在等补号），或流水线里没有源。"
+        action={<Button size="sm" onClick={onRefresh}>刷新</Button>}
       />
     )
   }
@@ -542,9 +549,15 @@ function fieldsOf(value: unknown): unknown {
   return Object.keys(value as Record<string, unknown>)
 }
 
-function LedgerTab({ rows }: { rows: FileRowView[] }) {
+function LedgerTab({ rows, onRefresh }: { rows: FileRowView[]; onRefresh: () => void }) {
   if (!rows.length) {
-    return <EmptyState title="任务还没有落盘" hint="output 是唯一写盘出口：失败在它之前就不会留下台账。" />
+    return (
+      <EmptyState
+        title="任务还没有落盘"
+        hint="output 是唯一写盘出口：失败在它之前就不会留下台账。"
+        action={<Button size="sm" onClick={onRefresh}>刷新</Button>}
+      />
+    )
   }
   return (
     <div className="table-wrap">

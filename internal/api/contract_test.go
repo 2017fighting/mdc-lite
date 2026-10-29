@@ -304,8 +304,8 @@ func TestDirs_ListsOnlyDirectoriesInsideTheRoots(t *testing.T) {
 }
 
 // The Deck draws the mount label on the path and one entry per browse root, so the
-// picker's answer has to carry both. It is additive: the pre-existing fields are
-// unchanged, which is why the endpoint's contract stays `path` + `stats`.
+// picker's answer has to carry both. Two response fields are new; the request is
+// still `path` + `stats` (ADR-0018).
 func TestDirs_ReportsEveryRootAndTheMountLabelOfTheCurrentPath(t *testing.T) {
 	media := filepath.Join(t.TempDir(), "media")
 	other := filepath.Join(t.TempDir(), "second")
@@ -339,6 +339,28 @@ func TestDirs_ReportsEveryRootAndTheMountLabelOfTheCurrentPath(t *testing.T) {
 	}
 	if res.Roots[1].Path != other || res.Roots[1].Label != "VR 专区" {
 		t.Errorf("roots[1] = %+v", res.Roots[1])
+	}
+}
+
+// Nested roots are allowed by config, so the label must be the innermost mount: the
+// Deck draws the same choice, and two labels for one path would be a bug report.
+func TestDirs_NestedRootsLabelTheInnermostMount(t *testing.T) {
+	media := filepath.Join(t.TempDir(), "media")
+	vr := filepath.Join(media, "vr")
+	f := newFixtureWith(t, func(s *config.Settings) {
+		s.BrowseRoots = []config.BrowseRoot{{Path: media, Label: "媒体库"}, {Path: vr, Label: "VR 专区"}}
+	})
+	if err := os.MkdirAll(filepath.Join(vr, "2024"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var res service.BrowseResult
+	f.doJSON(http.MethodGet, "/api/fs/dirs?path="+filepath.Join(vr, "2024"), nil, &res)
+	if res.Label != "VR 专区" {
+		t.Errorf("label = %q, want the innermost mount (VR 专区)", res.Label)
+	}
+	if len(res.Roots) != 2 {
+		t.Errorf("roots = %+v, want both browse roots", res.Roots)
 	}
 }
 
@@ -386,8 +408,8 @@ func TestPreview_Is202ThenPollableWithTheTableShape(t *testing.T) {
 	if res.State != service.PreviewSucceeded {
 		t.Fatalf("state = %q (error %+v)", res.State, res.Error)
 	}
-	// Two videos and notes.txt are walked; the filter keeps the four videos and
-	// turns away notes.txt. `matched` is the survivors, not the rejections.
+	// Five files are walked; the filter keeps the four videos and turns away
+	// notes.txt. `matched` is the survivors, not the rejections.
 	if res.WalkedFiles != 5 || res.Matched != 4 {
 		t.Errorf("walked/matched = %d/%d, want 5/4", res.WalkedFiles, res.Matched)
 	}

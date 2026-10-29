@@ -39,8 +39,7 @@ export function ScanView({ initialPath }: { initialPath?: string }) {
   }, [browse.data, browsePath])
 
   const [previewID, setPreviewID] = useState<string | null>(null)
-  const [preview, setPreview] = useState<PreviewResult | null>(null)
-  const [previewError, setPreviewError] = useState<unknown>(undefined)
+  const [startError, setStartError] = useState<unknown>(undefined)
   const [starting, setStarting] = useState(false)
   const [selection, setSelection] = useState<Set<string>>(new Set())
   const [creating, setCreating] = useState(false)
@@ -53,41 +52,27 @@ export function ScanView({ initialPath }: { initialPath?: string }) {
     // A different scope is a different question: the old preview no longer describes
     // what the next walk would do.
     setPreviewID(null)
-    setPreview(null)
-    setPreviewError(undefined)
+    setStartError(undefined)
     setCreated(null)
     setCreateError(undefined)
     setSelection(new Set())
   }, [scopeKey])
 
-  useEffect(() => {
-    if (!previewID) return
-    let cancelled = false
-    let timer: number | undefined
-    const poll = async () => {
-      try {
-        const res = await api.preview(previewID)
-        if (cancelled) return
-        setPreview(res)
-        if (res.state === 'running') timer = window.setTimeout(() => void poll(), 700)
-      } catch (err) {
-        if (cancelled) return
-        setPreviewError(err)
-      }
-    }
-    void poll()
-    return () => {
-      cancelled = true
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [previewID])
+  // One poll through the shared hook: a preview asked for without an id answers null
+  // and the loop stops.
+  const previewPoll = useAsync(
+    () => (previewID ? api.preview(previewID) : Promise.resolve(null)),
+    [previewID],
+    { ms: 700, while: (res) => res?.state === 'running' },
+  )
+  const preview: PreviewResult | null = previewID ? (previewPoll.data ?? null) : null
+  const previewError = startError ?? previewPoll.error
 
   async function startScan() {
     if (!pipeline || scope.roots.length === 0) return
     setStarting(true)
-    setPreview(null)
     setPreviewID(null)
-    setPreviewError(undefined)
+    setStartError(undefined)
     setCreated(null)
     setCreateError(undefined)
     setSelection(new Set())
@@ -99,7 +84,7 @@ export function ScanView({ initialPath }: { initialPath?: string }) {
       })
       setPreviewID(started.preview_id)
     } catch (err) {
-      setPreviewError(err)
+      setStartError(err)
     } finally {
       setStarting(false)
     }
@@ -262,7 +247,6 @@ export function ScanView({ initialPath }: { initialPath?: string }) {
                 action={
                   <Button
                     onClick={() => {
-                      setPreview(null)
                       setPreviewID(null)
                       deckRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                     }}
@@ -301,7 +285,7 @@ export function ScanView({ initialPath }: { initialPath?: string }) {
                       </tbody>
                     </table>
                   </div>
-                  <div className="sticky bottom-0 flex min-h-11 flex-wrap items-center gap-3 border-t border-line bg-surface/95 px-4 py-2 backdrop-blur">
+                  <div className="sticky bottom-0 flex min-h-10 flex-wrap items-center gap-3 pointer-coarse:min-h-11 border-t border-line bg-surface/95 px-4 py-2 backdrop-blur">
                     <p className="text-cell" aria-live="polite">
                       已选 <b>{pickedGroups.length}</b> 组 / {pickedFiles} 个文件
                       <span className="ml-2 text-text-muted">
@@ -390,25 +374,24 @@ function GroupRows({
             </td>
             <td>
               {primary ? (
-                group.number ? (
-                  <Mono className="font-semibold">{group.number}</Mono>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    {group.candidates.length ? (
-                      <span className="flex flex-wrap gap-1">
-                        {group.candidates.map((c) => (
-                          <span
-                            key={c}
-                            className="rounded-full border border-number-mark/40 bg-number-tint px-2 py-0.5 font-mono text-micro text-number-ink"
-                          >
-                            {c}
-                          </span>
-                        ))}
-                      </span>
-                    ) : null}
+                <div className="flex flex-col gap-1">
+                  {group.number ? <Mono className="font-semibold">{group.number}</Mono> : null}
+                  {group.candidates.length > (group.number ? 1 : 0) ? (
+                    <span className="flex flex-wrap gap-1" aria-label="候选番号">
+                      {group.candidates.map((c) => (
+                        <span
+                          key={c}
+                          className="rounded-full border border-number-mark/40 bg-number-tint px-2 py-0.5 font-mono text-micro text-number-ink"
+                        >
+                          {c}
+                        </span>
+                      ))}
+                    </span>
+                  ) : null}
+                  {group.number ? null : (
                     <span className="text-micro text-text-muted">建任务后进「待补号」</span>
-                  </div>
-                )
+                  )}
+                </div>
               ) : (
                 <Muted>随组</Muted>
               )}

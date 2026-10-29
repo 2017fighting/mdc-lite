@@ -221,45 +221,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    /* Narrow viewports turn the directory table into one record card per row: the
-     header row disappears and each cell carries its own label. */
-  @media (max-width: 640px) {
-    .record-table thead {
-      display: none;
-    }
-
-    .record-table,
-    .record-table tbody,
-    .record-table tr,
-    .record-table td {
-      display: block;
-      width: 100%;
-    }
-
-    .record-table tr {
-      border-bottom: 1px solid var(--color-line);
-      padding: 0.5rem 0.75rem;
-    }
-
-    .record-table tr:last-child {
-      border-bottom: 0;
-    }
-
-    .record-table td {
-      border-bottom: 0;
-      padding: 0.25rem 0;
-    }
-
-    .record-table td[data-label]::before {
-      content: attr(data-label);
-      display: inline-block;
-      min-width: 5rem;
-      font-size: var(--text-micro);
-      color: var(--color-text-muted);
-    }
-  }
-
-  .skeleton {
+    .skeleton {
       animation: none;
     }
   }

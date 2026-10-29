@@ -26,7 +26,6 @@ export interface TaskFilters {
   trigger: Trigger | ''
   number: string
   createdAfter: string
-  createdBefore: string
   page: number
   perPage: number
 }
@@ -38,7 +37,6 @@ export function emptyTaskQuery(): TaskFilters {
     trigger: '',
     number: '',
     createdAfter: '',
-    createdBefore: '',
     page: 1,
     perPage: 20,
   }
@@ -58,14 +56,7 @@ export function taskQuery(filters: TaskFilters): string {
   const number = filters.number.trim().toUpperCase()
   if (number) params.set('number', number)
   if (filters.createdAfter) params.set('created_after', filters.createdAfter)
-  if (filters.createdBefore) params.set('created_before', filters.createdBefore)
   params.set('page', String(Math.max(1, Math.trunc(filters.page))))
   params.set('per_page', String(filters.perPage))
   return '?' + params.toString()
-}
-
-/** pages is the pagination control's window: every page when there are few. */
-export function pages(total: number, perPage: number): number[] {
-  const last = Math.max(1, Math.ceil(total / Math.max(1, perPage)))
-  return Array.from({ length: last }, (_, i) => i + 1)
 }

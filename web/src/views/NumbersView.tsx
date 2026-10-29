@@ -1,4 +1,5 @@
 import { api } from '../api/client'
+import { emptyTaskQuery, taskQuery } from '../api/query'
 import type { TaskView } from '../api/types'
 import { AsyncGate, EmptyState } from '../components/AsyncState'
 import { NumberFillPanel } from '../components/NumberFillPanel'
@@ -13,7 +14,11 @@ import { taskErrorLabel, triggerLabel } from '../lib/labels'
 // component, same endpoint — so a number typed here and one typed there are the same
 // submission (spec §15).
 
-const NEEDS_NUMBER_QUERY = '?status=needs_number&page=1&per_page=100'
+const NEEDS_NUMBER_QUERY = taskQuery({
+  ...emptyTaskQuery(),
+  statuses: ['needs_number'],
+  perPage: 100,
+})
 
 export function NumbersView() {
   const waiting = useAsync(() => api.tasks(NEEDS_NUMBER_QUERY), [])

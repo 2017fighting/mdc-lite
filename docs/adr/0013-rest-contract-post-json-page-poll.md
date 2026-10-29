@@ -1,6 +1,6 @@
 # 0013. REST 契约：写操作 POST + JSON body、页码分页、轮询进度面
 
-- 状态：Accepted
+- 状态：Accepted（形状由 ADR-0018 做增量补充：三个响应字段 + 一个请求字段）
 - 日期：2026-10-27
 - 来源：wayfinder 票「REST/HTTP API 契约与任务列表查询面」（#16）
 

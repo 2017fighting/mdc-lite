@@ -58,7 +58,7 @@ typecheck:
 .PHONY: test-web
 test-web:
 	@if [ -f $(WEB_DIR)/package.json ]; then \
-		cd $(WEB_DIR) && npm ci --no-audit --no-fund && npm test; \
+		cd $(WEB_DIR) && npm ci --no-audit --no-fund && npm test && echo "web tests ran"; \
 	else \
 		echo "web/: no package.json yet, nothing to test"; \
 	fi

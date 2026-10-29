@@ -81,6 +81,15 @@ describe('DirectoryDeck', () => {
     expect(props.onToggleRoot).toHaveBeenCalledWith('/media/vr')
   })
 
+  it('labels the current directory with the same four states and refuses to exclude a root', () => {
+    const props = deck({ path: '/media', scope: { roots: ['/media'], excludes: [] } })
+    const form = screen.getByLabelText('绝对路径').closest('form') as HTMLElement
+    // The path itself is the chosen root: moving it out is offered, excluding it is not.
+    expect(within(form).getByRole('button', { name: '✓ 移出扫描' })).toBeEnabled()
+    expect(within(form).getByRole('button', { name: '+ 排除' })).toBeDisabled()
+    expect(props.onToggleRoot).not.toHaveBeenCalled()
+  })
+
   it('only shows child statistics when they were asked for', async () => {
     const props = deck()
     // The API omits the counts unless `?stats=1` was asked for, so the cell says so.

@@ -49,7 +49,9 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: test
         working-directory: web
-        run: npm test
+        run: |
+          npm test
+          echo "frontend tests ran"   # positive marker: a green step that did not run is worse than red
       - name: typecheck
         working-directory: web
         run: npm run typecheck

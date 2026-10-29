@@ -121,9 +121,8 @@ export interface TaskView {
 }
 
 export interface Actor {
-  name?: string
-  role?: string
-  thumb?: string
+  name: string
+  gender: string
 }
 
 export interface MetadataView {

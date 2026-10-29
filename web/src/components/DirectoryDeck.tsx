@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { BrowseResult } from '../api/types'
 import { shortPath } from '../lib/format'
-import { scopeState, type Scope } from '../lib/scope'
-import { ErrorNotice, EmptyState } from './AsyncState'
+import { isStrictlyWithin, scopeState, type Scope } from '../lib/scope'
+import { AsyncGate } from './AsyncState'
 import { Button, Card, fieldClasses, Mono } from './Primitives'
 
 // The inline Directory Deck (ADR-0016). It is a workbench on the scan page, not a
@@ -71,7 +71,7 @@ export function DirectoryDeck({
   const dirs = browse?.dirs ?? []
   const label = browse?.label || mountLabel(path, roots)
   const here = scopeState(scope, path)
-  const canExcludeHere = scope.roots.some((root) => path !== root && path.startsWith(root + '/'))
+  const canExcludeHere = scope.roots.some((root) => isStrictlyWithin(path, root))
   const segments = crumbs(path)
 
   return (
@@ -157,9 +157,9 @@ export function DirectoryDeck({
             variant={here === 'root' ? 'primary' : 'secondary'}
             onClick={() => onToggleRoot(path)}
             disabled={!path}
-            title={here === 'root' ? '把这个目录移出待扫描清单' : '把这个目录加入待扫描清单'}
+            title={here === 'root' ? '把当前目录移出待扫描清单' : '把当前目录加入待扫描清单'}
           >
-            {here === 'root' ? '✓ 移出扫描' : '+ 加入扫描（当前目录）'}
+            {here === 'root' ? '✓ 移出扫描' : '+ 加入扫描'}
           </Button>
           <Button
             size="sm"
@@ -168,11 +168,11 @@ export function DirectoryDeck({
             disabled={!canExcludeHere && here !== 'exclude'}
             title={
               canExcludeHere || here === 'exclude'
-                ? '整棵子树跳过'
+                ? '整棵子树跳过（当前目录）'
                 : '排除必须是某个待扫描目录的真子目录'
             }
           >
-            {here === 'exclude' ? '取消排除' : '+ 排除（当前目录）'}
+            {here === 'exclude' ? '取消排除' : '+ 排除'}
           </Button>
           <span className="grow" />
           <Button size="sm" variant="quiet" onClick={onToggleStats} aria-pressed={stats}>
@@ -192,20 +192,28 @@ export function DirectoryDeck({
           </p>
         ) : null}
 
-        {error ? (
-          <ErrorNotice error={error} onRetry={onRetry} title="目录读取失败" />
-        ) : loading && !browse ? (
-          <div className="space-y-2" aria-hidden="true">
-            {Array.from({ length: 4 }, (_, i) => (
-              <div key={i} className="skeleton h-8 rounded" />
-            ))}
-          </div>
-        ) : dirs.length === 0 ? (
-          <EmptyState
-            title="这个目录下没有子目录"
-            hint="可以直接在上面的路径框里输入容器内的绝对路径，或回到某个 browse_roots 入口。"
-          />
-        ) : (
+        <AsyncGate
+          loading={loading && !browse}
+          error={error}
+          onRetry={onRetry}
+          empty={!loading && dirs.length === 0}
+          emptyTitle="这个目录下没有子目录"
+          emptyHint="可以直接在上面的路径框里输入容器内的绝对路径，或回到某个 browse_roots 入口。"
+          emptyAction={
+            roots[0] ? (
+              <Button size="sm" onClick={() => onNavigate(roots[0].path)}>
+                回到入口 {roots[0].label}
+              </Button>
+            ) : undefined
+          }
+          skeleton={
+            <div className="space-y-2" aria-hidden="true">
+              {Array.from({ length: 4 }, (_, i) => (
+                <div key={i} className="skeleton h-8 rounded" />
+              ))}
+            </div>
+          }
+        >
           <div className="table-wrap rounded-md border border-line">
             <table className="record-table">
               <caption className="sr-only">子目录：目录名、包含内容统计、容器内完整路径与目录操作</caption>
@@ -220,9 +228,7 @@ export function DirectoryDeck({
               <tbody>
                 {dirs.map((dir) => {
                   const state = scopeState(scope, dir.path)
-                  const canExclude = scope.roots.some(
-                    (root) => dir.path !== root && dir.path.startsWith(root + '/'),
-                  )
+                  const canExclude = scope.roots.some((root) => isStrictlyWithin(dir.path, root))
                   return (
                     <tr key={dir.path}>
                       <td data-label="目录名">
@@ -276,7 +282,7 @@ export function DirectoryDeck({
               </tbody>
             </table>
           </div>
-        )}
+        </AsyncGate>
       </div>
 
       <ScopeLedger scope={scope} roots={roots} onToggleRoot={onToggleRoot} onToggleExclude={onToggleExclude} />

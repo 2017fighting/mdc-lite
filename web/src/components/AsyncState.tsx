@@ -3,8 +3,9 @@ import { errorCode, errorMessage } from '../lib/labels'
 import { Button, Skeleton } from './Primitives'
 
 // The four-state contract (spec §15): every view can be loading, empty, failed or
-// normal, and the failure always offers a retry. It lives in one component so a new
-// view cannot quietly ship only two of the four.
+// normal, and the failure always offers a retry. `AsyncGate` is the common shape; a
+// view whose states differ (the scan page's idle/running/failed ladder) composes the
+// same `Skeleton`, `EmptyState` and `ErrorNotice` instead of inventing its own.
 
 export interface AsyncGateProps {
   loading: boolean

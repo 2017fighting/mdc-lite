@@ -82,7 +82,7 @@ func (s *Service) Browse(_ context.Context, path string, stats bool) (BrowseResu
 	if err != nil {
 		return BrowseResult{}, badRequest(CodeRootNotBrowsable, "the path cannot be resolved: "+err.Error())
 	}
-	if !filepath.IsAbs(path) || !s.browsable(abs) {
+	if !filepath.IsAbs(path) || s.approvingRoot(abs) == nil {
 		return BrowseResult{}, badRequestf(CodeRootNotBrowsable,
 			"%s is not inside browse_roots (have: %s)", abs, s.describeBrowseRoots())
 	}
@@ -124,24 +124,24 @@ func (s *Service) Browse(_ context.Context, path string, stats bool) (BrowseResu
 	return out, nil
 }
 
-// browsable reports whether abs is one of the roots or below one.
-func (s *Service) browsable(abs string) bool {
-	return s.approvingRoot(abs) != nil
-}
-
 // approvingRoot is the `browse_roots` entry that makes abs browsable, or nil when
-// the whitelist does not cover it.
+// the whitelist does not cover it. With nested roots the innermost one approves: the
+// label then matches the mount a human is actually looking at, which is the same
+// choice the Deck makes when it labels a path.
 func (s *Service) approvingRoot(abs string) *config.BrowseRoot {
+	var approved *config.BrowseRoot
+	best := -1
 	for i, root := range s.settings.BrowseRoots {
 		rootAbs, err := filepath.Abs(root.Path)
 		if err != nil {
 			continue
 		}
-		if withinPath(abs, rootAbs) {
-			return &s.settings.BrowseRoots[i]
+		if withinPath(abs, rootAbs) && len(rootAbs) > best {
+			best = len(rootAbs)
+			approved = &s.settings.BrowseRoots[i]
 		}
 	}
-	return nil
+	return approved
 }
 
 // labelOf is the mount label for a browsable path, empty when nothing covers it.

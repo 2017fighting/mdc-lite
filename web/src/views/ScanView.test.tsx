@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PreviewResult } from '../api/types'
@@ -81,8 +81,10 @@ describe('ScanView', () => {
 
     // Bootstrap: the browse roots are the entry points, not invented presets.
     expect(await screen.findByRole('button', { name: '媒体库' })).toBeInTheDocument()
-    const add = await screen.findByRole('button', { name: '+ 加入扫描' })
-    await userEvent.click(add)
+    // The row's own toggle adds the child directory (the current-dir button sits in
+    // the path form and would add /media instead).
+    const row = (await screen.findAllByRole('row'))[1]
+    await userEvent.click(within(row).getByRole('button', { name: '+ 加入扫描' }))
 
     await userEvent.click(screen.getAllByRole('button', { name: '开始扫描' })[0])
 

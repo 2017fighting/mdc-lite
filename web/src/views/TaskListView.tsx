@@ -8,7 +8,7 @@ import { Button, Card, fieldClasses, Mono, Muted, Skeleton } from '../components
 import { useAsync, useDebounced, isLiveStatus } from '../hooks'
 import { formatTimeShort } from '../lib/format'
 import { errorText, statusMeta, stepLabel, taskErrorLabel, triggerLabel } from '../lib/labels'
-import { navigate, useQuery } from '../lib/router'
+import { navigate, replaceLocation, useQuery } from '../lib/router'
 
 // The task list: the seven status chips with counts, the four filters, the 8-column
 // table, bulk rerun (the only bulk action) and page-number pagination. A failure
@@ -29,6 +29,7 @@ function initialFilters(search: URLSearchParams): { filters: TaskFilters; timeRa
     (STATUSES as string[]).includes(s),
   )
   const trigger = (search.get('trigger') ?? '') as Trigger | ''
+  const time = search.get('time')
   return {
     filters: {
       ...emptyTaskQuery(),
@@ -39,7 +40,7 @@ function initialFilters(search: URLSearchParams): { filters: TaskFilters; timeRa
       page: Number.isFinite(page) && page > 0 ? page : 1,
       perPage,
     },
-    timeRange: '',
+    timeRange: TIME_RANGES.some((r) => r.id === time) ? (time as TimeRange) : '',
   }
 }
 
@@ -87,6 +88,14 @@ export function TaskListView() {
     [filters, timeRange],
   )
   const query = taskQuery(effective)
+
+  // The filters live in the URL: a refresh, a copied link and a trip to a task's
+  // detail all come back to the same list.
+  useEffect(() => {
+    const params = new URLSearchParams(query)
+    if (timeRange) params.set('time', timeRange)
+    replaceLocation('/tasks?' + params.toString())
+  }, [query, timeRange])
 
   const list = useAsync(() => api.tasks(query), [query], {
     ms: 3000,
@@ -166,7 +175,7 @@ export function TaskListView() {
         <div>
           <h1 className="text-display font-semibold">任务列表</h1>
           <p className="mt-1 text-cell text-text-muted">
-            共 {total} 条 · 每页 {perPage} · 按创建时间倒序 · 进度每 3 秒轮询（只在有排队/运行中的任务时）
+            共 {total} 条 · 每页 {perPage} · 按创建时间倒序 · 进度每 3 秒轮询（只在有非终态任务时）
           </p>
         </div>
         <Button size="sm" onClick={() => { list.reload(); counts.reload() }}>
@@ -344,7 +353,7 @@ export function TaskListView() {
           </div>
 
           {selected.size > 0 ? (
-            <div className="sticky bottom-0 flex min-h-11 flex-wrap items-center gap-3 border-t border-line bg-surface/95 px-4 py-2 backdrop-blur">
+            <div className="sticky bottom-0 flex min-h-10 flex-wrap items-center gap-3 pointer-coarse:min-h-11 border-t border-line bg-surface/95 px-4 py-2 backdrop-blur">
               <p className="text-cell" aria-live="polite">
                 已选 <b>{selected.size}</b> 个任务
                 <span className="ml-2 text-text-muted">批量只做重跑，逐条返回结果</span>
@@ -414,7 +423,8 @@ function TaskRow({
   onRerun: () => void
 }) {
   const [posterBroken, setPosterBroken] = useState(false)
-  const canRerun = !isLiveStatus(task.status) && task.status !== 'needs_number'
+  // A waiting task is rerun by submitting numbers, not by the rerun endpoint.
+  const canRerun = !isLiveStatus(task.status)
   return (
     <>
       <tr>

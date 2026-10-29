@@ -64,7 +64,12 @@ export function useDebounced<T>(value: T, ms = 300): T {
   return debounced
 }
 
-/** isLive is true while a task can still change: the poll's own condition. */
+/**
+ * isLiveStatus is "not terminal": the poll's own condition. `needs_number` is not
+ * terminal either — it still holds its paths and waits for a human, so the list keeps
+ * refreshing while one is in view (spec §14: poll only while a non-terminal task
+ * exists).
+ */
 export function isLiveStatus(status: string): boolean {
-  return status === 'queued' || status === 'running'
+  return status === 'queued' || status === 'running' || status === 'needs_number'
 }

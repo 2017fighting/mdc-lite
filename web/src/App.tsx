@@ -1,4 +1,5 @@
 import { api } from './api/client'
+import { emptyTaskQuery, taskQuery } from './api/query'
 import { EmptyState } from './components/AsyncState'
 import { Button, Mono } from './components/Primitives'
 import { useAsync } from './hooks'
@@ -20,7 +21,8 @@ export function App() {
   const route = parseRoute(location.split('?')[0])
   // The sidebar's count is the queue size: one cheap request, refreshed on a slower
   // cadence than the list's own 3s poll.
-  const waiting = useAsync(() => api.tasks('?status=needs_number&page=1&per_page=20'), [], {
+  const waitingQuery = taskQuery({ ...emptyTaskQuery(), statuses: ['needs_number'], perPage: 20 })
+  const waiting = useAsync(() => api.tasks(waitingQuery), [], {
     ms: 10000,
     while: () => true,
   })
