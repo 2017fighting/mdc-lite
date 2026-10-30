@@ -172,3 +172,46 @@ func taskIDs(t *testing.T, raw *store.Store, batchID int64) []int64 {
 	}
 	return out
 }
+
+// TestToIntake_AParsedMissIsItsOwnNeedsNumberTask: parse hands a file it could not
+// number over as a one-file Unresolved entry, and the intake turns that entry into
+// a needs_number task holding exactly that file. Two misses stay two tasks.
+func TestToIntake_AParsedMissIsItsOwnNeedsNumberTask(t *testing.T) {
+	res := &Result{
+		Pipeline: "main",
+		State: &State{Parsed: &Parsed{
+			Items: []ParsedCandidate{{
+				File:   FileRef{Path: "/media/a/ABC-123.mp4", Size: 10},
+				Stem:   "ABC-123",
+				Number: Number{Raw: "ABC-123", Normalized: "ABC-123", Family: "generic"},
+			}},
+			Unresolved: []Unresolved{
+				{Reason: ReasonNoCandidate, Dir: "/media/a", Stem: "hello", Files: []FileRef{{Path: "/media/a/hello.mp4", Size: 11}}},
+				{Reason: ReasonAmbiguous, Dir: "/media/a", Stem: "ABC-123_XYZ-456", Files: []FileRef{{Path: "/media/a/ABC-123_XYZ-456.mp4", Size: 12}}, Candidates: []string{"ABC-123", "XYZ-456"}},
+			},
+		}},
+	}
+
+	in := ToIntake(tasks.TriggerManual, "/media/a", res)
+	if len(in.Groups) != 3 {
+		t.Fatalf("groups = %+v, want the numbered work and two one-file needs_number groups", in.Groups)
+	}
+	if in.Groups[0].Number != "ABC-123" || in.Groups[0].NeedsNumber != "" {
+		t.Errorf("first group = %+v, want the numbered work", in.Groups[0])
+	}
+	for i, want := range []struct {
+		reason string
+		path   string
+	}{
+		{ReasonNoCandidate, "/media/a/hello.mp4"},
+		{ReasonAmbiguous, "/media/a/ABC-123_XYZ-456.mp4"},
+	} {
+		got := in.Groups[i+1]
+		if got.NeedsNumber != want.reason {
+			t.Errorf("group %d = %+v, want reason %q", i+1, got, want.reason)
+		}
+		if len(got.Files) != 1 || got.Files[0].Path != want.path || got.Files[0].Role != tasks.RolePrimary {
+			t.Errorf("group %d files = %+v, want the one file as primary", i+1, got.Files)
+		}
+	}
+}

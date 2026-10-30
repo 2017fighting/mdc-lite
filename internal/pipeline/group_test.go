@@ -315,32 +315,6 @@ func TestGroup_NoiseIsStrippedBeforeGrouping(t *testing.T) {
 	}
 }
 
-func TestGroup_SanitizeTableIsStrippedToo(t *testing.T) {
-	w := groupWith(func(w *config.GroupWith) {
-		w.Sanitize = []string{"-sample", `r:-web$`}
-	})
-	g := groupFiles(t, w, "ABC-123-cd1-sample.mp4", "ABC-123-cd2-web.mp4")
-	if len(g.Groups) != 1 {
-		t.Fatalf("groups = %d, want 1", len(g.Groups))
-	}
-	if stem := g.Groups[0].PrimaryStem; stem != "ABC-123" {
-		t.Errorf("stem = %q", stem)
-	}
-}
-
-func TestGroup_PartPatternsAreConfidentMarkers(t *testing.T) {
-	w := groupWith(func(w *config.GroupWith) {
-		w.PartPatterns = []string{`(?i)(?:^|[-_. ])slice(\d)$`}
-	})
-	g := groupFiles(t, w, "ABC-123-slice1.mp4", "ABC-124-slice2.mp4")
-	if len(g.Groups) != 1 {
-		t.Fatalf("groups = %d, want 1: a user pattern is a confident marker, so distance may merge", len(g.Groups))
-	}
-	if idx := g.Groups[0].Parts[0].Marker.Index; idx != 1 {
-		t.Errorf("index = %d, want 1 from the capture group", idx)
-	}
-}
-
 func TestGroup_BKTreeAgreesWithThePairwisePass(t *testing.T) {
 	// More videos than max_files_for_levenshtein in one directory switches the
 	// near-miss search to a BK-tree. The grouping must not change: that switch is

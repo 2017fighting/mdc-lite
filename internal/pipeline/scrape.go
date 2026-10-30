@@ -124,9 +124,10 @@ func (s *scrapeStep) Run(ctx context.Context, st *State) error {
 		return fmt.Errorf("no Parsed artifact to scrape")
 	}
 	out := &Scraped{}
-	summary := &ScrapeSummary{Items: len(st.Parsed.Items), Missing: newCounts(), Results: newCounts()}
-	for _, item := range st.Parsed.Items {
-		scraped, attempts, err := s.scrapeOne(ctx, item)
+	works := ParsedWorks(st)
+	summary := &ScrapeSummary{Items: len(works), Missing: newCounts(), Results: newCounts()}
+	for _, work := range works {
+		scraped, attempts, err := s.scrapeOne(ctx, work)
 		if err != nil {
 			return err
 		}
@@ -163,8 +164,8 @@ type scrapedAnswer struct {
 }
 
 // scrapeOne runs one number through the field-level fallback.
-func (s *scrapeStep) scrapeOne(ctx context.Context, item ParsedGroup) (ScrapedItem, []SourceAttempt, error) {
-	number := item.Number.Normalized
+func (s *scrapeStep) scrapeOne(ctx context.Context, work ParsedWork) (ScrapedItem, []SourceAttempt, error) {
+	number := work.Number.Normalized
 	if s.cfg.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.cfg.Timeout))
@@ -181,7 +182,7 @@ func (s *scrapeStep) scrapeOne(ctx context.Context, item ParsedGroup) (ScrapedIt
 	}
 	md, images := r.run(ctx)
 
-	return ScrapedItem{Group: item.Group, Number: item.Number, Metadata: md, Images: images},
+	return ScrapedItem{Group: work.Group, Number: work.Number, Metadata: md, Images: images},
 		s.attempts(r, ctx.Err() != nil), nil
 }
 

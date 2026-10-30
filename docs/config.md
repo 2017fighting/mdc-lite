@@ -44,7 +44,7 @@
 | `scan` | `roots: []`、`exclude: []`（由触发注入覆盖） |
 | `filter` | 无（`rules` 必填） |
 | `group` | `max_distance: 2`、`max_files_for_levenshtein: 50`、`companion_extensions` 为字幕与图片扩展名 |
-| `parse` | 无（`rules` 必填） |
+| `parse` | 无（`rules` 必填）；`sanitize: []`、`part_patterns: []` |
 | `scrape` | `sources` 为全局序 `[javdb, dmm, javbus, fc2]`、`priority` 把 14 个字段全写全（见下）、`timeout: 5m`；源级 `timeout` 30s、`rate` 1 req/s + burst 2 + 冷却 5m |
 | `images` | 无键 |
 | `nfo` | `template: default` |
@@ -69,13 +69,13 @@
 
 `domains` 是有序列表，**失败即切下一个**；一项可以写裸域（`javbus.com`，按 `https` 访问），也可以写带 scheme 的完整地址（`http://127.0.0.1:9001`）——后者是让夹具回放接管某个源的循正规做法，源里的其他每一行（选择器、cookie、Referer）都还是生产那一份。`timeout` 管**单次 HTTP 请求**（默认 30s），`scrape.with.timeout` 管**整个番号**（默认 5m）。`rate` 的 `requests_per_second` / `burst` / `cooldown` 三个字段各自独立，只写一个时其余取默认。
 
-`group.with.sanitize` 是「字面量 / 正则」混合表：裸字符串按字面量剥，`r:` 前缀（如 `r:[-_. ]1080p$`）按 Go 正则剥。
+`parse.with.sanitize` 是「字面量 / 正则」混合表：裸字符串按字面量剥，`r:` 前缀（如 `r:[-_. ]1080p$`）按 Go 正则剥。表挂在 `parse` 上，因为 parse 先于 group 运行（ADR-0019），剥离的目的是让番号规则看到干净的文本。旧配置里的 `group.with.sanitize` / `group.with.part_patterns` 现在会在启动期被当作未知键拒绝，迁到 `parse.with` 即可。
 
 `filter.with.rules[].when` 的四个键（`ext_in` / `ext_not_in` / `min_size` / `stem_matches`）**互斥**：一条规则同时写两个时语义未定义，所以启动即拒。要同时卡扩展名与体积就写两条规则。
 
 规则表**有序、首条命中即停**，所以兜底规则要写在最后（示例配置的最后一条 `everything-else` 就是）。没有被任何规则命中的文件按 `no_match` 拒绝——它是拒绝原因，不是规则名，因此带下划线。
 
-`group.with.part_patterns` 是用户追加的**确定标记**正则：必须匹配在名字**末尾**，**第一个捕获组是分片序号**（`(?i)(?:^|[-_. ])slice(\d)$`）。没有捕获组的 pattern 会在启动时被拒——它会匹配、却什么也决定不了。
+`parse.with.part_patterns` 是用户追加的**确定标记**正则：必须匹配在名字**末尾**，**第一个捕获组是分片序号**（`(?i)(?:^|[-_. ])slice(\d)$`）。没有捕获组的 pattern 会在启动时被拒——它会匹配、却什么也决定不了。
 
 `parse.with.rules` 是**位置列表**：`{builtin: default}` 在它所在的位置展开内置四条（`fc2` / `date-code` / `dmm-content-id` / `generic`），写在它前面的 `{pattern: …}` 先被记到番号上，写在后面则让位；**表里完全不写 `builtin` = 不用任何内置规则**。空表拒绝启动（一行也解析不出）。用户模式用**第一个捕获组**当番号（没有捕获组时用整段匹配），`family` 缺省 `custom`。
 
@@ -171,7 +171,7 @@ config/pipelines/main.yaml:24:18: step 2 (filter): unknown field "rules[0].when.
 - **距离合并不得让一个组出现两个同号分片**。② 是无条件的两两合并，单链会传染：一个目录里 30 部相邻番号各自 `-cd1`/`-cd2` 会被串成一组（`WORK-100-cd2` 与 `WORK-101-cd1` 只差一个字符）。所以 ② 只在「合并后组内分片序号仍两两不同」时才生效——一部作品不会有第 3 片的两份。
 - **「像分片却没合」的告警有两个上界**：距离 ≤ `3 × max_distance`，且两条主干共享至少一半前缀。否则一个目录里的分区对会把摘要刷成一片噪声，而提示就不成其为提示了。
 - **`scan` 只按名字滤三样东西**：隐藏项、`.part` / `.!qB`、`exclude` 子树。另外两件不是判断而是硬约束：隐藏**目录**整棵剪掉（否则 `.Trash-1000` 之类会像正常文件一样进来），指向目录的符号链接不跟随（会成环），指向文件的符号链接按目标文件收下（媒体库里很常见）。
-- **`filter` 的 `stem_matches` 判的是「原始 basename 去扩展名」**：剥离噪声只发生在 `group` 一处，所以过滤阶段还没有「主干」。
+- **`filter` 的 `stem_matches` 判的是「原始 basename 去扩展名」**：剥离噪声发生在 `parse`（ADR-0019），所以过滤阶段还没有「主干」。
 - **`mdc run` 不碰数据库**：前缀的产物全在内存里；任务级后缀的写盘由 `output` 出 `Plan`、`Apply` 执行，非 `--dry-run` 时才会写输出目录。
 
 ## 落盘主链（`scrape` / `images` / `nfo` / `output`）的实现裁决

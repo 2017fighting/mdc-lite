@@ -294,9 +294,10 @@ func stateItems(st *State, withParsed bool) []ImagesItem {
 		}
 		return out
 	case withParsed && st.Parsed != nil:
-		out := make([]ImagesItem, 0, len(st.Parsed.Items))
-		for _, item := range st.Parsed.Items {
-			out = append(out, ImagesItem{Group: item.Group, Number: item.Number})
+		works := ParsedWorks(st)
+		out := make([]ImagesItem, 0, len(works))
+		for _, work := range works {
+			out = append(out, ImagesItem{Group: work.Group, Number: work.Number})
 		}
 		return out
 	default:

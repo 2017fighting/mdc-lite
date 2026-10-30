@@ -3,20 +3,26 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/2017fighting/mdc-lite/internal/config"
 )
 
-// parseStep turns each group's stems into a number.
+// parseStep reads a number, a part marker and version flags off each candidate
+// file's name.
 //
-// `group` has already decided which files belong together and stripped each name
-// down to its stem, so this step has one job: run the rule table over every video
-// in the group, decide one number from what came back, and hand anything it
-// cannot decide to a human instead of guessing.
+// It consumes the filter's Candidates one file at a time: `group` has not run yet
+// (ADR-0019), so there is no stem to borrow and no sibling to agree a conditional
+// part marker. What the step can settle on its own, it settles: it folds the name
+// to half-width, strips noise and flags, takes a confident part marker off the
+// end, and runs the rule table over what is left. A conditional marker (`ABC-123-1`)
+// stays in the stem: it is only a part if a sibling agrees, and only `group` can see
+// the siblings.
 //
-// The evaluation order is not first-match-wins. Every rule runs, and the span
+// The number evaluation order is not first-match-wins. Every rule runs, and the span
 // arbitrates: a candidate whose match sits inside another candidate's longer match
 // is the less specific reading of the same text and drops out (the generic rule
 // seeing `PPV-3336019` inside `FC2-PPV-3336019`). A reading a stricter rule matched
@@ -24,7 +30,9 @@ import (
 // serial must not survive as generic's `FC-002`. What is left is deduped by
 // normalized number, so two rules agreeing is one answer rather than two.
 type parseStep struct {
-	rules []numberRule
+	rules     []numberRule
+	strip     *stripper
+	partRules []*regexp.Regexp
 }
 
 func newParse(w config.ParseWith) (Step, error) {
@@ -32,7 +40,19 @@ func newParse(w config.ParseWith) (Step, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &parseStep{rules: rules}, nil
+	strip, err := newStripper(w.Sanitize)
+	if err != nil {
+		return nil, err
+	}
+	s := &parseStep{rules: rules, strip: strip}
+	for _, p := range w.PartPatterns {
+		re, err := regexp.Compile(p)
+		if err != nil {
+			return nil, fmt.Errorf("part_patterns %q: %w", p, err)
+		}
+		s.partRules = append(s.partRules, re)
+	}
+	return s, nil
 }
 
 // compileParseRules expands the positional rule table. `{builtin: default}`
@@ -78,138 +98,83 @@ func (s *parseStep) Requires() []string { return []string{config.ArtifactCandida
 func (s *parseStep) Produces() []string { return []string{config.ArtifactParsed} }
 
 func (s *parseStep) Run(ctx context.Context, st *State) error {
-	if st.Groups == nil {
-		return fmt.Errorf("no Groups to parse")
+	if st.Candidates == nil {
+		return fmt.Errorf("no Candidates to parse")
 	}
 	out := &Parsed{}
 	summary := &ParseSummary{
-		Groups:           len(st.Groups.Groups),
+		Files:            len(st.Candidates.Files),
 		Unresolved:       newCounts(),
 		CandidateNumbers: map[string][]string{},
-		conflicts:        map[string]bool{},
 	}
-	for _, grp := range st.Groups.Groups {
+	for _, c := range st.Candidates.Files {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := s.parseGroup(grp, out, summary); err != nil {
-			return err
-		}
+		s.parseCandidate(c.File, out, summary)
 	}
-	// A duplicate stem never became a group, so it was never parsed: it goes to a
-	// human as-is, with the reason group gave it.
-	for _, dup := range st.Groups.Duplicates {
-		out.Unresolved = append(out.Unresolved, Unresolved{
-			Dir:    dup.Dir,
-			Stem:   dup.Stem,
-			Reason: ReasonDuplicateStem,
-			Files:  dup.Files,
-		})
-		summary.Unresolved[ReasonDuplicateStem]++
-	}
-	summary.Conflicts = sortedKeys(summary.conflicts)
 	st.Parsed = out
 	st.ParseRun = summary
 	return nil
 }
 
-// parseGroup decides one group's number and records what the other parts read.
-func (s *parseStep) parseGroup(grp Group, out *Parsed, summary *ParseSummary) error {
-	if len(grp.Parts) == 0 {
-		// `group` cannot emit one, so this is a broken state rather than a group to
-		// number; saying so beats both a panic and a group that vanishes from both
-		// halves of the result.
-		return fmt.Errorf("group in %s has no parts to parse", grp.Dir)
-	}
-	parsed := ParsedGroup{Group: grp}
-	var every []numberCandidate
-	var union []string
-	for _, p := range grp.Parts {
-		// group already folded the stem; folding again is idempotent and keeps the
-		// step correct if it is ever handed a stem from somewhere else.
-		matched, refused := s.candidates(toHalfWidth(p.Stem))
-		cands := adjudicate(matched, refused)
-		numbers := numbersOf(cands)
-		parsed.Parts = append(parsed.Parts, numbers)
-		union = mergeNumbers(union, numbers)
-		every = append(every, cands...)
-		summary.Parts++
+// parseCandidate reads one file's name. One number resolves it, several make it
+// ambiguous, none sends it to a human with the reason that applies.
+func (s *parseStep) parseCandidate(file FileRef, out *Parsed, summary *ParseSummary) {
+	name := toHalfWidth(stemOf(file.Path))
+	flags := versionFlags(name)
+	stripped := s.strip.strip(name)
+	t := partAt(stripped, s.partRules)
+	// A conditional marker is not evidence on its own: `ABC-123-1` is work
+	// `ABC-123-1` until a sibling says otherwise, and only `group` sees siblings.
+	// So the stem keeps it, and the part index stays zero.
+	part := Marker{}
+	if t.tier == tierConfident {
+		part = t.marker()
+		stripped = t.stem
 	}
 
-	// Parts[0] is the primary: group sorts parts by part number, and the smallest
-	// one decides the number and the output directory's name.
-	primary := parsed.Parts[0]
-	switch {
-	case len(primary) == 1:
-		parsed.Number = numberFrom(every, primary[0])
-	case len(primary) > 1:
-		// The primary's own text offers several numbers and none of them is the
-		// less specific reading of another: ask, do not guess.
-		s.unresolve(out, summary, grp, ReasonAmbiguous, primary, parsed.Parts)
-		return nil
-	case len(union) == 1:
-		// The primary produced nothing, and the rest of the group agreed on one
-		// number: take it, and say out loud that the primary is what failed.
-		parsed.Number = numberFrom(every, union[0])
-		parsed.PrimaryFailed = true
-		summary.PrimaryFailed++
-	case len(union) == 0:
-		s.unresolve(out, summary, grp, ReasonNoCandidate, nil, parsed.Parts)
-		return nil
+	matched, refused := s.candidates(stripped)
+	cands := adjudicate(matched, refused)
+	switch len(cands) {
+	case 1:
+		out.Items = append(out.Items, ParsedCandidate{
+			File:   file,
+			Stem:   stripped,
+			Number: numberFrom(cands, cands[0].number),
+			Part:   part,
+			Flags:  flags,
+		})
+		summary.Resolved++
+		if part.Index > 0 {
+			summary.Parts++
+		}
+		if flags.IsChinese {
+			summary.Chinese++
+		}
+		if flags.IsUncensored {
+			summary.Uncensored++
+		}
+	case 0:
+		s.unresolve(out, summary, file, stripped, ReasonNoCandidate, nil)
 	default:
-		s.unresolve(out, summary, grp, ReasonAmbiguous, union, parsed.Parts)
-		return nil
+		s.unresolve(out, summary, file, stripped, ReasonAmbiguous, numbersOf(cands))
 	}
-
-	// Divergence is recorded, not a failure: a part that reads another number (or
-	// several) is a hint that the group is stitched together, and the summary
-	// carries it for a human to look at.
-	for _, n := range conflictsOf(parsed) {
-		summary.conflicts[n] = true
-	}
-	out.Items = append(out.Items, parsed)
-	summary.Resolved++
-	return nil
 }
 
-// unresolve records a group a human has to fill in, and the numbers each of its
-// files offered so the panel can show them as chips.
-func (s *parseStep) unresolve(out *Parsed, summary *ParseSummary, grp Group, reason string, candidates []string, parts [][]string) {
-	files := make([]FileRef, len(grp.Parts))
-	for i, p := range grp.Parts {
-		files[i] = p.File
-	}
+// unresolve records one file a human has to fill in, and the numbers it offered
+// so the panel can show them as chips.
+func (s *parseStep) unresolve(out *Parsed, summary *ParseSummary, file FileRef, stem, reason string, candidates []string) {
 	out.Unresolved = append(out.Unresolved, Unresolved{
-		Dir:        grp.Dir,
-		Stem:       grp.PrimaryStem,
+		Dir:        filepath.Dir(file.Path),
+		Stem:       stem,
 		Reason:     reason,
-		Files:      files,
+		Files:      []FileRef{file},
 		Candidates: candidates,
 	})
 	summary.Unresolved[reason]++
-	s.recordCandidates(summary, grp, candidates, parts)
-}
-
-// recordCandidates files one unresolved group's numbers under the paths they came
-// from. A file's own reading is what its row offers; the primary falls back to the
-// group's union when its own text offered nothing, because that is the set the
-// human is being asked to choose from.
-func (s *parseStep) recordCandidates(summary *ParseSummary, grp Group, union []string, parts [][]string) {
-	for i, p := range grp.Parts {
-		if len(summary.CandidateNumbers) >= maxCandidateFiles {
-			return
-		}
-		var numbers []string
-		if i < len(parts) {
-			numbers = parts[i]
-		}
-		if i == 0 && len(numbers) == 0 {
-			numbers = union
-		}
-		if len(numbers) == 0 {
-			continue
-		}
-		summary.CandidateNumbers[p.File.Path] = append([]string(nil), numbers...)
+	if len(candidates) > 0 && len(summary.CandidateNumbers) < maxCandidateFiles {
+		summary.CandidateNumbers[file.Path] = append([]string(nil), candidates...)
 	}
 }
 
@@ -364,45 +329,37 @@ func numberFrom(cands []numberCandidate, number string) Number {
 	return Number{Normalized: number}
 }
 
-// conflictsOf is the sorted set of numbers the group's other parts read that the
-// decided number is not. It is the `conflict` list of the parse summary.
-func conflictsOf(parsed ParsedGroup) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, numbers := range parsed.Parts[1:] {
-		for _, n := range numbers {
-			if n == parsed.Number.Normalized || seen[n] {
-				continue
-			}
-			seen[n] = true
-			out = append(out, n)
+// versionFlags reads the version evidence off a file name. The single-letter
+// tokens are matched only after a separator, so a title that starts with `C` or
+// `U` is not a version, and an `-cd1` part marker never reads as `-c`.
+func versionFlags(name string) VersionFlags {
+	var f VersionFlags
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "中文") || strings.Contains(lower, "中字") {
+		f.IsChinese = true
+	}
+	for _, word := range []string{"uncensored", "leak", "無碼", "无码", "破解", "流出"} {
+		if strings.Contains(lower, word) {
+			f.IsUncensored = true
 		}
 	}
-	sort.Strings(out)
-	return out
-}
-
-// mergeNumbers unions two sorted number lists.
-func mergeNumbers(a, b []string) []string {
-	seen := make(map[string]bool, len(a)+len(b))
-	for _, s := range a {
-		seen[s] = true
+	fields := strings.FieldsFunc(lower, func(r rune) bool {
+		return r == '-' || r == '_' || r == '.' || r == ' ' || r == '\t' || r == '[' || r == ']' || r == '(' || r == ')'
+	})
+	for i, token := range fields {
+		if i == 0 {
+			// A leading `C`/`U` is the work's prefix (`C-123`), not a version flag.
+			continue
+		}
+		switch token {
+		case "c", "ch", "chs", "cht":
+			f.IsChinese = true
+		case "u":
+			f.IsUncensored = true
+		case "uc", "cu":
+			f.IsChinese = true
+			f.IsUncensored = true
+		}
 	}
-	for _, s := range b {
-		seen[s] = true
-	}
-	return sortedKeys(seen)
-}
-
-// sortedKeys is the sorted key set of a set map.
-func sortedKeys(set map[string]bool) []string {
-	if len(set) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(set))
-	for k := range set {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	return f
 }

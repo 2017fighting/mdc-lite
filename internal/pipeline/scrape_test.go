@@ -16,11 +16,13 @@ import (
 	"github.com/2017fighting/mdc-lite/internal/source"
 )
 
-// scrapeState is the smallest artifact a scrape run needs: one parsed group.
+// scrapeState is the smallest artifact a scrape run needs: one parsed candidate.
 func scrapeState(number string) *State {
-	return &State{Parsed: &Parsed{Items: []ParsedGroup{
-		{Number: Number{Raw: number, Normalized: number}},
-	}}}
+	return &State{Parsed: &Parsed{Items: []ParsedCandidate{{
+		File:   FileRef{Path: "/media/a/" + number + ".mp4", Ext: ".mp4"},
+		Stem:   number,
+		Number: Number{Raw: number, Normalized: number},
+	}}}}
 }
 
 func scrapeCfg(ids ...string) config.ScrapeWith {

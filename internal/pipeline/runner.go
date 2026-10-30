@@ -376,18 +376,30 @@ func seedState(files []tasks.TaskFile, number string) *State {
 			})
 			continue
 		}
-		grp.Parts = append(grp.Parts, Part{File: ref, Marker: Marker{Index: f.PartIndex}})
+		grp.Parts = append(grp.Parts, Part{File: ref, Stem: stemOf(f.Path), Marker: Marker{Index: f.PartIndex}})
 	}
 	sort.SliceStable(grp.Parts, func(a, b int) bool { return grp.Parts[a].Index() < grp.Parts[b].Index() })
 	if len(grp.Parts) > 0 {
 		grp.Primary = grp.Parts[0].File
-		grp.PrimaryStem = stemOf(grp.Parts[0].File.Path)
+		grp.PrimaryStem = grp.Parts[0].Stem
 	}
-	parsed := &Parsed{Items: []ParsedGroup{{
-		Group:  grp,
-		Number: Number{Raw: number, Normalized: number},
-	}}}
-	return &State{Parsed: parsed}
+	// The task's number is already a row: rebuild the parse result from the stored
+	// files instead of re-reading their names, so a human-typed number survives the
+	// rerun. The group carries the task's full shape; the candidates supply the
+	// number the later steps read.
+	items := make([]ParsedCandidate, 0, len(grp.Parts))
+	for _, p := range grp.Parts {
+		items = append(items, ParsedCandidate{
+			File:   p.File,
+			Stem:   p.Stem,
+			Number: Number{Raw: number, Normalized: number},
+			Part:   p.Marker,
+		})
+	}
+	return &State{
+		Parsed: &Parsed{Items: items},
+		Groups: &Groups{Groups: []Group{grp}},
+	}
 }
 
 // suffixStartKey is the first step of the task-level suffix: the one after `group`,

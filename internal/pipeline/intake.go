@@ -22,30 +22,25 @@ func ToIntake(trigger tasks.Trigger, triggerRef string, res *Result) tasks.Intak
 		return in
 	}
 
-	// Groups are keyed by their primary so an unresolved group — which parse hands
-	// over as bare files — can still be given its parts and companions.
-	byPrimary := map[string]Group{}
-	if res.State.Groups != nil {
-		for _, g := range res.State.Groups.Groups {
-			byPrimary[g.Primary.Path] = g
-		}
-	}
-
 	parsed := res.State.Parsed
-	for _, item := range parsed.Items {
+	for _, work := range ParsedWorks(res.State) {
 		in.Groups = append(in.Groups, tasks.Group{
-			Number: item.Number.Normalized,
-			Files:  intakeFiles(item.Group),
+			Number: work.Number.Normalized,
+			Files:  intakeFiles(work.Group),
 		})
 	}
 	for _, u := range parsed.Unresolved {
-		out := tasks.Group{NeedsNumber: u.Reason, Files: filesOfUnresolved(u)}
-		if len(u.Files) > 0 {
-			if g, ok := byPrimary[u.Files[0].Path]; ok {
-				out.Files = intakeFiles(g)
-			}
+		in.Groups = append(in.Groups, tasks.Group{NeedsNumber: u.Reason, Files: filesOfRefs(u.Files)})
+	}
+	// A duplicate stem never became a group: it is a human's call, so it enters the
+	// intake as its own needs_number set rather than as a numbered work.
+	if res.State.Groups != nil {
+		for _, d := range res.State.Groups.Duplicates {
+			in.Groups = append(in.Groups, tasks.Group{
+				NeedsNumber: ReasonDuplicateStem,
+				Files:       filesOfRefs(d.Files),
+			})
 		}
-		in.Groups = append(in.Groups, out)
 	}
 	// The files filter turned away are input the trigger handed over, so they are
 	// part of the batch's `skipped` list with the reason the API reports. Scan's own
@@ -90,8 +85,8 @@ func intakeFiles(g Group) []tasks.InputFile {
 	return out
 }
 
-// filesOfUnresolved is the fallback for a set that never became a group — a
-// duplicate stem waiting for a human.
+// filesOfRefs is the fallback for a set that never became a group — a per-file
+// parse miss or a duplicate stem waiting for a human.
 //
 // Nothing here may claim part evidence the names do not have (ADR-0003: a
 // duplicate stem is not merged automatically), so part_index stays 0 for every
@@ -99,9 +94,9 @@ func intakeFiles(g Group) []tasks.InputFile {
 // only because it is the alphabetically first, which is what the spec says a
 // primary is. Whether the second file is a part of the same work or another
 // version is the human's tick (`task_files.is_part`), not this function's guess.
-func filesOfUnresolved(u Unresolved) []tasks.InputFile {
-	out := make([]tasks.InputFile, len(u.Files))
-	for i, f := range u.Files {
+func filesOfRefs(files []FileRef) []tasks.InputFile {
+	out := make([]tasks.InputFile, len(files))
+	for i, f := range files {
 		role := tasks.RolePart
 		if i == 0 {
 			role = tasks.RolePrimary

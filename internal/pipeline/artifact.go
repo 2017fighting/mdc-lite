@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"path/filepath"
 	"time"
 
 	"github.com/2017fighting/mdc-lite/internal/field"
@@ -199,54 +200,111 @@ type Number struct {
 	Family     string
 }
 
-// ParsedGroup is one group with its number.
+// VersionFlags is what a file name says about the version it holds. Both flags
+// are name evidence, not media inspection: `-C`/`中文` marks a Chinese-subtitled
+// copy, `-U`/`无码`/`破解`/`流出` marks an uncensored one, and `-UC` is both.
+type VersionFlags struct {
+	IsChinese    bool
+	IsUncensored bool
+}
+
+// ParsedCandidate is one candidate file after `parse` read its name.
 //
-// Parts is index-aligned with Group.Parts, and Parts[0] is the primary: each
-// entry lists the distinct numbers that part's own stem produced. Zero entries
-// means that file's text offered no number; more than one means it offered
-// several, and the primary's list is what decides the group.
-type ParsedGroup struct {
-	Group  Group
+// Number is the normalized number the rule table agreed on. Part is the part
+// marker the name carried (zero when it carried none), and Stem is the name with
+// its noise, part marker and version flags stripped — the text `group` compares to
+// attach companions. Flags is the version evidence the name carried.
+type ParsedCandidate struct {
+	File   FileRef
+	Stem   string
 	Number Number
-	Parts  [][]string
-	// PrimaryFailed says the number came from another part because the primary
-	// produced no candidate of its own.
-	PrimaryFailed bool
+	Part   Marker
+	Flags  VersionFlags
 }
 
 // Unresolved reasons, the machine codes that also land in `tasks.last_error` and
 // in the needs-number panel. They are stable strings, not prose.
 const (
-	// ReasonNoCandidate means no rule read a number anywhere in the group.
+	// ReasonNoCandidate means no rule read a number anywhere in the file's name.
 	ReasonNoCandidate = "no_candidate"
-	// ReasonAmbiguous means the group offered several numbers and none is the
+	// ReasonAmbiguous means the file offered several numbers and none is the
 	// less specific reading of another. Candidates carries what to show the user.
 	ReasonAmbiguous = "ambiguous"
 	// ReasonDuplicateStem means the files strip to the same stem with no part
 	// marker on either side, so a human decides whether they are two parts or two
-	// versions. No number is read at all.
+	// versions. `parse` no longer emits it — `group` owns that judgement — but the
+	// code stays here because it is part of the panel's stable vocabulary.
 	ReasonDuplicateStem = "duplicate_stem"
 )
 
-// Unresolved is a set of files waiting for a human-typed number. A group whose
-// number did not resolve arrives as its files (primary first); a duplicate stem
-// arrives as the files that never formed a group.
+// Unresolved is one file waiting for a human-typed number. `parse` records one
+// per file: a file it cannot number is a file a human numbers, not a group whose
+// number is missing.
 type Unresolved struct {
 	Dir    string
 	Stem   string
 	Reason string
 	Files  []FileRef
 	// Candidates is what the rules offered, sorted — the chips the panel shows.
-	// Empty for no_candidate and duplicate_stem: there is nothing to offer.
+	// Empty for no_candidate: there is nothing to offer.
 	Candidates []string
 }
 
-// Parsed is what `parse` produces: the groups with a number, and the files a
-// human has to number. Nothing is dropped: a file with no number goes to
-// Unresolved rather than being guessed at or silently skipped.
+// Parsed is what `parse` produces: the candidates whose names yielded one number,
+// and the files a human has to number. Nothing is dropped: a file with no number
+// goes to Unresolved rather than being guessed at or silently skipped.
 type Parsed struct {
-	Items      []ParsedGroup
+	Items      []ParsedCandidate
 	Unresolved []Unresolved
+}
+
+// ParsedWork is one work the task-level steps can process: a group and the number
+// its primary parsed to.
+type ParsedWork struct {
+	Group  Group
+	Number Number
+}
+
+// ParsedWorks gives the group view of a parse result to the steps that still read
+// Parsed (scrape, output, intake, preview). When `group` has run, its Groups are
+// the works and parse supplies each primary's number. Without a group artifact — a
+// dry run stopped at parse — every candidate is its own one-file work.
+//
+// #37 rewrites group to consume Parsed; this bridge exists only so the later steps
+// keep compiling and keep their one-work-at-a-time shape until then.
+func ParsedWorks(st *State) []ParsedWork {
+	if st == nil || st.Parsed == nil {
+		return nil
+	}
+	byPath := make(map[string]ParsedCandidate, len(st.Parsed.Items))
+	for _, c := range st.Parsed.Items {
+		byPath[c.File.Path] = c
+	}
+	if st.Groups != nil && len(st.Groups.Groups) > 0 {
+		out := make([]ParsedWork, 0, len(st.Groups.Groups))
+		for _, g := range st.Groups.Groups {
+			if pc, ok := byPath[g.Primary.Path]; ok {
+				out = append(out, ParsedWork{Group: g, Number: pc.Number})
+			}
+		}
+		return out
+	}
+	out := make([]ParsedWork, 0, len(st.Parsed.Items))
+	for _, c := range st.Parsed.Items {
+		out = append(out, ParsedWork{Group: candidateGroup(c), Number: c.Number})
+	}
+	return out
+}
+
+// candidateGroup is the one-file group a parsed candidate becomes when there is
+// no group artifact to describe the work it belongs to.
+func candidateGroup(c ParsedCandidate) Group {
+	return Group{
+		Dir:         filepath.Dir(c.File.Path),
+		Primary:     c.File,
+		PrimaryStem: c.Stem,
+		Parts:       []Part{{File: c.File, Stem: c.Stem, Marker: c.Part}},
+	}
 }
 
 // ImageBlob is one image whose bytes are in hand, before it is named for the

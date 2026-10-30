@@ -345,10 +345,11 @@ func TestParsePipeline_PartPatternsNeedACaptureGroup(t *testing.T) {
           when: {ext_in: [.mp4]}
           then: include
   - type: parse
-    with: {rules: [{builtin: default}]}
-  - type: group
     with:
+      rules: [{builtin: default}]
       part_patterns: ['` + pattern + `']
+  - type: group
+    with: {}
   - type: output
     with: {root: /o}
 `

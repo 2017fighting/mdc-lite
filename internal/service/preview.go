@@ -248,9 +248,10 @@ func (s *Service) previewResult(ctx context.Context, run *pipeline.Result) Previ
 	// The dedup gate is answered for every primary in one query.
 	occupied := map[string]bool{}
 	if st.Parsed != nil && s.tasks != nil {
-		paths := make([]string, 0, len(st.Parsed.Items)+len(st.Parsed.Unresolved))
-		for _, item := range st.Parsed.Items {
-			paths = append(paths, item.Group.Primary.Path)
+		works := pipeline.ParsedWorks(st)
+		paths := make([]string, 0, len(works)+len(st.Parsed.Unresolved))
+		for _, work := range works {
+			paths = append(paths, work.Group.Primary.Path)
 		}
 		for _, u := range st.Parsed.Unresolved {
 			if len(u.Files) > 0 {
@@ -269,21 +270,17 @@ func (s *Service) previewResult(ctx context.Context, run *pipeline.Result) Previ
 	if st.Parsed == nil {
 		return out
 	}
-	for _, item := range st.Parsed.Items {
-		g := item.Group
+	for _, work := range pipeline.ParsedWorks(st) {
+		g := work.Group
 		parts := make([]string, 0, len(g.Parts))
 		for _, part := range g.Parts {
 			parts = append(parts, part.File.Path)
 		}
-		var candidates []string
-		if len(item.Parts) > 0 {
-			candidates = append(candidates, item.Parts[0]...)
-		}
 		out.Groups = append(out.Groups, PreviewGroup{
 			Primary:    g.Primary.Path,
 			Parts:      parts,
-			Number:     item.Number.Normalized,
-			Candidates: nonNil(candidates),
+			Number:     work.Number.Normalized,
+			Candidates: nonNil(nil),
 			Marker:     primaryMarker(g),
 			Dir:        g.Dir,
 			Size:       g.Primary.Size,
@@ -306,6 +303,27 @@ func (s *Service) previewResult(ctx context.Context, run *pipeline.Result) Previ
 			Size:       u.Files[0].Size,
 			Occupied:   occupied[u.Files[0].Path],
 		})
+	}
+	// A duplicate stem is group's judgement, not parse's: it never became one of
+	// Parsed's items, so the preview reads it from the group artifact's own list.
+	if st.Groups != nil {
+		for _, d := range st.Groups.Duplicates {
+			if len(d.Files) == 0 {
+				continue
+			}
+			parts := make([]string, 0, len(d.Files))
+			for _, f := range d.Files {
+				parts = append(parts, f.Path)
+			}
+			out.Groups = append(out.Groups, PreviewGroup{
+				Primary:    d.Files[0].Path,
+				Parts:      parts,
+				Candidates: nonNil(nil),
+				Dir:        d.Dir,
+				Size:       d.Files[0].Size,
+				Occupied:   occupied[d.Files[0].Path],
+			})
+		}
 	}
 	return out
 }

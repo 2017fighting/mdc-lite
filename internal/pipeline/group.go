@@ -25,25 +25,19 @@ import (
 // Everything else stays apart, and `ABP-123` / `ABP-124` staying apart is the
 // point of requiring positive evidence.
 type groupStep struct {
-	cfg       config.GroupWith
-	strip     *stripper
-	partRules []*regexp.Regexp
+	cfg   config.GroupWith
+	strip *stripper
 }
 
 func newGroup(w config.GroupWith) (Step, error) {
-	strip, err := newStripper(w.Sanitize)
+	// The user's sanitize and part_patterns tables moved to `parse` with ADR-0019:
+	// parse now runs before group and owns name stripping. Until #37 rewrites this
+	// step to consume Parsed, it still strips with the built-in table alone.
+	strip, err := newStripper(nil)
 	if err != nil {
 		return nil, err
 	}
-	s := &groupStep{cfg: w, strip: strip}
-	for _, p := range w.PartPatterns {
-		re, err := regexp.Compile(p)
-		if err != nil {
-			return nil, fmt.Errorf("part_patterns %q: %w", p, err)
-		}
-		s.partRules = append(s.partRules, re)
-	}
-	return s, nil
+	return &groupStep{cfg: w, strip: strip}, nil
 }
 
 func (s *groupStep) Type() string { return config.StepGroup }
@@ -123,7 +117,7 @@ func (s *groupStep) groupDir(files []FileRef, out *Groups) {
 			continue
 		}
 		stripped := s.strip.strip(stemOf(f.Path))
-		t := partAt(stripped, s.partRules)
+		t := partAt(stripped, nil)
 		v := &video{file: f, stem: stripped}
 		switch t.tier {
 		case tierConfident:
@@ -371,7 +365,7 @@ func (s *groupStep) attachCompanions(companions []FileRef, groups []Group) []Unm
 	sort.Slice(companions, func(a, b int) bool { return companions[a].Path < companions[b].Path })
 	for _, f := range companions {
 		stripped := s.strip.strip(stemOf(f.Path))
-		t := partAt(stripped, s.partRules)
+		t := partAt(stripped, nil)
 		// Most specific first: the whole stripped name, then the name with its own
 		// part marker taken off, which is how `SSVR-122-cd1.srt` finds its video.
 		stems := []string{stripped}

@@ -47,6 +47,10 @@ func TestNormalizeNumber_IsTheOneFormBothPathsUse(t *testing.T) {
 		{"snis00440", "SNIS-440"},              // the per-prefix width table trims the pad
 		{"SNIS-044", "SNIS-044"},               // but a serial of the right width stays
 		{"ssis-1 ", "SSIS-001"},                // edges are trimmed
+		{"hnvr00152", "HNVR-152"},              // VR labels print a three-digit serial
+		{"sivr00525", "SIVR-525"},              // the same width applies to its siblings
+		{"dsvr00123", "DSVR-123"},
+		{"mdvr00123", "MDVR-123"},
 	} {
 		if got := NormalizeNumber(c.in); got != c.want {
 			t.Errorf("NormalizeNumber(%q) = %q, want %q", c.in, got, c.want)

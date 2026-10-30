@@ -42,15 +42,19 @@ steps:
       # `builtin` uses no built-in rules at all.
       rules:
         - {builtin: default}
+      # Noise stripped off the file name before matching. A bare string is a
+      # literal; `r:` makes it a Go regexp. Parse runs before group (ADR-0019),
+      # so these tables live here: they decide what the number rules see.
+      # sanitize: ["1080p", "r:[-_. ](?:x264|x265|h264|h265)$"]
+      # User part markers: must match at the end, first capture group is the
+      # part number.
+      # part_patterns: ['(?i)(?:^|[-_. ])slice(\d)$']
 
   - type: group
     with:
       max_distance: 2
       max_files_for_levenshtein: 50
       companion_extensions: [".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png", ".webp"]
-      # Noise stripped off the file name before grouping. A bare string is a
-      # literal; `r:` makes it a Go regexp.
-      # sanitize: ["1080p", "r:[-_. ](?:x264|x265|h264|h265)$"]
 
   # Task-level suffix: scrape → images → nfo → output. These run once per group
   # (one group per number, ADR-0019), and a rerun starts here rather than

@@ -88,10 +88,10 @@ func TestScrapeWithReadsThePipelinesOwnStep(t *testing.T) {
         - name: all
           when: {ext_in: [.mp4]}
           then: include
-  - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
+    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: scrape
     with:
       sources:
@@ -143,10 +143,10 @@ func pipelineWith(t *testing.T, scrapeWith string) config.Pipeline {
         - name: all
           when: {ext_in: [.mp4]}
           then: include
-  - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
+    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: scrape
     with:
 ` + scrapeWith + `

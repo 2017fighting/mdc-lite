@@ -1235,7 +1235,7 @@ func TestStepSummaries_SpeakSnakeCase(t *testing.T) {
 	if err := json.Unmarshal([]byte(parse.SummaryJSON), &summary); err != nil {
 		t.Fatalf("summary %q: %v", parse.SummaryJSON, err)
 	}
-	for _, key := range []string{"groups", "parts", "resolved", "unresolved", "candidates"} {
+	for _, key := range []string{"files", "parts", "resolved", "unresolved", "candidates"} {
 		if _, ok := summary[key]; !ok {
 			t.Errorf("summary is missing the snake_case key %q: %s", key, parse.SummaryJSON)
 		}

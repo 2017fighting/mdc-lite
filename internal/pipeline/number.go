@@ -9,9 +9,9 @@ import (
 // adjudication of what several rules read off one name, and the normalization
 // that makes a hand-typed number and a file name land on the same form.
 //
-// `group` has already stripped the noise off every name (artifact.go's Part
-// carries the stem), so nothing here sanitizes anything. `parse` is a pure
-// function of the rule table, the stem, and the per-prefix width table below.
+// `parse` strips the noise off every name before a rule sees it (the stripper in
+// stem.go), so nothing here sanitizes anything. This file is a pure function of
+// the rule table, the stripped stem, and the per-prefix width table below.
 
 // serialWidths is the per-prefix serial width table: the width the catalogues
 // print a family's serial at, keyed by the number's prefix.
@@ -35,6 +35,13 @@ var serialWidths = map[string]int{
 	"SONE":  3,
 	"FSDSS": 3,
 	"DEVR":  3,
+	// VR labels print a three-digit serial; the same release is spelled
+	// `hnvr00152`, `HNVR-152` and `hnvr-152`, and only the table makes them one
+	// number instead of HNVR-00152.
+	"HNVR": 3,
+	"SIVR": 3,
+	"DSVR": 3,
+	"MDVR": 3,
 }
 
 // NormalizeNumber canonicalises a number into the stored form. It is exported

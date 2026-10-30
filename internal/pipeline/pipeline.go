@@ -517,15 +517,8 @@ func writeGroups(w io.Writer, g *Groups, parsed *Parsed) {
 		}
 		fmt.Fprintf(w, "  parts:      %s\n", strings.Join(parts, " | "))
 		if item, ok := resolved[grp.Primary.Path]; ok {
-			note := ""
-			if item.PrimaryFailed {
-				note = "; primary had no number, adopted from another part"
-			}
-			fmt.Fprintf(w, "  number:     %s (raw %q, family %s%s)\n",
-				item.Number.Normalized, item.Number.Raw, item.Number.Family, note)
-			if extra := conflictsOf(item); len(extra) > 0 {
-				fmt.Fprintf(w, "  conflict:   %s (another part read a different number)\n", strings.Join(extra, ", "))
-			}
+			fmt.Fprintf(w, "  number:     %s (raw %q, family %s)\n",
+				item.Number.Normalized, item.Number.Raw, item.Number.Family)
 		} else if u, ok := unresolved[grp.Primary.Path]; ok {
 			fmt.Fprintf(w, "  number:     none (%s)\n", describeUnresolved(u))
 		}
@@ -543,9 +536,6 @@ func writeGroups(w io.Writer, g *Groups, parsed *Parsed) {
 			names[i] = f.Path
 		}
 		note := "a human decides"
-		if parsed != nil {
-			note = "needs a number: " + ReasonDuplicateStem
-		}
 		fmt.Fprintf(w, "duplicate stem: %s/%s (%d files, %s): %s\n",
 			d.Dir, d.Stem, len(d.Files), note, strings.Join(names, ", "))
 	}
@@ -561,16 +551,16 @@ func writeGroups(w io.Writer, g *Groups, parsed *Parsed) {
 }
 
 // indexParsed makes the parse result readable by the group it belongs to. A
-// resolved group is keyed by its primary path, and so is an unresolved one —
-// the primary is the first file in its list.
-func indexParsed(parsed *Parsed) (map[string]ParsedGroup, map[string]Unresolved) {
-	resolved := map[string]ParsedGroup{}
+// resolved file is keyed by its path, and an unresolved one — the first (and, per
+// file, only) entry in its list — the same way.
+func indexParsed(parsed *Parsed) (map[string]ParsedCandidate, map[string]Unresolved) {
+	resolved := map[string]ParsedCandidate{}
 	unresolved := map[string]Unresolved{}
 	if parsed == nil {
 		return resolved, unresolved
 	}
 	for _, item := range parsed.Items {
-		resolved[item.Group.Primary.Path] = item
+		resolved[item.File.Path] = item
 	}
 	for _, u := range parsed.Unresolved {
 		if len(u.Files) > 0 {
@@ -674,34 +664,29 @@ func (s GroupSummary) String() string {
 	return strings.Join(parts, ", ")
 }
 
-// ParseSummary is the parse step's summary projection: what got a number, what
-// needs a human, and where the group's parts disagreed. Conflicts is a list of
-// numbers rather than a count because the point of recording one is to show it.
+// ParseSummary is the parse step's summary projection: how many files were read,
+// how many got a number, and what needs a human. Parts counts the files that
+// declared a confident part marker; Chinese and Uncensored count the version
+// evidence so a wrong flag is visible without opening a file.
 type ParseSummary struct {
-	Groups   int `json:"groups"`
-	Parts    int `json:"parts"`
-	Resolved int `json:"resolved"`
-	// Unresolved is keyed by reason (no_candidate / ambiguous / duplicate_stem).
+	Files      int `json:"files"`
+	Parts      int `json:"parts"`
+	Resolved   int `json:"resolved"`
+	Chinese    int `json:"chinese"`
+	Uncensored int `json:"uncensored"`
+	// Unresolved is keyed by reason (no_candidate / ambiguous).
 	Unresolved map[string]int `json:"unresolved"`
-	// Conflicts is the sorted, distinct set of numbers other parts read that the
-	// decided number was not.
-	Conflicts     []string `json:"conflicts"`
-	PrimaryFailed int      `json:"primary_failed"`
 	// CandidateNumbers is the per-file chip list the needs-number panel shows: path
-	// → the numbers that file's own stem offered. The primary also gets the group's
-	// union when its own text offered nothing, so a human has something to click.
+	// → the numbers that file's own name offered.
 	//
 	// The JSON key is `candidates` because that is what the API's groups and task
 	// files call the chips; note that it is a different sense of the word than the
 	// filter's Candidates, which are the files that entered processing.
 	//
-	// It is a projection of the unresolved sets only — a resolved group already has
+	// It is a projection of the unresolved files only — a resolved file already has
 	// its answer — and it stops after maxCandidateFiles entries, because a summary
 	// that grows with the batch would be an artifact, not a projection.
 	CandidateNumbers map[string][]string `json:"candidates"`
-	// conflicts accumulates the set while the step runs; Conflicts is its sorted
-	// projection, so the summary is stable across runs.
-	conflicts map[string]bool
 }
 
 // maxCandidateFiles bounds how many files one parse summary records candidates
@@ -712,18 +697,15 @@ const maxCandidateFiles = 200
 // String renders the parse summary as one line.
 func (s ParseSummary) String() string {
 	parts := []string{
-		plural(s.Groups, "group", "groups"),
+		plural(s.Files, "file", "files"),
 		plural(s.Parts, "part", "parts"),
 		fmt.Sprintf("%d resolved", s.Resolved),
 	}
-	if n := len(s.Conflicts); n > 0 {
-		// Conflicts is the distinct set of numbers, not a per-group tally, so the
-		// count is of numbers that disagreed.
-		parts = append(parts, plural(n, "conflicting number", "conflicting numbers")+
-			" ("+strings.Join(s.Conflicts, ", ")+")")
+	if s.Chinese > 0 {
+		parts = append(parts, fmt.Sprintf("%d chinese", s.Chinese))
 	}
-	if s.PrimaryFailed > 0 {
-		parts = append(parts, fmt.Sprintf("%d adopted from another part (primary had no number)", s.PrimaryFailed))
+	if s.Uncensored > 0 {
+		parts = append(parts, fmt.Sprintf("%d uncensored", s.Uncensored))
 	}
 	for _, reason := range []string{ReasonNoCandidate, ReasonAmbiguous, ReasonDuplicateStem} {
 		if s.Unresolved[reason] > 0 {

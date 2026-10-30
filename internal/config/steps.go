@@ -52,18 +52,19 @@ type FilterWhen struct {
 type GroupWith struct {
 	MaxDistance            int      `yaml:"max_distance"`
 	MaxFilesForLevenshtein int      `yaml:"max_files_for_levenshtein"`
-	PartPatterns           []string `yaml:"part_patterns"`
-	Sanitize               []string `yaml:"sanitize"`
 	CompanionExtensions    []string `yaml:"companion_extensions"`
 }
 
-// ParseWith configures `parse`. The rule table is a positional list: a
-// `{builtin: default}` entry expands the built-in set where it stands, and a user
-// `{pattern: …}` written above it is credited first. Position does not override
-// the containment rule, though: a reading that sits inside another rule's longer
-// match still loses.
+// ParseWith configures `parse`: the number rule table and the two tables that
+// decide what text reaches it.
 type ParseWith struct {
 	Rules []ParseRule `yaml:"rules"`
+	// Sanitize is the user's noise table, stripped before the rules run. A bare
+	// string is a literal; `r:` makes it a Go regexp.
+	Sanitize []string `yaml:"sanitize"`
+	// PartPatterns are user part-marker patterns: they must match at the end of
+	// the stripped name, and their first capture group is the part number.
+	PartPatterns []string `yaml:"part_patterns"`
 }
 
 // ParseRule is either a builtin expansion or one user pattern.
@@ -351,24 +352,6 @@ func (w *GroupWith) Validate() error {
 	if w.MaxFilesForLevenshtein < 1 {
 		return fmt.Errorf("max_files_for_levenshtein must be >= 1")
 	}
-	for _, p := range w.PartPatterns {
-		re, err := regexp.Compile(p)
-		if err != nil {
-			return fmt.Errorf("part_patterns: %w", err)
-		}
-		// The first capture group is the part number. A pattern without one would
-		// load, match, and then decide nothing — a key that does nothing is worse
-		// than a key that is absent.
-		if re.NumSubexp() < 1 {
-			return fmt.Errorf("part_patterns %q needs a capture group holding the part number, e.g. `(?:^|[-_. ])slice(\\d)$`", p)
-		}
-	}
-	for _, p := range w.Sanitize {
-		re := strings.TrimPrefix(p, "r:")
-		if _, err := regexp.Compile(re); err != nil {
-			return fmt.Errorf("sanitize %q: %w", p, err)
-		}
-	}
 	for _, e := range w.CompanionExtensions {
 		if !extPattern.MatchString(e) {
 			return fmt.Errorf("companion_extensions entry %q must look like .srt", e)
@@ -377,7 +360,7 @@ func (w *GroupWith) Validate() error {
 	return nil
 }
 
-// Validate checks the parse rule table.
+// Validate checks the parse rule table and the two stripping tables.
 func (w *ParseWith) Validate() error {
 	// An empty table numbers nothing, so every group would have to be typed in by
 	// hand. That is a misconfiguration, not a default: a step that deliberately
@@ -399,6 +382,24 @@ func (w *ParseWith) Validate() error {
 			}
 		default:
 			return fmt.Errorf("rules[%d]: needs builtin or pattern", i)
+		}
+	}
+	for _, p := range w.PartPatterns {
+		re, err := regexp.Compile(p)
+		if err != nil {
+			return fmt.Errorf("part_patterns: %w", err)
+		}
+		// The first capture group is the part number. A pattern without one would
+		// load, match, and then decide nothing — a key that does nothing is worse
+		// than a key that is absent.
+		if re.NumSubexp() < 1 {
+			return fmt.Errorf("part_patterns %q needs a capture group holding the part number, e.g. `(?:^|[-_. ])slice(\\d)$`", p)
+		}
+	}
+	for _, p := range w.Sanitize {
+		re := strings.TrimPrefix(p, "r:")
+		if _, err := regexp.Compile(re); err != nil {
+			return fmt.Errorf("sanitize %q: %w", p, err)
 		}
 	}
 	return nil

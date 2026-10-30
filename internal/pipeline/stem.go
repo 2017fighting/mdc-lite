@@ -7,10 +7,10 @@ import (
 	"strings"
 )
 
-// This file is the one place a file name is stripped. `group` calls it once per
-// file and puts the result into the artifacts (`{stem, marker{text, index,
-// confident}}`); `parse` reads the stem, it never re-derives it. Splitting it out
-// is what makes the rules testable on their own.
+// This file is the one place a file name is stripped. `parse` calls it once per
+// candidate and puts the result into ParsedCandidate.Stem / Part; `group` consumes
+// that stem instead of re-deriving it (ADR-0019). Splitting it out is what makes
+// the rules testable on their own.
 
 // markerTier says how much a candidate marker can be trusted.
 type markerTier int
@@ -52,10 +52,11 @@ var builtinNoise = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(^|[-_. ])(?:aac|ac3|eac3|dts(?:-hd)?)\d*(?:\.\d+)?([-_. ]|$)`),
 	// resolution tokens
 	regexp.MustCompile(`(?i)(^|[-_. ])(?:4k|8k|fhd|uhd|hd|\d{3,4}[pi])([-_. ]|$)`),
-	// flags: -C (chinese subtitles) and -U (uncensored) are neither parts nor fields
-	regexp.MustCompile(`(?i)(^|[-_. ])(?:u|c)([-_. ]|$)`),
+	// flags: -C (chinese subtitles) and -U (uncensored), alone or as the
+	// combined -UC/-CU. They are neither parts nor fields.
+	regexp.MustCompile(`(?i)([-_. ])(?:uc|cu|ch|u|c)([-_. ]|$)`),
 	// the same flags written out
-	regexp.MustCompile(`(?i)(^|[-_. ])(?:uncensored|leak(?:ed)?|无码|破解|流出|中字|中文字幕|字幕)([-_. ]|$)`),
+	regexp.MustCompile(`(?i)(^|[-_. ])(?:uncensored|leak(?:ed)?|无码|無碼|破解|流出|中文字幕|中文|中字|字幕)([-_. ]|$)`),
 	// subtitle tails
 	regexp.MustCompile(`(?i)(^|[-_. ])(?:chs|cht|sc|tc|eng|jpn|jp|kor|简体|繁体|简|繁)([-_. ]|$)`),
 }
@@ -135,7 +136,7 @@ func partAt(s string, extra []*regexp.Regexp) tail {
 	for _, re := range extra {
 		if loc := re.FindStringSubmatchIndex(s); loc != nil && loc[1] == len(s) && loc[3] > loc[2] {
 			if idx, err := strconv.Atoi(s[loc[2]:loc[3]]); err == nil && idx > 0 {
-				return tail{stem: trimSeparators(s[:loc[0]]), text: s[loc[0]:loc[1]], index: idx, tier: tierConfident}
+				return tail{stem: trimSeparators(s[:loc[0]]), text: trimSeparators(s[loc[0]:loc[1]]), index: idx, tier: tierConfident}
 			}
 		}
 	}
