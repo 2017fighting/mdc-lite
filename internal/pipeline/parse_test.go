@@ -60,6 +60,36 @@ func TestParse_PrimaryDecidesAndADivergenceIsRecorded(t *testing.T) {
 	}
 }
 
+// TestParse_ALoneTrailingTokenStaysOutOfTheNumber: a trailing token with no
+// sibling to agree it into a part marker is *not* evidence of anything — it stays
+// in the stem and out of the number. Spec §4 (ticket #30) pinned this after the
+// acceptance corpus showed `ABC-124-1` reading ABC-124: the built-in generic rule
+// takes letters 2-10, an optional separator, 1-5 digits — it cannot swallow a
+// second hyphenated digit run, and its trailing boundary deliberately refuses a
+// glued release suffix (IPZZ-096C, snis00440hhb). A library that really owns such
+// shapes writes a custom pattern ahead of the builtin set.
+func TestParse_ALoneTrailingTokenStaysOutOfTheNumber(t *testing.T) {
+	for _, tc := range []struct{ name, want string }{
+		{"ABC-123-1.mp4", "ABC-123"},  // lone trailing digit: stays in the stem, not the serial
+		{"ABC-123-12.mp4", "ABC-123"}, // two lone digits are the same ruling
+		{"ABC-123A.mp4", "ABC-123"},   // a glued letter is a release suffix, not the number's tail
+	} {
+		_, parsed, _ := parseNames(t, groupWith(), parseWith(), tc.name)
+		if len(parsed.Items) != 1 {
+			t.Fatalf("%s: items = %d, want the one file resolved (unresolved: %+v)",
+				tc.name, len(parsed.Items), parsed.Unresolved)
+		}
+		item := parsed.Items[0]
+		if item.Number.Normalized != tc.want {
+			t.Errorf("%s: number = %q, want %q: a lone trailing token is neither a serial nor the number's tail",
+				tc.name, item.Number.Normalized, tc.want)
+		}
+		if item.Number.Raw != tc.want || item.Number.Family != "generic" {
+			t.Errorf("%s: number = %+v, want the raw text and family of the generic reading", tc.name, item.Number)
+		}
+	}
+}
+
 // TestParse_PrimaryWithNoNumberAdoptsTheAgreedOne: when the primary's own text
 // offers nothing and the rest of the group agrees on one number, take it — and say
 // that the primary is what failed.

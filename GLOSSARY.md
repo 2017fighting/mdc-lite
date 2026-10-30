@@ -23,7 +23,7 @@ mdc-lite 的领域词汇表。写代码、起 issue、写测试名时用这里�
 - **候选（candidate）** —— 通过 `filter` 规则、进入处理集合的文件（`Candidates`）。
 - **候选规则（filter rule）** —— `filter.with.rules` 的一条：`{name, when, then}`，`then ∈ {include, exclude}`；**有序、首条命中即停**，`name` 进 `Candidate.Rule` 与 `step_runs` 的 `skipped` 计数。文件扩展名只在这里判（`scan` 不按扩展名预筛）。
 - **主干（stem）** —— 文件名剥掉噪声（sanitize / 广告域 / 技术 token / 分辨率 / 旗标 / 字幕尾标）后的文本；分组的判据就长在主干上。
-- **分片标记（part marker）** —— 判定「这是同一作品的分片」的正面证据。两档：**确定标记**（`cd\d`/`disc\d`/`part\d`/`vol\d`/带分隔的 `-A/-B/-D`，无条件生效）与**条件标记**（尾随 1-2 位数字、粘连字母如 `9ofje121A`，需同目录兄弟文件同意）。
+- **分片标记（part marker）** —— 判定「这是同一作品的分片」的正面证据。两档：**确定标记**（`cd\d`/`disc\d`/`part\d`/`vol\d`/带分隔的 `-A/-B/-D`，无条件生效）与**条件标记**（尾随 1-2 位数字、粘连字母如 `9ofje121A`，需同目录兄弟文件同意）。**孤立尾号/尾字母（无兄弟同意时）留在主干、不进番号、也不是分片**（`ABC-123-1` 与 `ABC-123A` 的番号都是 `ABC-123`）：内置 generic 规则不吃「字母-数字-数字」与粘连尾字母形状；真有此形状的库用自定义 pattern 排在 builtin 前（#30 裁定）。
 - **分片（part）** —— 同一作品的一个视频片；落盘 `-cd{n}`。
 - **primary** —— 组内分片序号最小的文件；无标记文件视为第 1 片。primary 定番号、定目录名。
 - **伴随文件（companion）** —— 与视频同组但不参与分片证据的文件（字幕、图片）；字幕跟随对应视频改名，图片保持原名。**进输出目录**：`PlannedWrite.Kind = companion`、`file_rows.role = companion`（见 ADR-0017）。

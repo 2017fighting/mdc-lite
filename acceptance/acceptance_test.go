@@ -343,9 +343,8 @@ func TestAcceptance(t *testing.T) {
 			t.Errorf("the duplicate-stem task holds %v, want both copies so a human can decide", files)
 		}
 
-		// A lone trailing digit belongs to the number, not to a part marker: one file,
-		// one task, no `-cd` rename. (What the number *reads* is the parse ticket's
-		// business; this assertion is the grouping rule.)
+		// A lone trailing digit stays in the stem and is not a part marker: one file,
+		// one task, no `-cd` rename. (What the number reads is pinned just below.)
 		lone, ok := taskByFile(t, p, counterTasks, "ABC-124-1.mp4")
 		if !ok {
 			t.Error("ABC-124-1.mp4 is not in any task")
@@ -353,6 +352,17 @@ func TestAcceptance(t *testing.T) {
 			t.Errorf("ABC-124-1.mp4 gathered %d files; a lone trailing digit is not a part", len(lone.TaskFiles))
 		}
 
+		// And what the number reads is pinned too (ticket #30): the lone digit
+		// stays in the stem and out of the number — ABC-124, not ABC-124-001, which no
+		// site indexes. The task must be found by that number; a silent skip here would
+		// let the old parse regression back in unnoticed.
+		if loneByNumber, ok := taskByNumber(counterTasks, "ABC-124"); ok {
+			if lone.ID != 0 && loneByNumber.ID != lone.ID {
+				t.Errorf("ABC-124-1.mp4 landed in the task of number %q; the lone digit must read as ABC-124", lone.Number)
+			}
+		} else {
+			t.Error("no task parsed to ABC-124: ABC-124-1.mp4 stopped parsing altogether")
+		}
 		// The required-fields gate is what turns these into failures: their numbers have
 		// no capture, so no source can supply a title, and `output` refuses to write a
 		// release without one. That refusal is also the other half of "narrowing
@@ -360,6 +370,7 @@ func TestAcceptance(t *testing.T) {
 		for _, number := range []string{"ABC-124", "ABP-647"} {
 			task, ok := taskByNumber(counterTasks, number)
 			if !ok {
+				t.Errorf("no task parsed to %s: the counterexample batch lost a release entirely", number)
 				continue
 			}
 			if task.Status != "failed" {
