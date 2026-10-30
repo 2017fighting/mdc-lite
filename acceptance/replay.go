@@ -133,20 +133,6 @@ func (r *replayProxy) Requests() []request {
 	return append([]request(nil), r.seen...)
 }
 
-// RequestsFor lists the requests whose path ends with one of the given suffixes.
-func (r *replayProxy) RequestsFor(suffixes ...string) []request {
-	var out []request
-	for _, req := range r.Requests() {
-		for _, suffix := range suffixes {
-			if strings.HasSuffix(req.Path, suffix) {
-				out = append(out, req)
-				break
-			}
-		}
-	}
-	return out
-}
-
 func (r *replayProxy) close() {
 	if r.server != nil {
 		r.server.Close()
@@ -194,7 +180,9 @@ func (r *replayProxy) tunnel(w http.ResponseWriter, req *http.Request) {
 		NextProtos:   []string{"http/1.1"},
 	})
 	// One connection, one host: the http.Server loop ends when the client does.
-	(&http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	// The loop ends when the client closes the tunnel; a torn connection mid-request is
+	// the client's business, not a failure of the replay.
+	_ = (&http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		r.serve(w, req, host)
 	})}).Serve(&oneConnListener{conn: tlsConn})
 }

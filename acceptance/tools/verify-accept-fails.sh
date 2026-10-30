@@ -21,12 +21,17 @@
 #
 # The gate builds its own binary from the checkout on every run, which is what makes
 # step 2 honest: the break is inside the artifact under test, not beside it.
+#
+# Requirements: Go, Docker with the compose plugin, and python3 (step 2 matches one
+# exact snippet of the product's source, so a reformat of that block makes the script
+# fail loudly instead of silently breaking nothing).
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-# The logs cannot live under the scratch root: the gate resets that root on every
-# run, so a log written there would be deleted by the very run that is writing it.
-OUT_DIR=${MDC_ACCEPT_FALSIFY_DIR:-$ROOT/acceptance/scratch-falsify}
+# The logs cannot live under the scratch root: the gate resets that root on every run,
+# so a log written there would be deleted by the very run that is writing it.
+OUT_DIR=$ROOT/acceptance/scratch-falsify
+SCRATCH=${MDC_ACCEPT_ROOT:-$ROOT/acceptance/scratch}
 GREEN_LOG=$OUT_DIR/green.log
 RED_LOG=$OUT_DIR/red.log
 TARGET=internal/pipeline/stem.go
@@ -60,8 +65,8 @@ if ! grep -q 'ACCEPTANCE RAN' "$GREEN_LOG"; then
 	echo "      what it asserted is indistinguishable from a run that asserted nothing."
 	exit 1
 fi
-if [ ! -s "$ROOT/acceptance/scratch/ran.json" ]; then
-	echo "FAIL: the gate left no acceptance/scratch/ran.json"
+if [ ! -s "$SCRATCH/ran.json" ]; then
+	echo "FAIL: the gate left no marker file at $SCRATCH/ran.json"
 	exit 1
 fi
 echo "green: the gate ran and left its marker"

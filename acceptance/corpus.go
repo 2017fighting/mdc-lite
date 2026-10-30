@@ -65,9 +65,14 @@ type CorpusFile struct {
 // runs for real: group → parse → scrape → images → nfo → output → Jellyfin.
 //
 // The counterexample half is the spec's own do-not-merge and must-merge cases; the
-// numbers there are not captured, so those tasks end with a source failure, which
-// is fine: the assertion is about how the files were grouped, and a scrape that
-// found nothing does not blur that.
+// numbers there are not captured, so those tasks end at the `output` step's required
+// fields (no title, no cover), which is fine: the assertion is about how the files were
+// grouped into tasks, and a task that found no metadata does not blur that.
+// abpDir is the one library directory name that carries brackets and full-width
+// characters as well as the number. It is the neighbour-pair case's directory: a real
+// name that the segment sanitiser and the number parser both have to survive.
+const abpDir = "ABP-647 绝对的铁板濑名光莉[高清中文字幕]"
+
 var corpus = []CorpusFile{
 	// --- the main chain -----------------------------------------------------------
 	{RootLibrary, "CAWD-279", "CAWD-279.mp4", "the simplest case there is: one file, one number"},
@@ -79,8 +84,8 @@ var corpus = []CorpusFile{
 	{RootLibrary, "SSIS-001", "SSIS-001-cd2.mp4", "the second disc, which must aggregate into one entry"},
 
 	// --- grouping counterexamples -------------------------------------------------
-	{RootCounterexamples, "ABP-647", "ABP-647.mp4", "a neighbour pair: ABP-647 must not absorb ABP-648"},
-	{RootCounterexamples, "ABP-647", "ABP-648.mp4", "the other neighbour, with no marker to justify merging"},
+	{RootCounterexamples, abpDir, "ABP-647.mp4", "a neighbour pair: ABP-647 must not absorb ABP-648"},
+	{RootCounterexamples, abpDir, "ABP-648.mp4", "the other neighbour, with no marker to justify merging"},
 	{RootCounterexamples, "ABC-123", "ABC-123.mp4", "a duplicate stem, first copy"},
 	{RootCounterexamples, "ABC-123", "ABC-123-U.mp4", "the leaked copy of the same stem: duplicate_stem, not a merge"},
 	{RootCounterexamples, "SSVR-122-parts", "SSVR-122-cd1.mp4", "two discs whose stems differ by one digit, both explicitly marked"},

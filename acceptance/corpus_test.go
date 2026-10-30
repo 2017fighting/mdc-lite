@@ -74,9 +74,9 @@ func TestTheMultiDiscCaseIsTwoDiscsOfOneNumber(t *testing.T) {
 	}
 }
 
-// A name in the ledger that nothing materialises is dead weight in a file whose
-// whole job is provenance; it is also how a sample drifts into being a wish list.
-func TestTheLedgerHasNoPenAndInkOnlyDuringEditing(t *testing.T) {
+// A name in the ledger that nothing materialises is dead weight in a file whose whole
+// job is provenance; it is also how a sample drifts into being a wish list.
+func TestTheLedgerHasNoNamesNothingMaterialises(t *testing.T) {
 	ledger, err := loadProvenance(provenancePath())
 	if err != nil {
 		t.Fatalf("read the name ledger: %v", err)

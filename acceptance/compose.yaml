@@ -14,6 +14,9 @@
 #                             layout claims measured here have to be re-measured when
 #                             it moves
 #
+# There is deliberately no `container_name`: compose's generated name is project-scoped,
+# so two runs on one host (a second scratch root, a second port) do not collide.
+#
 # Two properties of this file are load-bearing rather than cosmetic:
 #
 #   - The scratch root is mounted at the identical absolute path inside and outside
@@ -31,7 +34,6 @@ services:
   jellyfin:
     image: ${MDC_ACCEPT_JELLYFIN_IMAGE:-jellyfin/jellyfin:10.10.7}
     user: "${MDC_ACCEPT_UID:-0}:${MDC_ACCEPT_GID:-0}"
-    container_name: mdc-lite-acceptance-jellyfin
     ports:
       - "127.0.0.1:${MDC_ACCEPT_JELLYFIN_PORT:-8096}:8096"
     volumes:

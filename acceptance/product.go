@@ -145,7 +145,7 @@ func (p *product) get(t *testing.T, path string) reply {
 	if err != nil {
 		t.Fatalf("acceptance: GET %s: %v", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	return reply{status: resp.StatusCode, body: body}
 }
@@ -156,7 +156,7 @@ func (p *product) post(t *testing.T, path string, body []byte) reply {
 	if err != nil {
 		t.Fatalf("acceptance: POST %s: %v", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 	return reply{status: resp.StatusCode, body: raw}
 }

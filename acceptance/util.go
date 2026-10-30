@@ -15,8 +15,9 @@ import (
 	"time"
 )
 
-// env reads one variable. Everything the environment needs from outside is read
-// through this, so the whole outside surface is one function.
+// getenv reads one variable. Every *variable* the environment reads comes through
+// here, which keeps the outside surface greppable; the child processes are handed
+// os.Environ() as it is, because that is how a process is spawned.
 func getenv(key string) string { return os.Getenv(key) }
 
 func orDefault(value, fallback string) string {
@@ -39,7 +40,7 @@ func httpGet(url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
@@ -50,15 +51,21 @@ func httpGet(url string) ([]byte, error) {
 	return body, nil
 }
 
-// waitFor polls until the probe says the expected thing happened, and fails with the
+// waitFor is the environment's only wait.
+func (e *env) waitFor(t *testing.T, timeout time.Duration, what string, probe func() (bool, string)) {
+	t.Helper()
+	pollUntil(t, timeout, what, probe)
+}
+
+// pollUntil waits until the probe says the expected thing happened, and fails with the
 // last observation when it does not.
 //
-// It waits for the expectation and for nothing else: no fixed sleeps (a sleep is a
-// bet on someone else's timing that hides the day it becomes wrong), and no retrying
-// the whole run (a flaky acceptance test is a bug in the acceptance test). The poll
+// It waits for the expectation and for nothing else: no fixed sleeps (a sleep is a bet
+// on someone else's timing that hides the day it becomes wrong), and no retrying the
+// whole run (a flaky acceptance test is a bug in the acceptance test). The poll
 // interval is short because the thing being waited for is a file the product just
 // wrote or an index the server just updated.
-func (e *env) waitFor(t *testing.T, timeout time.Duration, what string, probe func() (bool, string)) {
+func pollUntil(t *testing.T, timeout time.Duration, what string, probe func() (bool, string)) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	var detail string
@@ -75,21 +82,19 @@ func (e *env) waitFor(t *testing.T, timeout time.Duration, what string, probe fu
 	}
 }
 
-// waitUntilUp waits for the media server to answer before the wizard has run, which
-// is the only endpoint that does.
+// waitUntilUp waits for the media server to answer before the wizard has run, which is
+// the only endpoint that does.
 func (j *jellyfin) waitUntilUp(t *testing.T) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Minute)
-	for {
-		if info := j.publicInfo(t); info != nil {
-			t.Logf("jellyfin: %v %v up at %s", info["ProductName"], info["Version"], j.base)
-			return
+	var info map[string]any
+	pollUntil(t, 3*time.Minute, "the media server to answer /System/Info/Public", func() (bool, string) {
+		info = j.publicInfo(t)
+		if info == nil {
+			return false, j.base + " is not answering yet"
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("acceptance: jellyfin at %s did not answer /System/Info/Public within 3m", j.base)
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
+		return true, ""
+	})
+	t.Logf("jellyfin: %v %v up at %s", info["ProductName"], info["Version"], j.base)
 }
 
 // writeConfig makes the scratch root's copy of the acceptance configuration.
@@ -137,9 +142,9 @@ type marker struct {
 	RanAt      string   `json:"ran_at"`
 }
 
-// markRan writes the marker and prints it. The counts in it are the record of what
-// ran, deliberately not the assertion themselves: the assertions look for the values
-// they expect, they never count what is in the library.
+// markRan writes the marker and prints it. The list is the record of which assertions
+// ran, deliberately not a count of anything in the library: the assertions look for the
+// values they expect, they never count what the media server holds.
 func (e *env) markRan(t *testing.T, assertions ...string) {
 	t.Helper()
 	m := marker{Assertions: assertions, Jellyfin: e.image, RanAt: time.Now().UTC().Format(time.RFC3339)}

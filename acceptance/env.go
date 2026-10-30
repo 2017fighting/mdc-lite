@@ -166,8 +166,13 @@ func scratchRoot(t *testing.T, repo string) string {
 	if err != nil {
 		t.Fatalf("acceptance: %v", err)
 	}
-	if strings.HasPrefix(filepath.Base(abs), ".") {
-		t.Fatalf("acceptance: the scratch root %s starts with a dot; the run must not depend on a dotted path", abs)
+	// Every component, not just the leaf: `/tmp/.cache/scratch` is still a run that
+	// lives under a dot-leading path, which is the thing this rule is about.
+	for _, part := range strings.Split(filepath.ToSlash(abs), "/") {
+		if strings.HasPrefix(part, ".") {
+			t.Fatalf("acceptance: the scratch root %s has a dot-leading component %q; "+
+				"the run must not depend on a dotted path", abs, part)
+		}
 	}
 	return abs
 }
@@ -215,7 +220,7 @@ func (e *env) generateClip(t *testing.T) string {
 	t.Helper()
 	out := filepath.Join(e.Scratch, "clip.mp4")
 	cmd := exec.Command("docker", "run", "--rm",
-		"--user", fmt.Sprintf("%s:%s", orDefault(getenv("MDC_ACCEPT_UID"), "0"), orDefault(getenv("MDC_ACCEPT_GID"), "0")),
+		"--user", fmt.Sprintf("%s:%s", orDefault(getenv("MDC_ACCEPT_UID"), currentUID()), orDefault(getenv("MDC_ACCEPT_GID"), currentGID())),
 		"-v", e.Scratch+":"+e.Scratch,
 		"--entrypoint", "/usr/lib/jellyfin-ffmpeg/ffmpeg",
 		e.image,
@@ -320,11 +325,6 @@ func (e *env) dumpLogs(t *testing.T) {
 		t.Logf("mdc server log:\n%s", tail(string(body), 60))
 	} else {
 		t.Logf("no mdc server log at %s: %v", filepath.Join(e.Scratch, "mdc.log"), err)
-	}
-	for _, name := range []string{"jellyfin.log", "replay.log"} {
-		if body, err := os.ReadFile(filepath.Join(e.Scratch, name)); err == nil {
-			t.Logf("%s:\n%s", name, tail(string(body), 60))
-		}
 	}
 	cmd := exec.Command("docker", "compose", "-f", e.compose, "logs", "--no-color", "--tail", "80")
 	cmd.Env = append(os.Environ(), e.composeEnv()...)

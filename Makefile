@@ -30,11 +30,13 @@ test:
 vet:
 	go vet ./...
 
-## lint: golangci-lint over every package, config verified first
+## lint: golangci-lint over every package — including the build-tagged acceptance one,
+## which the default tag set cannot see
 .PHONY: lint
 lint:
 	golangci-lint config verify
 	golangci-lint run ./...
+	golangci-lint run --build-tags acceptance ./acceptance/
 
 ## web: build the frontend into the directory the binary embeds
 .PHONY: web
@@ -70,10 +72,11 @@ check: vet test lint typecheck test-web
 # The acceptance environment's scratch root. It must not start with a dot: the
 # pipeline's segment sanitiser and the scan's filter rules both treat a dot-leading
 # path specially, and an environment that leans on a special case proves nothing.
+# The Jellyfin image is pinned in acceptance/compose.yaml (and mirrored in
+# acceptance/env.go for the corpus's clip); it is overridable through
+# MDC_ACCEPT_JELLYFIN_IMAGE, which is why this file does not restate the default.
 ACCEPT_ROOT ?= $(CURDIR)/acceptance/scratch
-ACCEPT_JELLYFIN_IMAGE ?= jellyfin/jellyfin:10.10.7
 export MDC_ACCEPT_ROOT := $(ACCEPT_ROOT)
-export MDC_ACCEPT_JELLYFIN_IMAGE := $(ACCEPT_JELLYFIN_IMAGE)
 
 ## accept: from a clean slate, bring the acceptance environment up and assert against it
 #

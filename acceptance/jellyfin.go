@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -84,22 +83,22 @@ func (j *jellyfin) setup(t *testing.T) {
 		return
 	}
 
-	j.do(t, http.MethodGet, "/Startup/Configuration", nil, "").expect(t, http.StatusOK, "read the wizard's configuration")
-	j.do(t, http.MethodGet, "/Startup/FirstUser", nil, "").expect(t, http.StatusOK,
+	j.do(t, http.MethodGet, "/Startup/Configuration", nil, "").expectOK(t, "read the wizard's configuration")
+	j.do(t, http.MethodGet, "/Startup/FirstUser", nil, "").expectOK(t,
 		"GET /Startup/FirstUser (this call is what seeds the account the wizard's POST needs)")
 	j.do(t, http.MethodPost, "/Startup/User", map[string]any{"Name": user, "Password": password}, "").
-		expectAny(t, okWrites, "create the administrator")
+		expectWrite(t, "create the administrator")
 	j.do(t, http.MethodPost, "/Startup/Configuration", map[string]any{
 		"UICulture": "en-US", "MetadataCountryCode": "US", "PreferredMetadataLanguage": "en"}, "").
-		expectAny(t, okWrites, "set the wizard's configuration")
+		expectWrite(t, "set the wizard's configuration")
 	j.do(t, http.MethodPost, "/Startup/RemoteAccess", map[string]any{
 		"EnableRemoteAccess": false, "EnableAutomaticPortMapping": false}, "").
-		expectAny(t, okWrites, "answer the remote-access step")
+		expectWrite(t, "answer the remote-access step")
 	j.do(t, http.MethodPost, "/Startup/Complete", map[string]any{}, "").
-		expectAny(t, okWrites, "complete the wizard")
+		expectWrite(t, "complete the wizard")
 
 	reply := j.do(t, http.MethodPost, "/Users/AuthenticateByName", authBody(), "")
-	reply.expect(t, http.StatusOK, "log in after the wizard")
+	reply.expectOK(t, "log in after the wizard")
 	j.token = tokenOf(t, reply.body)
 	t.Logf("jellyfin: wizard complete")
 }
@@ -113,7 +112,7 @@ func (j *jellyfin) setup(t *testing.T) {
 func (j *jellyfin) ensureLibrary(t *testing.T, path string) {
 	t.Helper()
 	reply := j.do(t, http.MethodGet, "/Library/VirtualFolders", nil, j.token)
-	reply.expect(t, http.StatusOK, "list the libraries")
+	reply.expectOK(t, "list the libraries")
 	for _, folder := range decodeList(t, reply.body) {
 		if folderPathIs(folder, path) {
 			t.Logf("jellyfin: a library already covers %s", path)
@@ -132,7 +131,7 @@ func (j *jellyfin) ensureLibrary(t *testing.T, path string) {
 			"SubtitleFetchers":        []string{},
 			"SaveLocalMetadata":       false,
 			"EnableLUFSScan":          false,
-		}}, j.token).expectAny(t, okWrites, "create the library")
+		}}, j.token).expectWrite(t, "create the library")
 	t.Logf("jellyfin: library %q now covers %s", libraryName, path)
 }
 
@@ -159,10 +158,10 @@ func (j *jellyfin) scan(t *testing.T, paths ...string) {
 	}
 	if len(updates) > 0 {
 		j.do(t, http.MethodPost, "/Library/Media/Updated", map[string]any{"Updates": updates}, j.token).
-			expectAny(t, okWrites, "send a path-scoped library update")
+			expectWrite(t, "send a path-scoped library update")
 	}
 	j.do(t, http.MethodPost, "/ScheduledTasks/Running/"+j.scanTaskID(t), nil, j.token).
-		expectAny(t, okWrites, "start the library scan")
+		expectWrite(t, "start the library scan")
 	t.Logf("jellyfin: library scan triggered (%s)", strings.Join(paths, ", "))
 }
 
@@ -171,7 +170,7 @@ func (j *jellyfin) scan(t *testing.T, paths ...string) {
 func (j *jellyfin) scanTaskID(t *testing.T) string {
 	t.Helper()
 	reply := j.do(t, http.MethodGet, "/ScheduledTasks", nil, j.token)
-	reply.expect(t, http.StatusOK, "list the scheduled tasks")
+	reply.expectOK(t, "list the scheduled tasks")
 	for _, task := range decodeList(t, reply.body) {
 		if task["Key"] == "RefreshLibrary" {
 			id, _ := task["Id"].(string)
@@ -183,27 +182,6 @@ func (j *jellyfin) scanTaskID(t *testing.T) string {
 	}
 	t.Fatal("jellyfin: this server has no RefreshLibrary task; the scan trigger would be a no-op")
 	return ""
-}
-
-// scanState reports the library scan's state, for a failure message that says whether
-// the server was still working or had stopped.
-func (j *jellyfin) scanState(t *testing.T) string {
-	t.Helper()
-	reply := j.do(t, http.MethodGet, "/ScheduledTasks/"+j.scanTaskID(t), nil, j.token)
-	if reply.status != http.StatusOK {
-		return fmt.Sprintf("scheduled task unreadable: HTTP %d", reply.status)
-	}
-	var task struct {
-		State               string `json:"State"`
-		LastExecutionResult struct {
-			Status string `json:"Status"`
-			Error  string `json:"ErrorMessage"`
-		} `json:"LastExecutionResult"`
-	}
-	if err := json.Unmarshal(reply.body, &task); err != nil {
-		return "scheduled task not JSON"
-	}
-	return fmt.Sprintf("scan %s, last run %s %s", task.State, task.LastExecutionResult.Status, task.LastExecutionResult.Error)
 }
 
 // movies asks for every movie the library holds. The assertions then look for the
@@ -218,7 +196,7 @@ func (j *jellyfin) movies(t *testing.T) []item {
 		"Limit":            {"500"},
 	}
 	reply := j.do(t, http.MethodGet, "/Items?"+q.Encode(), nil, j.token)
-	reply.expect(t, http.StatusOK, "list the library's movies")
+	reply.expectOK(t, "list the library's movies")
 	var page struct {
 		Items []item `json:"Items"`
 	}
@@ -226,19 +204,6 @@ func (j *jellyfin) movies(t *testing.T) []item {
 		t.Fatalf("jellyfin: decode the movie list: %v (%s)", err, summarize(reply.body))
 	}
 	return page.Items
-}
-
-// movieByNumber finds the entry for one release by its directory name, which is what
-// the pipeline names it (`{{ number }}`) and what the media server shows as the item
-// name when no NFO title overrides it. It returns nil when the server has not indexed
-// the release yet, which is the condition the waits poll on.
-func movieByNumber(items []item, number string) *item {
-	for i := range items {
-		if items[i].Name == number || strings.Contains(items[i].Path, "/"+number+"/") {
-			return &items[i]
-		}
-	}
-	return nil
 }
 
 // additionalParts reads the second disc of a multi-disc release.
@@ -250,7 +215,7 @@ func movieByNumber(items []item, number string) *item {
 func (j *jellyfin) additionalParts(t *testing.T, id string) []item {
 	t.Helper()
 	reply := j.do(t, http.MethodGet, "/Videos/"+id+"/AdditionalParts", nil, j.token)
-	reply.expect(t, http.StatusOK, "read a release's additional parts")
+	reply.expectOK(t, "read a release's additional parts")
 	var page struct {
 		Items []item `json:"Items"`
 	}
@@ -275,7 +240,7 @@ func (j *jellyfin) mixedFolder(t *testing.T, dbPath, itemPath string) bool {
 	if err != nil {
 		t.Fatalf("jellyfin: open the library database %s read-only: %v", dbPath, err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	var mixed bool
 	err = db.QueryRow(`SELECT IsInMixedFolder FROM TypedBaseItems WHERE Path = ?`, itemPath).Scan(&mixed)
 	if err != nil {
@@ -283,6 +248,10 @@ func (j *jellyfin) mixedFolder(t *testing.T, dbPath, itemPath string) bool {
 	}
 	return mixed
 }
+
+// clientAuthorization identifies this client to the server the way the web interface
+// does. It is a constant: there is one acceptance client.
+const clientAuthorization = `MediaBrowser Client="mdc-lite-acceptance", Device="acceptance", DeviceId="mdc-lite-acceptance-1", Version="1.0"`
 
 // ---- transport ----
 
@@ -297,23 +266,21 @@ type reply struct {
 	body   []byte
 }
 
-func (r reply) expect(t *testing.T, want int, what string) reply {
+func (r reply) expectOK(t *testing.T, what string) {
 	t.Helper()
-	if r.status != want {
-		t.Fatalf("jellyfin: %s: got HTTP %d, want %d: %s", what, r.status, want, summarize(r.body))
+	if r.status != http.StatusOK {
+		t.Fatalf("jellyfin: %s: got HTTP %d, want 200: %s", what, r.status, summarize(r.body))
 	}
-	return r
 }
 
-func (r reply) expectAny(t *testing.T, want []int, what string) reply {
+func (r reply) expectWrite(t *testing.T, what string) {
 	t.Helper()
-	for _, w := range want {
+	for _, w := range okWrites {
 		if r.status == w {
-			return r
+			return
 		}
 	}
-	t.Fatalf("jellyfin: %s: got HTTP %d, want one of %v: %s", what, r.status, want, summarize(r.body))
-	return r
+	t.Fatalf("jellyfin: %s: got HTTP %d, want one of %v: %s", what, r.status, okWrites, summarize(r.body))
 }
 
 func (j *jellyfin) do(t *testing.T, method, path string, body any, token string) reply {
@@ -331,8 +298,7 @@ func (j *jellyfin) do(t *testing.T, method, path string, body any, token string)
 		t.Fatalf("jellyfin: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Emby-Authorization",
-		fmt.Sprintf(`MediaBrowser Client="mdc-lite-acceptance", Device="acceptance", DeviceId="mdc-lite-acceptance-1", Version="1.0"`))
+	req.Header.Set("X-Emby-Authorization", clientAuthorization)
 	if token != "" {
 		req.Header.Set("X-Emby-Token", token)
 	}
@@ -340,7 +306,7 @@ func (j *jellyfin) do(t *testing.T, method, path string, body any, token string)
 	if err != nil {
 		t.Fatalf("jellyfin: %s %s: %v", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 	return reply{status: resp.StatusCode, body: raw}
 }
@@ -353,7 +319,7 @@ func (j *jellyfin) publicInfo(t *testing.T) map[string]any {
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return nil

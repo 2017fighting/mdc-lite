@@ -162,7 +162,7 @@ func TestAConstructedFixtureNeedsAReasonFromTheClosedSet(t *testing.T) {
 // The repository's own capture directories are the point of this package: if this
 // fails, one of the four sources has a fixture that no longer matches its manifest
 // or a constructed page with a made-up reason.
-func TestTheRepositoriesCapturesHoldUp(t *testing.T) {
+func TestTheRepositoryCapturesHoldUp(t *testing.T) {
 	for _, id := range []string{"javbus", "javdb", "fc2", "dmm"} {
 		t.Run(id, func(t *testing.T) {
 			dir := filepath.Join("..", "source", id, "testdata", "captures")

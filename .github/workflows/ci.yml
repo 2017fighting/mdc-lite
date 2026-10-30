@@ -24,6 +24,11 @@ jobs:
           cache: true
       - name: go vet
         run: go vet ./...
+      # The acceptance package is behind a build tag, so the default tag set cannot
+      # even compile it. Compiling it here is free and turns a nightly-only surprise
+      # (after a gigabyte of image pull) into a pull-request one.
+      - name: go vet (acceptance)
+        run: go vet -tags acceptance ./acceptance/
       - name: go test
         run: go test ./...
       - name: golangci-lint
@@ -33,6 +38,9 @@ jobs:
           # built with is older than go.mod's target, and "latest" resolved to a
           # v1 release built with Go 1.24. Keep this in step with go.mod.
           version: v2.14.0
+          # The default tag set skips acceptance/*.go entirely; without this the
+          # ~2k lines of the acceptance environment would be outside the lint gate.
+          args: --build-tags acceptance
 
   web:
     name: frontend test + build + typecheck

@@ -3,6 +3,7 @@
 package acceptance
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -72,6 +73,23 @@ func TestAcceptance(t *testing.T) {
 				}
 			}
 			nfos[rel.Number] = readNFO(t, dir)
+		}
+
+		// The replay side: each release's page has to have come from the fixtures. A
+		// green run whose metadata arrived from somewhere else would be measuring the
+		// network, not the pipeline.
+		for _, rel := range releases {
+			served := false
+			for _, req := range e.Replay.Requests() {
+				if req.Path == "/"+rel.Number && req.Status == http.StatusOK {
+					served = true
+					break
+				}
+			}
+			if !served {
+				t.Errorf("the replay never answered a page request for %s, so its metadata did not come from the committed captures",
+					rel.Number)
+			}
 		}
 
 		// The server side: it is told to look, and then the run waits for the items it
