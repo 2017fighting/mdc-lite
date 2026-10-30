@@ -45,6 +45,11 @@ var builtinNoise = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\[?(?:[a-z0-9][a-z0-9-]*\.)+(?:com|net|org|cc|tv|me|tw|xyz|top|info|io|co|jp|us|vip|club)\]?@?`),
 	// technical tokens
 	regexp.MustCompile(`(?i)(^|[-_. ])(?:x?26[45]|h\.?26[45]|hevc|avc|vp9|av1|aac|ac3|dts(?:-hd)?|1[08]bit|hdr(?:10)?|[23]0fps|60fps)([-_. ]|$)`),
+	// the same tokens with their channel count: `AAC2.0`, `DTS5.1`, `AC3`. The
+	// channel number is part of the token, and without this rule the generic parse
+	// reads `AAC` + `2` as a second number — a scene name then arrives at a human as
+	// "ambiguous" when it was never ambiguous at all.
+	regexp.MustCompile(`(?i)(^|[-_. ])(?:aac|ac3|eac3|dts(?:-hd)?)\d*(?:\.\d+)?([-_. ]|$)`),
 	// resolution tokens
 	regexp.MustCompile(`(?i)(^|[-_. ])(?:4k|8k|fhd|uhd|hd|\d{3,4}[pi])([-_. ]|$)`),
 	// flags: -C (chinese subtitles) and -U (uncensored) are neither parts nor fields

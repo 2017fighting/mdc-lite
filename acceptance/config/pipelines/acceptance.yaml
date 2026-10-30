@@ -1,0 +1,77 @@
+# The acceptance pipeline: the main chain, with the acceptance environment's names.
+#
+# It is the example pipeline the repository ships, narrowed to what this environment
+# can replay (javdb and javbus) and with the two settings the corpus forces:
+#
+#   - `min_size: 0`: the corpus's videos are one-second generated clips, so any
+#     minimum-size rule would throw the whole corpus away and the run would report
+#     "no tasks, everything fine". The default filter rule ships with a 100 MiB floor
+#     because that is right for a real library; here it has to be written down as 0.
+#   - `link: hardlink`: the default, so the run exercises the path a user gets.
+#
+# `output.root` is the same absolute path inside the media server's container (the
+# scratch root is bind-mounted at the identical path), which is what makes "the server
+# read what the pipeline wrote" a real assertion rather than a coincidence.
+name: acceptance
+
+steps:
+  - type: scan
+    with:
+      roots: ["${MDC_ACCEPT_ROOT}/library-in"]
+      exclude: []
+
+  - type: filter
+    with:
+      rules:
+        - name: companions
+          when: {ext_in: [".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png"]}
+          then: include
+        - name: too-small
+          # Explicitly zero: this corpus is one-second clips (requirement, and the
+          # reason is above).
+          when: {min_size: 0}
+          then: exclude
+        - name: videos
+          when: {ext_in: [".mp4", ".mkv", ".avi", ".mov", ".m4v"]}
+          then: include
+        - name: everything-else
+          when: {stem_matches: "^.*$"}
+          then: exclude
+
+  - type: group
+    with:
+      max_distance: 2
+      max_files_for_levenshtein: 50
+      companion_extensions: [".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png"]
+
+  - type: parse
+    with:
+      rules:
+        - {builtin: default}
+
+  - type: scrape
+    with:
+      # Both sources replay from committed captures. The per-source rate is raised
+      # because the replay answers instantly and a 1 req/s bucket would turn a four
+      # and a half task run into a minute of waiting for no added coverage.
+      sources:
+        - id: javdb
+          rate: {requests_per_second: 50, burst: 20, cooldown: 1s}
+        - id: javbus
+          rate: {requests_per_second: 50, burst: 20, cooldown: 1s}
+      timeout: 2m
+
+  - type: images
+    with: {}
+
+  - type: nfo
+    with:
+      template: default
+
+  - type: output
+    with:
+      root: "${MDC_ACCEPT_ROOT}/library"
+      dir_template: "{{ number }}"
+      file_template: "{{ number }}-cd{{ part }}"
+      link: hardlink
+      required_fields: ["title", "fanart"]

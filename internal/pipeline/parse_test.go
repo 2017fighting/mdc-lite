@@ -85,6 +85,23 @@ func TestParse_PrimaryWithNoNumberAdoptsTheAgreedOne(t *testing.T) {
 	}
 }
 
+// TestParse_AnAudioCodecInTheNameIsNotASecondNumber: a real scene name carries
+// `AAC2.0`, and the generic rule reads `AAC` + `2` as a second number — so a
+// perfectly readable release would go to a human with two candidates. The channel
+// count is part of the codec token, which the noise table strips.
+func TestParse_AnAudioCodecInTheNameIsNotASecondNumber(t *testing.T) {
+	_, parsed, _ := parseNames(t, groupWith(), parseWith(),
+		"MIDV-804.2025.1080p.DMM.WEB-DL.AAC2.0.HFR.H.264-MTeam.mkv")
+
+	if len(parsed.Items) != 1 {
+		t.Fatalf("items = %v, unresolved = %v, want the release read as one number",
+			parsed.Items, parsed.Unresolved)
+	}
+	if got := parsed.Items[0].Number.Normalized; got != "MIDV-804" {
+		t.Errorf("number = %q, want MIDV-804", got)
+	}
+}
+
 // TestParse_AmbiguousGoesToAHumanWithTheCandidates: several numbers and none the
 // less specific reading of another means ask, and show what to choose from.
 func TestParse_AmbiguousGoesToAHumanWithTheCandidates(t *testing.T) {

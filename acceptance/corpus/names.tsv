@@ -1,0 +1,27 @@
+# Where the acceptance corpus's directory names come from.
+#
+# Every directory the acceptance run materialises is listed here with one of two
+# provenances, and `go test ./acceptance/` checks both directions: a corpus
+# directory that is not listed fails, and a listed name no corpus file uses fails.
+#
+#   library   copied verbatim from the owner's media library. The listing this sample
+#             was drawn from is the old repository's `acceptance/names-all.txt`
+#             (a directory listing of /mnt/nova/data/media/downloads/completed/av on
+#             the TrueNAS host) with `acceptance/names-seeded.tsv` for the per-release
+#             file lists. Names were copied, never cleaned: the brackets, the
+#             full-width characters and the scene suffixes are the point, and the
+#             sample is deliberately only the releases this run needs.
+#   boundary  written by hand for one rule's counterexample (the spec's own cases:
+#             neighbours that must not merge, a duplicate stem, a conditional part
+#             marker, two discs of one number). Not from the library, and it says so.
+#
+# name<TAB>provenance
+CAWD-279	library
+MIDA-557-C	library
+MIDV-804.2025.1080p.DMM.WEB-DL.AAC2.0.HFR.H.264-MTeam	library
+ABP-647	library
+SSIS-001	boundary
+SSVR-122-parts	boundary
+ABC-123	boundary
+ABC-456	boundary
+ABC-124	boundary

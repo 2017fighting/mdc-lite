@@ -1,0 +1,49 @@
+# The acceptance environment's containers.
+#
+# The product is deliberately not one of them: it runs from the host, built from this
+# checkout, because the question this environment answers is "what does this program
+# do" and rebuilding an image per iteration is the one cost that would stop it from
+# being used. An image for the product is a deployment artefact, which is different
+# work.
+#
+#   MDC_ACCEPT_ROOT           absolute scratch directory (exported by `make accept`)
+#   MDC_ACCEPT_UID/GID        the host user, so nothing under the scratch root comes
+#                             out root-owned and the next reset can delete it
+#   MDC_ACCEPT_JELLYFIN_IMAGE pinned, and overridable: a reason to run another
+#                             version is a good reason to keep the option, and the two
+#                             layout claims measured here have to be re-measured when
+#                             it moves
+#
+# Two properties of this file are load-bearing rather than cosmetic:
+#
+#   - The scratch root is mounted at the identical absolute path inside and outside
+#     the container. The product writes absolute paths into its database and the
+#     acceptance run hands one to the media server; Jellyfin answers 204 to a path it
+#     has never seen, so a different mount point would look like a working scan while
+#     nothing was scanned.
+#   - The library is created with the online fetchers off and NFO reading on (the
+#     acceptance environment does that over the API, not by hand). A server left to
+#     its own devices would fetch its own metadata over the NFO, and the assertions
+#     would be measuring the internet.
+name: mdc-lite-acceptance
+
+services:
+  jellyfin:
+    image: ${MDC_ACCEPT_JELLYFIN_IMAGE:-jellyfin/jellyfin:10.10.7}
+    user: "${MDC_ACCEPT_UID:-0}:${MDC_ACCEPT_GID:-0}"
+    container_name: mdc-lite-acceptance-jellyfin
+    ports:
+      - "127.0.0.1:${MDC_ACCEPT_JELLYFIN_PORT:-8096}:8096"
+    volumes:
+      - ${MDC_ACCEPT_ROOT}:${MDC_ACCEPT_ROOT}
+      - ${MDC_ACCEPT_ROOT}/jellyfin/config:/config
+      - ${MDC_ACCEPT_ROOT}/jellyfin/cache:/cache
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8096/System/Info/Public"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+    # No restart policy: this container's lifetime is one run, and a crashed server
+    # has to stay crashed so the failure is visible instead of being papered over.
+    restart: "no"

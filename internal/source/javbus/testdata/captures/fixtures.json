@@ -1,11 +1,35 @@
 [
   {
+    "path": "javbus-CAWD-279.html",
+    "url": "https://www.javbus.com/CAWD-279",
+    "status": 200,
+    "bytes": 39359,
+    "captured": "2026-10-30T01:14:13Z",
+    "sha256": "c04263988591794815820199feb980b4586da57505fcda62ee9417a3242e0b2e"
+  },
+  {
     "path": "javbus-IPX-535.html",
     "url": "https://www.javbus.com/IPX-535",
     "status": 200,
     "bytes": 41927,
     "captured": "2026-10-28T16:20:26Z",
     "sha256": "e77d6e6f9f316bbc4dbe93850d71c24a562eb4916bdb974b937d59940930db31"
+  },
+  {
+    "path": "javbus-MIDA-557.html",
+    "url": "https://www.javbus.com/MIDA-557",
+    "status": 200,
+    "bytes": 41251,
+    "captured": "2026-10-30T01:14:20Z",
+    "sha256": "5ad17f6d5b5ab0d5dc6808b508da77839d748ea3da61f6954a93af8567d96de4"
+  },
+  {
+    "path": "javbus-MIDV-804.html",
+    "url": "https://www.javbus.com/MIDV-804",
+    "status": 200,
+    "bytes": 41199,
+    "captured": "2026-10-30T01:14:27Z",
+    "sha256": "aa551a4a234c038f2f543b6c880f2648ea6ecd8f8f26963da7dd17468db6fee0"
   },
   {
     "path": "javbus-SSIS-001.html",

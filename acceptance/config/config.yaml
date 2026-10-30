@@ -1,0 +1,35 @@
+# The acceptance environment's process-level config.
+#
+# Every path is `${MDC_ACCEPT_ROOT}/…` on purpose: the run's scratch root is the one
+# thing that differs between a laptop and CI, and the config interpolates it rather
+# than being generated, so what CI runs is what a person can read here.
+#
+# `proxy:` is the replay. The acceptance environment replaces the network, not the
+# source: the real javbus/javdb code runs with its real selectors, cookie and Referer,
+# against the committed captures, through this one address.
+
+listen: "127.0.0.1:${MDC_ACCEPT_LISTEN_PORT:-19208}"
+db_path: "${MDC_ACCEPT_ROOT}/mdc.db"
+pipelines_dir: "${MDC_ACCEPT_ROOT}/config/pipelines"
+templates_dir: "${MDC_ACCEPT_ROOT}/config/templates"
+
+log:
+  level: info
+  format: text
+
+browse_roots:
+  - path: "${MDC_ACCEPT_ROOT}"
+
+# Small on purpose: the run is a handful of tasks, and the point of the numbers is to
+# be exercised at all (the pool, the in-flight cap), not to be measured.
+concurrency:
+  tasks: 2
+  requests: 4
+  images: 2
+
+proxy: "${MDC_ACCEPT_REPLAY_PROXY}"
+
+webhook:
+  enabled: false
+  token: ""
+  categories: {}

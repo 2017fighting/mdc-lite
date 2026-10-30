@@ -67,6 +67,44 @@ test-web:
 .PHONY: check
 check: vet test lint typecheck test-web
 
+# The acceptance environment's scratch root. It must not start with a dot: the
+# pipeline's segment sanitiser and the scan's filter rules both treat a dot-leading
+# path specially, and an environment that leans on a special case proves nothing.
+ACCEPT_ROOT ?= $(CURDIR)/acceptance/scratch
+ACCEPT_JELLYFIN_IMAGE ?= jellyfin/jellyfin:10.10.7
+export MDC_ACCEPT_ROOT := $(ACCEPT_ROOT)
+export MDC_ACCEPT_JELLYFIN_IMAGE := $(ACCEPT_JELLYFIN_IMAGE)
+
+## accept: from a clean slate, bring the acceptance environment up and assert against it
+#
+# One command, no prerequisites to remember: the test builds the binary from this
+# checkout, starts the pinned Jellyfin, replays the committed captures, runs the
+# corpus through the real chain and asserts what the media server read.
+#
+# -timeout is explicit because the slowest wait is the media server's own scan; the
+# waits themselves return as soon as what they are waiting for is there.
+.PHONY: accept
+accept:
+	docker compose -f acceptance/compose.yaml version >/dev/null
+	go test -tags acceptance -count=1 -v -timeout 30m ./acceptance/
+
+## accept-down: stop the acceptance environment's container
+.PHONY: accept-down
+accept-down:
+	docker compose -f acceptance/compose.yaml down --volumes --remove-orphans
+
+## accept-clean: stop the environment and drop its scratch root
+.PHONY: accept-clean
+accept-clean: accept-down
+	rm -rf $(ACCEPT_ROOT)
+
+## accept-falsify: prove the acceptance gate can fail, and for the right reason
+#
+# The script's exit status is its answer: it must not be piped.
+.PHONY: accept-falsify
+accept-falsify:
+	./acceptance/tools/verify-accept-fails.sh
+
 ## run: run the server against examples/
 .PHONY: run
 run:

@@ -8,3 +8,7 @@
 
 # Local scratch: plans, notes, one-off experiments.
 /.scratch/
+
+# The acceptance environment's scratch root: a run's corpus, library and database.
+/acceptance/scratch/
+/acceptance/scratch-falsify/
