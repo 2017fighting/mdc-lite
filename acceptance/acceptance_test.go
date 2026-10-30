@@ -263,9 +263,15 @@ func TestAcceptance(t *testing.T) {
 	})
 
 	// The marker is the run's own record that it asserted something. A gate that
-	// skipped every arm would otherwise still exit 0.
+	// skipped every arm would otherwise still exit 0 — and one that failed must not
+	// leave the marker either, or "the marker is present" would stop meaning "the
+	// gate passed".
 	if len(ran) == 0 {
 		t.Fatal("no assertion arm ran")
+	}
+	if t.Failed() {
+		t.Logf("ACCEPTANCE FAILED: an assertion arm failed, so no positive marker was written")
+		return
 	}
 	e.markRan(t, ran...)
 }
