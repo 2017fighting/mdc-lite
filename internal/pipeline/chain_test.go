@@ -112,12 +112,12 @@ const chainPipeline = `steps:
         - name: everything-else
           when: {stem_matches: "^.*$"}
           then: exclude
-  - type: group
-    with: {companion_extensions: [".srt", ".ass", ".ssa", ".jpg", ".png"]}
   - type: parse
     with:
       rules:
         - {builtin: default}
+  - type: group
+    with: {companion_extensions: [".srt", ".ass", ".ssa", ".jpg", ".png"]}
   - type: scrape
     with: {sources: [fixture]}
   - type: images

@@ -73,7 +73,7 @@ func (s *parseStep) Type() string { return config.StepParse }
 
 func (s *parseStep) Name() string { return "" }
 
-func (s *parseStep) Requires() []string { return []string{config.ArtifactGroups} }
+func (s *parseStep) Requires() []string { return []string{config.ArtifactCandidates} }
 
 func (s *parseStep) Produces() []string { return []string{config.ArtifactParsed} }
 

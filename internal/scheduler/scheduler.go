@@ -1,7 +1,7 @@
 // Package scheduler is the process's concurrency model: the task slots that run
-// one task each, the single-flight prefix slot that keeps scan/filter/group from
-// walking the same tree twice, and the two cancellation paths (a human's cancel,
-// the process's SIGTERM).
+// one task each, the single-flight prefix slot that keeps scan/filter/parse/group
+// from walking the same tree twice, and the two cancellation paths (a human's
+// cancel, the process's SIGTERM).
 //
 // It is the only place that decides how many tasks run at once, so the numbers
 // `concurrency.tasks` carries have exactly one reader. The queue itself is not

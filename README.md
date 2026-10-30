@@ -52,7 +52,7 @@ Jellyfin**、把各源的真机抓取**回放**在本地、用**宿主上从本�
 | `concurrency.requests` | 8 | 进程内全局在飞请求上限（元数据与图片共用同一个 `Fetcher`） |
 | `concurrency.images` | 4 | 单任务同时取几张图（在全局信号量之前排队） |
 
-批次级前缀 `scan → filter → group` 全局单飞：监控 tick 拿不到槽就跳过本轮、不推水位线；
+批次级前缀 `scan → filter → parse → group` 全局单飞：监控 tick 拿不到槽就跳过本轮、不推水位线；
 手动预览与建任务排队等待。队列就是 `tasks.status='queued'` 的全局 FIFO，失败不熔断、不暂停队列。
 
 SIGTERM 优雅中断：停止取新任务 → 取消根 ctx（步骤、限速等待、退避、HTTP 一起断）→ 等最多 25s →

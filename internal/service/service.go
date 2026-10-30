@@ -212,15 +212,15 @@ func (s *Service) notify() {
 	}
 }
 
-// runPrefix runs one pipeline's batch-level prefix (through parse) over a trigger's
+// runPrefix runs one pipeline's batch-level prefix (through group) over a trigger's
 // directories and reports what each step did.
 func (s *Service) runPrefix(ctx context.Context, p config.Pipeline, in pipeline.Input, out *[]pipeline.StepOutcome) (*pipeline.Result, error) {
 	engine, err := pipeline.Build(p, pipeline.Options{
 		Input: in,
-		// The preview and a manual trigger both stop after `parse`: the number the
-		// panel shows exists only after the parse step, and everything past it needs
-		// the network.
-		Until:  config.StepParse,
+		// The preview and a manual trigger both stop after `group`: the number the
+		// panel shows exists only after the parse and group steps have run, and
+		// everything past it needs the network.
+		Until:  config.StepGroup,
 		DryRun: true,
 		Env:    s.envFor(p),
 		OnStep: func(_ context.Context, o pipeline.StepOutcome) error {

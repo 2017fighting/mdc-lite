@@ -93,7 +93,7 @@ const largeCopyBytes = 256 << 20
 //
 // The library half is four releases a real library holds, each named the way the
 // owner's files are named, and each with a captured page behind it, so the chain
-// runs for real: group → parse → scrape → images → nfo → output → Jellyfin.
+// runs for real: parse → group → scrape → images → nfo → output → Jellyfin.
 //
 // The counterexample half is the spec's own do-not-merge and must-merge cases; the
 // numbers there are not captured, so those tasks end at the `output` step's required

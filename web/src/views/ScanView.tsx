@@ -194,7 +194,7 @@ export function ScanView({ initialPath }: { initialPath?: string }) {
 
       {!previewID && !preview && !previewError && !starting ? (
         <Card>
-          <SectionTitle hint="预览与建任务共用 scan → filter → group → parse">还没开始预览</SectionTitle>
+          <SectionTitle hint="预览与建任务共用 scan → filter → parse → group">还没开始预览</SectionTitle>
           <EmptyState
             title="选好目录后开始扫描"
             hint="扫描预览会走完分组与番号解析，但不会写盘，也不会建任务。"

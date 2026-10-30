@@ -34,13 +34,13 @@ steps:
           when: {stem_matches: "^.*$"}
           then: exclude
 
-  - type: group
-    with: {}
-
   - type: parse
     with:
       rules:
         - {builtin: default}
+
+  - type: group
+    with: {}
 
   - type: output
     with: {root: "/media/library"}
@@ -65,8 +65,8 @@ func TestBuild_StopsAtTheRequestedStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if len(e.steps) != 3 {
-		t.Fatalf("steps = %d, want the three batch-level steps", len(e.steps))
+	if len(e.steps) != 4 {
+		t.Fatalf("steps = %d, want the four batch-level steps", len(e.steps))
 	}
 	if got := e.steps[len(e.steps)-1].Type(); got != config.StepGroup {
 		t.Errorf("last step = %q", got)
@@ -101,7 +101,7 @@ func TestBuild_UnknownUntil(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `no step named "scrape"`) {
 		t.Fatalf("got %v", err)
 	}
-	if !strings.Contains(err.Error(), "scan, filter, group, parse, output") {
+	if !strings.Contains(err.Error(), "scan, filter, parse, group, output") {
 		t.Errorf("the error should list the steps it does have: %v", err)
 	}
 }
@@ -127,9 +127,9 @@ func TestBuild_RefusesAChainThatDoesNotConnect(t *testing.T) {
 	}
 	_, err := Build(p, Options{Until: "group"})
 	if err == nil {
-		t.Fatal("group needs Candidates and nothing produces them here")
+		t.Fatal("group needs Parsed and nothing produces it here")
 	}
-	if !strings.Contains(err.Error(), "needs Candidates") {
+	if !strings.Contains(err.Error(), "needs Parsed") {
 		t.Errorf("got %v", err)
 	}
 }

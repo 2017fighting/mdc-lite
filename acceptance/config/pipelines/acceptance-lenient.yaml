@@ -31,16 +31,16 @@ steps:
           when: {stem_matches: "^.*$"}
           then: exclude
 
+  - type: parse
+    with:
+      rules:
+        - {builtin: default}
+
   - type: group
     with:
       max_distance: 2
       max_files_for_levenshtein: 50
       companion_extensions: [".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png"]
-
-  - type: parse
-    with:
-      rules:
-        - {builtin: default}
 
   - type: scrape
     with:

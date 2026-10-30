@@ -9,7 +9,7 @@
 name: main
 
 steps:
-  # Batch-level prefix: scan → filter → group. These run once per trigger.
+  # Batch-level prefix: scan → filter → parse → group. These run once per trigger.
   - type: scan
     with:
       roots: ["/media"]
@@ -33,17 +33,6 @@ steps:
           when: {stem_matches: "^.*$"}
           then: exclude
 
-  - type: group
-    with:
-      max_distance: 2
-      max_files_for_levenshtein: 50
-      companion_extensions: [".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png", ".webp"]
-      # Noise stripped off the file name before grouping. A bare string is a
-      # literal; `r:` makes it a Go regexp.
-      # sanitize: ["1080p", "r:[-_. ](?:x264|x265|h264|h265)$"]
-
-  # Task-level suffix: parse → scrape → images → nfo → output. These run once per
-  # group, and a rerun starts here rather than re-walking the directory.
   - type: parse
     with:
       # A positional rule list: `{builtin: default}` expands the built-in set
@@ -54,6 +43,18 @@ steps:
       rules:
         - {builtin: default}
 
+  - type: group
+    with:
+      max_distance: 2
+      max_files_for_levenshtein: 50
+      companion_extensions: [".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png", ".webp"]
+      # Noise stripped off the file name before grouping. A bare string is a
+      # literal; `r:` makes it a Go regexp.
+      # sanitize: ["1080p", "r:[-_. ](?:x264|x265|h264|h265)$"]
+
+  # Task-level suffix: scrape → images → nfo → output. These run once per group
+  # (one group per number, ADR-0019), and a rerun starts here rather than
+  # re-walking the directory.
   - type: scrape
     with:
       # The global source order. An entry is either a bare id or an object carrying

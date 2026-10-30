@@ -81,7 +81,7 @@ mdc-lite 的领域词汇表。写代码、起 issue、写测试名时用这里�
 - **任务状态** —— 7 值：`queued` / `running` / `succeeded` / `partial` / `failed` / `needs_number` / `cancelled`。
 - **批次状态** —— 5 值：`running` / `succeeded` / `partial` / `failed` / `cancelled`。
 - **任务槽（task slot）** —— `concurrency.tasks`（默认 4）：同时跑几个任务。
-- **前缀单飞（prefix single-flight）** —— `scan`/`filter`/`group` 同一时刻只跑一个；tick 用 `TryLock` 拿不到就跳过本轮且水位线不推进。
+- **前缀单飞（prefix single-flight）** —— `scan`/`filter`/`parse`/`group` 同一时刻只跑一个；tick 用 `TryLock` 拿不到就跳过本轮且水位线不推进。
 - **在飞请求（in-flight request）** —— `concurrency.requests`（默认 8）：Fetcher 全局在飞上限。
 - **单写连接（single writer）** —— 写句柄 `SetMaxOpenConns(1)`；读走独立只读池。SQLite 走 WAL + `busy_timeout(5000)` + `synchronous(NORMAL)`。
 - **优雅中断（graceful interrupt）** —— SIGTERM：停取新任务 → cancel → 最多 25s → 落 `interrupted`。

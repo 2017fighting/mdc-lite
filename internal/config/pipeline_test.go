@@ -12,27 +12,33 @@ import (
 // head is a pipeline's first step: a scan of one root.
 const head = "steps:\n  - type: scan\n    with: {roots: [/a]}\n"
 
-// tail is the shortest legal path from a scan to a write: filter → group →
-// parse → output. Every optional step (scrape, images, nfo) is left out on
+// tail is the shortest legal path from a scan to a write: filter → parse →
+// group → output. Every optional step (scrape, images, nfo) is left out on
 // purpose, which is itself one of the rules under test.
-const filterGroup = `  - type: filter
+const filterOnly = `  - type: filter
     with:
       rules:
         - name: all
           when: {ext_in: [.mp4]}
           then: include
-  - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
 `
 
-// afterGroup is the task-level suffix with every optional step left out.
-const afterGroup = `  - type: parse
+// defaultParse is the parse step a test swaps for one carrying the rules under
+// test.
+const defaultParse = `  - type: parse
     with: {rules: [{builtin: default}]}
+`
+
+const filterParse = filterOnly + defaultParse
+
+// afterParse is the task-level suffix with every optional step left out.
+const afterParse = `  - type: group
+    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: output
     with: {root: /o}
 `
 
-const tail = filterGroup + afterGroup
+const tail = filterParse + afterParse
 
 func parse(t *testing.T, body string) (config.Pipeline, error) {
 	t.Helper()
@@ -165,7 +171,7 @@ func TestParsePipeline_UnknownKeyInsideNestedWith(t *testing.T) {
             ext_in: [.mp4]
             mni_size: 10
           then: include
-`+afterGroup)
+`+afterParse)
 	if err == nil {
 		t.Fatal("a typo nested two levels inside `with` must be refused")
 	}
@@ -252,9 +258,9 @@ func TestParsePipeline_TopologyNotConnected(t *testing.T) {
     with: {root: /o}
 `)
 	if err == nil {
-		t.Fatal("parse needs Groups; nothing produces them here")
+		t.Fatal("parse needs Candidates; nothing produces them here")
 	}
-	if !strings.Contains(err.Error(), "step 2 (parse)") || !strings.Contains(err.Error(), "Groups") {
+	if !strings.Contains(err.Error(), "step 2 (parse)") || !strings.Contains(err.Error(), "Candidates") {
 		t.Errorf("got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "main.yaml:4:5:") {
@@ -317,7 +323,7 @@ func TestParsePipeline_FilterRulesValidated(t *testing.T) {
 		{"extension shape", `[{name: a, when: {ext_in: [mp4]}, then: include}]`, "must look like"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := parse(t, "steps:\n  - type: scan\n    with: {roots: [/a]}\n  - type: filter\n    with:\n      rules: "+tc.rules+"\n"+afterGroup)
+			_, err := parse(t, "steps:\n  - type: scan\n    with: {roots: [/a]}\n  - type: filter\n    with:\n      rules: "+tc.rules+"\n"+afterParse)
 			if err == nil {
 				t.Fatal("expected a validation error")
 			}
@@ -338,10 +344,14 @@ func TestParsePipeline_PartPatternsNeedACaptureGroup(t *testing.T) {
         - name: all
           when: {ext_in: [.mp4]}
           then: include
+  - type: parse
+    with: {rules: [{builtin: default}]}
   - type: group
     with:
       part_patterns: ['` + pattern + `']
-` + afterGroup
+  - type: output
+    with: {root: /o}
+`
 	}
 	_, err := parse(t, body(`(?i)(?:^|[-_. ])slice\d$`))
 	if err == nil {
@@ -357,9 +367,11 @@ func TestParsePipeline_PartPatternsNeedACaptureGroup(t *testing.T) {
 
 func TestParsePipeline_ParseRulesValidated(t *testing.T) {
 	body := func(rules string) string {
-		return head + filterGroup + `  - type: parse
+		return head + filterOnly + `  - type: parse
     with:
       rules: ` + rules + `
+  - type: group
+    with: {}
   - type: output
     with: {root: /o}
 `
@@ -451,8 +463,9 @@ func TestParsePipeline_TemplateSelector(t *testing.T) {
 		{"{{ number }}", ""},
 		{"mine", "not a builtin name"},
 	} {
-		body := head + filterGroup +
+		body := head + filterOnly +
 			"  - type: parse\n    with: {rules: [{builtin: default}]}\n" +
+			"  - type: group\n    with: {}\n" +
 			"  - type: scrape\n    with: {sources: [javdb]}\n" +
 			"  - type: nfo\n    with:\n      template: \"" + tc.sel + "\"\n" +
 			"  - type: output\n    with: {root: /o}\n"
@@ -637,7 +650,7 @@ func TestPipelineString(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := p.String()
-	want := "main: scan → filter → group → parse → output"
+	want := "main: scan → filter → parse → group → output"
 	if got != want {
 		t.Errorf("String() = %q, want %q", got, want)
 	}
@@ -656,10 +669,10 @@ func TestLoadPipelines_WithStructsDoNotLeakBetweenFiles(t *testing.T) {
     with: {roots: [/a]}
   - type: filter
     with: {}
-  - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
+    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: output
     with: {root: /o}
 `)
@@ -680,10 +693,10 @@ func TestLoadPipelines_WithStructsDoNotLeakBetweenFiles(t *testing.T) {
     with: {roots: [/a]}
   - type: filter
     with: {}
-  - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
+    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: output
     with: {root: /o}
 `)
@@ -707,10 +720,10 @@ func TestParsePipeline_WithDefaults(t *testing.T) {
         - name: all
           when: {ext_in: [.mp4]}
           then: include
-  - type: group
-    with: {}
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
+    with: {}
   - type: scrape
     with: {}
   - type: images
@@ -724,7 +737,7 @@ func TestParsePipeline_WithDefaults(t *testing.T) {
 		t.Fatalf("every with key has a default: %v", err)
 	}
 
-	group := p.Steps[2].WithValue.(*config.GroupWith)
+	group := p.Steps[3].WithValue.(*config.GroupWith)
 	if group.MaxDistance != 2 || group.MaxFilesForLevenshtein != 50 {
 		t.Errorf("group defaults = %+v", group)
 	}
@@ -761,10 +774,10 @@ func TestParsePipeline_SourceOrderWithKnobs(t *testing.T) {
         - name: all
           when: {ext_in: [.mp4]}
           then: include
-  - type: group
-    with: {}
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
+    with: {}
   - type: scrape
     with:
       sources:
@@ -820,10 +833,10 @@ func TestParsePipeline_SourceOrderIsValidated(t *testing.T) {
         - name: all
           when: {ext_in: [.mp4]}
           then: include
-  - type: group
-    with: {}
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
+    with: {}
   - type: scrape
     with:
       sources: ` + sources + `
@@ -861,9 +874,9 @@ func TestParsePipeline_OmittedWithMeansDefaults(t *testing.T) {
         - name: all
           when: {ext_in: [.mp4]}
           then: include
-  - type: group
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
   - type: scrape
   - type: output
     with: {root: /o}
@@ -871,7 +884,7 @@ func TestParsePipeline_OmittedWithMeansDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("an omitted `with` must fall back to the defaults: %v", err)
 	}
-	if g := p.Steps[2].WithValue.(*config.GroupWith); g.MaxDistance != 2 {
+	if g := p.Steps[3].WithValue.(*config.GroupWith); g.MaxDistance != 2 {
 		t.Errorf("group defaults missing: %+v", g)
 	}
 	if s := p.Steps[4].WithValue.(*config.ScrapeWith); len(s.Sources) != 4 {

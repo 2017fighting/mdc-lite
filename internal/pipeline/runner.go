@@ -390,11 +390,11 @@ func seedState(files []tasks.TaskFile, number string) *State {
 	return &State{Parsed: parsed}
 }
 
-// suffixStartKey is the first step of the task-level suffix: the one after `parse`,
-// or — in a pipeline without a parse step — the first step that is not batch-level.
+// suffixStartKey is the first step of the task-level suffix: the one after `group`,
+// or — in a pipeline without a group step — the first step that is not batch-level.
 func suffixStartKey(p config.Pipeline) string {
 	for i, st := range p.Steps {
-		if st.Type != config.StepParse {
+		if st.Type != config.StepGroup {
 			continue
 		}
 		if i+1 >= len(p.Steps) {
@@ -404,7 +404,7 @@ func suffixStartKey(p config.Pipeline) string {
 	}
 	for _, st := range p.Steps {
 		switch st.Type {
-		case config.StepScan, config.StepFilter, config.StepGroup:
+		case config.StepScan, config.StepFilter, config.StepParse, config.StepGroup:
 			continue
 		}
 		return stepAddress(st)

@@ -87,7 +87,7 @@
 mdc run --pipeline <id> --roots <dir>[,<dir>|<file>] [--until <step>] [--dry-run]
 ```
 
-一次扫描、一份打印出来的摘要：walk 了多少、进了多少候选、滤掉多少及原因、分了哪些组；停在 `parse` 时还打印每组的番号（原文 / 归一化 / 规则家族）与待补号的组及原因。它是预览、监控 tick 与调试的**同一段前缀**——触发只注入 `{roots, exclude}` 覆盖 `scan.with`，其余一律照流水线文件——所以规则写错在这里就能看见。
+一次扫描、一份打印出来的摘要：walk 了多少、进了多少候选、滤掉多少及原因、分了哪些组；停在 `group` 时还打印每组的番号（原文 / 归一化 / 规则家族）与待补号的组及原因。它是预览、监控 tick 与调试的**同一段前缀**——触发只注入 `{roots, exclude}` 覆盖 `scan.with`，其余一律照流水线文件——所以规则写错在这里就能看见。
 
 - `--roots` 可重复，也可逗号分隔；元素可为目录（递归）或文件（只取该文件）。
 - `--until` 接**步骤 type** 或**步骤 `name`**；不写就跑到最后一步。八类步骤全部可跑。
@@ -128,7 +128,7 @@ mdc source test --id <id> --number <番号> [--dump] [--pipeline <id>] [--dump-d
 
 - 未知键（含 `with` 里的 typo，含两层嵌套）
 - 未知步骤 type
-- 拓扑不连通（例如 `parse` 之前没有 `group`）
+- 拓扑不连通（例如 `parse` 之前没有 `filter`，或 `group` 之前没有 `parse`）
 - 没有落盘步骤（缺 `output`）
 - 同一 type 出现两次却没给 `name`
 - `output.with.root` 缺失（必填、无默认）
@@ -162,7 +162,7 @@ config/pipelines/main.yaml:24:18: step 2 (filter): unknown field "rules[0].when.
 
 `make check` = `go vet` + `go test ./...` + `golangci-lint` + 前端 `typecheck`，CI 在 PR 上跑同一组。CI 另有一个 job 证明两件事：二进制是**静态**的，以及配置门禁**真的会红**（把 `ext_in` 改成 `ext_in_typo` 后 `config check` 必须失败，且失败原因对）。
 
-## 引擎前缀（`scan` / `filter` / `group`）的实现裁决
+## 引擎前缀（`scan` / `filter` / `parse` / `group`）的实现裁决
 
 写在这里，因为它们是实现时才暴露出来的洞：
 
@@ -186,7 +186,7 @@ config/pipelines/main.yaml:24:18: step 2 (filter): unknown field "rules[0].when.
 - **伴随文件有落盘通道**（ADR-0017）：字幕跟随对应视频改名（保留自己的语言 token，例如 `ABC-123.zh.srt` 跟着 `ABC-123-cd1.mp4` 变成 `ABC-123-cd1.zh.srt`），图片保持原名；`Kind = companion` / `role = companion`、照常进台账，因此幂等与清理对它同样成立，且**不受 `link` 开关影响**。
 - **`required_fields` 默认 `[title, fanart]`，`fanart` 按字节到手判**；缺则 `output` 步失败（→ 任务 `failed`），除非 `output.on_error: continue`（→ 任务 `partial`，能写的照写）。任何 14 字段缺失都让 `Metadata.Partial = true`。
 - **多分片时 primary 也带 `-cd1`**：spec §4 的「primary 裸名」与 §10 的 `file_template` 默认值冲突；取 §10——模板对**每个**分片生效（`{{ number }}-cd{{ part }}` → `ABC-123-cd1.mp4`），因为它是配置面写死的键，取证文档里的多分盘目录示例也是 `-cd1`；组内只有一个文件时仍保留源文件名。
-- **任务重跑从 `parse` 之后开始，不重跑 `parse`**：番号已经是 `tasks.number` 这一行事实（可能由人填过），重跑 `parse` 只会用文件名的推断去覆盖它。所以重跑用 `task_files` 重建 parse 产物（`Options.Seed`），再从 `scrape` 起跑；重扫目录、重跑剥离规则都不发生。
+- **任务重跑从 `group` 之后开始，不重跑 `parse`/`group`**：番号已经是 `tasks.number` 这一行事实（可能由人填过），重跑 `parse` 只会用文件名的推断去覆盖它。所以重跑用 `task_files` 重建 parse 产物（`Options.Seed`），再从 `scrape` 起跑；重扫目录、重跑剥离规则都不发生。
 - **`scrape` 按波次并发调度**：每波 = 每个未满足字段在其候选列表里的**当前首选源**去重后的集合，并发各问一次；一波回来后，每个字段取「候选序里**最早**已答且贡献了的源」——**不靠返回顺序**（每字段一个游标，位置决定优先级）。仍有缺口 → 下一波；**无缺口即停**；每个源每番号**只问一次**。某个源抽风只影响它负责的字段：它的候选位置之后的人接手，步骤本身不失败。
 - **图片字段两阶段**：`Scrape` 只给地址；只有「将要胜出」的那个源会被 `FetchImage`（**未胜出不取**），字节到手才算贡献（**胜出源全取、不封顶**）；取图失败 = 该源该字段无贡献 → 照常落到下一个候选（候选可能已经在手，或需要下一波去问）。
 - **`concurrency.requests` 是进程级在飞请求上限**，落在唯一传输接缝 `Fetcher` 上（元数据与图片同一套）：先等域名桶、再占全局槽，等待与获取都尊重 ctx。

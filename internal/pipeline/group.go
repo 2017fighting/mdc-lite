@@ -50,7 +50,7 @@ func (s *groupStep) Type() string { return config.StepGroup }
 
 func (s *groupStep) Name() string { return "" }
 
-func (s *groupStep) Requires() []string { return []string{config.ArtifactCandidates} }
+func (s *groupStep) Requires() []string { return []string{config.ArtifactParsed} }
 
 func (s *groupStep) Produces() []string { return []string{config.ArtifactGroups} }
 

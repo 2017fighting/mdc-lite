@@ -257,8 +257,8 @@ func DefaultStepRegistry() *Registry {
 	return NewRegistry(
 		StepSpec{Type: StepScan, NewWith: func() any { return &ScanWith{} }, Produces: []string{ArtifactFileSet}},
 		StepSpec{Type: StepFilter, NewWith: func() any { return &FilterWith{} }, Requires: []string{ArtifactFileSet}, Produces: []string{ArtifactCandidates}},
-		StepSpec{Type: StepGroup, NewWith: func() any { g := GroupDefaults(); return &g }, Requires: []string{ArtifactCandidates}, Produces: []string{ArtifactGroups}},
-		StepSpec{Type: StepParse, NewWith: func() any { return &ParseWith{} }, Requires: []string{ArtifactGroups}, Produces: []string{ArtifactParsed}},
+		StepSpec{Type: StepParse, NewWith: func() any { return &ParseWith{} }, Requires: []string{ArtifactCandidates}, Produces: []string{ArtifactParsed}},
+		StepSpec{Type: StepGroup, NewWith: func() any { g := GroupDefaults(); return &g }, Requires: []string{ArtifactParsed}, Produces: []string{ArtifactGroups}},
 		StepSpec{Type: StepScrape, NewWith: func() any { w := ScrapeDefaults(); return &w }, Requires: []string{ArtifactParsed}, Produces: []string{ArtifactScraped}},
 		StepSpec{Type: StepImages, NewWith: func() any { return &ImagesWith{} }, Requires: []string{ArtifactScraped}, Produces: []string{ArtifactImages}},
 		StepSpec{Type: StepNfo, NewWith: func() any { return &NfoWith{} }, Requires: []string{ArtifactScraped}, Produces: []string{ArtifactNfoDoc}},

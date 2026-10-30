@@ -19,10 +19,10 @@ func scrapeWith(t *testing.T, body string) error {
         - name: all
           when: {ext_in: [.mp4]}
           then: include
-  - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
+    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: scrape
     with:
 ` + body + `
@@ -75,10 +75,10 @@ func scrapeSettings(t *testing.T, body string) *ScrapeWith {
         - name: all
           when: {ext_in: [.mp4]}
           then: include
-  - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
+    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: scrape
     with:
 ` + body + `
@@ -224,10 +224,10 @@ func scrapeSettingsYAML(t *testing.T, withYAML string) *ScrapeWith {
         - name: all
           when: {ext_in: [.mp4]}
           then: include
-  - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
+    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: scrape
     with:
 ` + withYAML + `

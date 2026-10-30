@@ -39,7 +39,7 @@ a failure.
 
 | | the claim |
 |---|---|
-| ① | the main chain runs (corpus → group → parse → scrape → images → nfo → output) and the media server reads the NFO: each release's item name and première date are the NFO's, and its path is under the output root — the same absolute path inside and outside the container |
+| ① | the main chain runs (corpus → parse → group → scrape → images → nfo → output) and the media server reads the NFO: each release's item name and première date are the NFO's, and its path is under the output root — the same absolute path inside and outside the container |
 | ② | a two-disc release is **one entry** in the library, carrying the second disc as an additional part; its `extrafanart/` directory is beside the `movie.nfo`, `IsInMixedFolder` is false, and each still became a backdrop |
 | ③ | a hardlink from the corpus filesystem to the **environment's own tmpfs** (two real mount points, two device ids) fails the task with the message that names `copy|move` — and the failed write leaves no product behind |
 | ④ | a rerun of an unchanged release **skips every write and keeps every mtime**; a rerun that gets one still fewer **deletes exactly that still** from the previous run's ledger, and the deletion is on the record; a copy **killed mid-write** leaves no file under the product's name, and the process's own crash recovery finishes it on restart — no `.tmp` left behind |

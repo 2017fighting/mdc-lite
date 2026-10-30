@@ -12,7 +12,7 @@ import (
 )
 
 // writeMedia puts files on disk with a size above the filter's floor, so the
-// corpus goes through the real scan → filter → group → parse chain.
+// corpus goes through the real scan → filter → parse → group chain.
 func writeMedia(t *testing.T, dir string, names ...string) {
 	t.Helper()
 	for _, name := range names {

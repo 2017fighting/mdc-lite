@@ -3,10 +3,10 @@
 //
 // The contract every step obeys is the artifact one: a step says which artifacts
 // it requires and which it produces, and the engine refuses to start a sequence
-// whose chain does not connect. In this build the batch-level prefix (scan →
-// filter → group) and `parse` are implemented; the rest of the task-level suffix
-// arrives step by step, and until it does, asking to run it is an error on
-// startup rather than a surprise halfway through.
+// whose chain does not connect. This build implements the whole batch-level prefix
+// (scan → filter → parse → group) and the task-level suffix after it; a pipeline
+// naming a step this build has no implementation for is refused at startup rather
+// than surprising halfway through.
 package pipeline
 
 import (
@@ -56,8 +56,8 @@ type Options struct {
 	Until string
 	// From is the first step to run, by type or by name. It exists for the rerun:
 	// a task's files are read from `task_files` and its number is already decided,
-	// so a rerun starts after `parse` with Seed carrying the parse artifact, and
-	// never re-walks a directory.
+	// so a rerun starts after `group` with Seed carrying the parsed artifact (the
+	// fan-out point), and never re-walks a directory.
 	From string
 	// Seed is the artifact set a From run starts from. Only the artifacts the
 	// skipped steps would have produced need to be set.
@@ -408,7 +408,7 @@ func stepKey(st config.Step) string {
 // stepOrder is the spec's step order, so "what this build can run" is listed the
 // way the pipeline file reads.
 var stepOrder = []string{
-	config.StepScan, config.StepFilter, config.StepGroup, config.StepParse,
+	config.StepScan, config.StepFilter, config.StepParse, config.StepGroup,
 	config.StepScrape, config.StepImages, config.StepNfo, config.StepOutput,
 }
 
