@@ -6,10 +6,10 @@ from the committed captures**, the **real binary built from this checkout** and 
 the host, and assertions that land on what the media server read — not on whether the
 pipeline thinks it wrote something.
 
-It takes **about 2 minutes** here (108 s for the assertions on the last run; the first
-run also downloads the Jellyfin image, the Chromium the interface arm drives, and takes
-about 15 s of container start). The self-check runs the gate twice:
-**about 4.5 minutes**.
+It takes **about 2 minutes** here (100–110 s for the assertions; the first run also
+downloads the Jellyfin image and the Chromium the interface arm drives, and takes about
+15 s of container start). The self-check runs the gate twice, green then red:
+**about 3.5 minutes**.
 
 ```sh
 make accept          # the gate
