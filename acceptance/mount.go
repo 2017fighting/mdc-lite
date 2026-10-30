@@ -3,6 +3,7 @@
 package acceptance
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,13 +91,20 @@ func (e *env) unmountLeftover() {
 // mountTmpfs mounts a tmpfs at dir. The first attempt is plain `mount` (the gate may
 // run as root, as it does in the repository's own WSL2 setup); the second asks sudo,
 // which is how the GitHub runner does it.
+//
+// The uid/gid/mode options are not decoration: a tmpfs mounted by root (through sudo)
+// belongs to root, and the product — which on such a host runs as the unprivileged
+// user — could not create its output root under it. Mounting it as this process's own
+// user makes the second filesystem writable by exactly whom the rest of the scratch
+// root is writable by.
 func mountTmpfs(dir string) error {
-	if out, err := exec.Command("mount", "-t", "tmpfs", "tmpfs", dir).CombinedOutput(); err == nil {
+	opts := fmt.Sprintf("uid=%d,gid=%d,mode=0775", os.Geteuid(), os.Getegid())
+	if out, err := exec.Command("mount", "-t", "tmpfs", "-o", opts, "tmpfs", dir).CombinedOutput(); err == nil {
 		return nil
 	} else if !canSudo() {
 		return &mountError{out: out, err: err}
 	}
-	if out, err := exec.Command("sudo", "-n", "mount", "-t", "tmpfs", "tmpfs", dir).CombinedOutput(); err != nil {
+	if out, err := exec.Command("sudo", "-n", "mount", "-t", "tmpfs", "-o", opts, "tmpfs", dir).CombinedOutput(); err != nil {
 		return &mountError{out: out, err: err}
 	}
 	return nil

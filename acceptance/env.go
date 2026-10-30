@@ -198,7 +198,18 @@ func resetScratch(t *testing.T, scratch string) {
 	if err := os.RemoveAll(scratch); err != nil {
 		t.Fatalf("acceptance: clear %s: %v", scratch, err)
 	}
-	for _, dir := range []string{scratch, filepath.Join(scratch, "library")} {
+	dirs := []string{
+		scratch,
+		filepath.Join(scratch, "library"),
+		// Everything the container bind-mounts has to exist before `compose up`:
+		// Docker creates a missing source directory as root, and on a host where the
+		// test does not run as root (the CI runner) the container then runs as a user
+		// that cannot write its own config — Jellyfin dies on /config/log before the
+		// wizard, and the run measures a permission error instead of the product.
+		filepath.Join(scratch, "jellyfin", "config"),
+		filepath.Join(scratch, "jellyfin", "cache"),
+	}
+	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("acceptance: create %s: %v", dir, err)
 		}
