@@ -155,20 +155,27 @@ func (r *Runner) execute(ctx context.Context, task tasks.Task, run tasks.Run) (t
 		return tasks.Outcome{Status: tasks.RunSucceeded, MetadataJSON: metadataJSON(state)}, nil
 	}
 
-	var outputStepRunID int64
+	var (
+		outputStepRunID int64
+		// pendingOutput is the output step's outcome, held back until its plan has been
+		// applied. `output` builds a plan and hands it over; the write happens after the
+		// engine returns, and a trace that recorded "output: ok" before the write ran
+		// would show four green steps on a run whose write failed — the one place an
+		// operator looks to find out which step refused.
+		pendingOutput *StepOutcome
+	)
 	opts := Options{
 		From: from,
 		Seed: state,
 		Env:  r.envFor(p),
 		OnStep: func(ctx context.Context, o StepOutcome) error {
-			id, err := r.recordStep(ctx, run.ID, state, o)
-			if err != nil {
-				return err
-			}
 			if o.Type == config.StepOutput && o.Status != "failed" {
-				outputStepRunID = id
+				held := o
+				pendingOutput = &held
+				return nil
 			}
-			return nil
+			_, err := r.recordStep(ctx, run.ID, state, o)
+			return err
 		},
 	}
 	engine, err := Build(p, opts)
@@ -188,15 +195,42 @@ func (r *Runner) execute(ctx context.Context, task tasks.Task, run tasks.Run) (t
 	var (
 		rows      []tasks.FileRow
 		deletions []Row
+		applyErr  error
+		manifest  *Manifest
 	)
 	if state.Plan != nil && len(state.Plan.Items) > 0 && !engine.DryRun() {
-		manifest, err := Apply(ctx, state.Plan)
+		manifest, applyErr = Apply(ctx, state.Plan)
+	}
+
+	// The output step's row is the last one, and it is written after the write: the
+	// step's own work is the plan, but "did it land" is what a trace has to answer, and
+	// a green output step on a failed write sends the operator to the wrong place.
+	if pendingOutput != nil {
+		o := *pendingOutput
+		if applyErr != nil {
+			o.Status = "failed"
+			o.Err = applyErr
+		}
+		// On a context that survives the cancellation that may be the failure's cause, or
+		// the row that says why the run stopped would be the one write that cannot land.
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishDeadline)
+		id, err := r.recordStep(rctx, run.ID, state, o)
+		cancel()
 		if err != nil {
 			return tasks.Outcome{}, err
 		}
+		if applyErr == nil {
+			outputStepRunID = id
+		}
+	}
+	if applyErr != nil {
+		return tasks.Outcome{}, applyErr
+	}
+
+	if manifest != nil {
 		state.Manifest = manifest
-		// Cleanup is decided before the finish transaction and performed inside it:
-		// the ledger row that says "deleted" and the unlink are one fact.
+		// Cleanup is decided before the finish transaction and performed inside it: the
+		// ledger row that says "deleted" and the unlink are one fact.
 		deletions = StaleRows(prior, manifest.Rows, state.Plan.Items[0].Dir)
 		all := append(append([]Row(nil), manifest.Rows...), deletions...)
 		for _, row := range all {

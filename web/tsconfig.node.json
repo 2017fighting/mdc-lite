@@ -1,0 +1,18 @@
+{
+  // The node-side TypeScript: the Playwright spec and its config read `process.env`,
+  // which is not in the browser's type set. A separate project keeps `src` free of
+  // node globals (a component that reached for `process` should fail the typecheck).
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["e2e", "playwright.config.ts"]
+}

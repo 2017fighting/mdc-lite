@@ -36,11 +36,30 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: docker and compose are usable
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/package.json
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: docker, compose and a mountable kernel are usable
         run: |
           set -eu
           docker version
           docker compose version
+          # ③ mounts a tmpfs of its own, which needs CAP_SYS_ADMIN. Fail here, with
+          # the reason, instead of four minutes into the run.
+          mkdir -p /tmp/mdc-mount-probe
+          mount -t tmpfs tmpfs /tmp/mdc-mount-probe
+          umount /tmp/mdc-mount-probe
+      - name: the interface arm's browser, with its system libraries
+        run: |
+          set -eu
+          cd web
+          npm ci --no-audit --no-fund
+          # --with-deps installs the system libraries Chromium needs, which the runner
+          # image does not carry in full. The acceptance run's own `install` is then a
+          # no-op against the same cache.
+          npx playwright install --with-deps chromium
       - name: the acceptance environment asserts, from nothing
         run: make accept
       - name: the gate left its positive marker
@@ -60,6 +79,7 @@ jobs:
           path: |
             acceptance/scratch/*.log
             acceptance/scratch/ran.json
+            web/test-results/
           if-no-files-found: warn
           retention-days: 7
 
@@ -75,6 +95,25 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/package.json
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: docker, compose and a mountable kernel are usable
+        run: |
+          set -eu
+          docker version
+          docker compose version
+          mkdir -p /tmp/mdc-mount-probe
+          mount -t tmpfs tmpfs /tmp/mdc-mount-probe
+          umount /tmp/mdc-mount-probe
+      - name: the interface arm's browser, with its system libraries
+        run: |
+          set -eu
+          cd web
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
       - name: the gate has both sides
         # `set -o pipefail` is deliberately absent and there are no pipes: a pipe
         # replaces the script's exit status with the last command's, which is a mistake
@@ -85,6 +124,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: acceptance-self-check-logs
-          path: acceptance/scratch-falsify/
+          path: |
+            acceptance/scratch-falsify/
+            web/test-results/
           if-no-files-found: warn
           retention-days: 7

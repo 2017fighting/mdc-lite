@@ -6,6 +6,11 @@
 /internal/web/dist/assets/
 /web/node_modules/
 
+# The interface smoke's own artefacts: a failing Playwright run writes the page it saw
+# into test-results/, which is useful to read once and never belongs in git.
+/web/test-results/
+/web/playwright-report/
+
 # Local scratch: plans, notes, one-off experiments.
 /.scratch/
 

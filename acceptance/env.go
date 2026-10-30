@@ -44,6 +44,12 @@ type env struct {
 	clipPath string
 	compose  string
 	image    string
+	// secondFS is the environment's own filesystem (see mount.go). It is where the
+	// cross-device output root lives.
+	secondFS string
+	// server is the product process, kept so an arm can kill it on purpose and start
+	// it again.
+	server *serverProcess
 }
 
 // newEnvironment brings the environment up from nothing: a clean scratch root, the
@@ -74,15 +80,25 @@ func newEnvironment(t *testing.T) *env {
 
 	t.Logf("acceptance: scratch root %s", e.Scratch)
 	e.composeDownQuiet()
+	// A killed run leaves its mount behind, and a mount point cannot be deleted.
+	e.unmountLeftover()
 	resetScratch(t, e.Scratch)
+	// The second filesystem exists before anything is written into it: the corpus
+	// does not use it, but the cross-device pipeline's output root does.
+	e.mountSecond(t)
 
 	// The replay first: its address goes into the config, and its CA into the child's
 	// SSL_CERT_FILE.
 	e.Replay = newReplay(t, filepath.Join(e.Scratch, "replay-ca.pem"),
 		filepath.Join(e.Repo, "internal", "source", "javbus", "testdata", "captures"),
 		filepath.Join(e.Repo, "internal", "source", "javdb", "testdata", "captures"),
+		filepath.Join(e.Repo, "internal", "source", "fc2", "testdata", "captures"),
 	)
 
+	// The interface is built, not taken from the checkout: the smoke test has to visit
+	// the frontend this commit describes, and the embedded, committed page is the
+	// placeholder a fresh checkout compiles with.
+	e.buildWeb(t)
 	e.buildBinary(t)
 	e.composeUp(t)
 	e.assertServerOwnership(t)
@@ -258,12 +274,39 @@ func writeClip(t *testing.T, dst, clip string) {
 	}
 }
 
-// buildCorpus lays out the two corpus roots from the table in corpus.go.
+// buildCorpus lays out the corpus roots from the table in corpus.go.
 func (e *env) buildCorpus(t *testing.T) {
 	t.Helper()
 	for _, file := range corpus {
 		dst := filepath.Join(e.Scratch, string(file.Root), file.Dir, file.Name)
+		if file.Size > 0 {
+			writeSizedFile(t, dst, file.Size)
+			continue
+		}
 		writeClip(t, dst, e.clipPath)
+	}
+}
+
+// writeSizedFile makes the one corpus file that is not a one-second clip: a sparse
+// file of the requested size, because the interrupted-write arm needs a copy that
+// lasts long enough to be caught. Sparse, so the run costs a few pages of disk and no
+// time; the copy the product makes is a real 128 MiB of bytes, which is the point.
+// Nothing reads its content — no media server scans this root.
+func writeSizedFile(t *testing.T, dst string, size int64) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatalf("acceptance: create %s: %v", filepath.Dir(dst), err)
+	}
+	f, err := os.Create(dst)
+	if err != nil {
+		t.Fatalf("acceptance: create %s: %v", dst, err)
+	}
+	if err := f.Truncate(size); err != nil {
+		_ = f.Close()
+		t.Fatalf("acceptance: size %s to %d: %v", dst, size, err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("acceptance: close %s: %v", dst, err)
 	}
 }
 
@@ -343,16 +386,41 @@ func tail(s string, lines int) string {
 
 // ---- the product server ----
 
+// serverProcess is one run of the binary under test. It is a handle rather than a
+// cleanup closure because one arm kills the server on purpose (a write interrupted
+// mid-file) and then has to start it again to see what the process's own crash
+// recovery does.
+type serverProcess struct {
+	cmd  *exec.Cmd
+	log  *os.File
+	done chan struct{}
+}
+
 // startServer runs the real binary, with the acceptance configuration, and waits for
 // its health endpoint. The environment variables it needs are exactly the ones the
 // config interpolates: the scratch root, and the replay's address.
 func (e *env) startServer(t *testing.T) {
 	t.Helper()
-	logFile, err := os.Create(filepath.Join(e.Scratch, "mdc.log"))
-	if err != nil {
-		t.Fatalf("acceptance: create the server log: %v", err)
+	if e.server != nil {
+		t.Fatal("acceptance: the server is already running")
 	}
-	t.Cleanup(func() { _ = logFile.Close() })
+	e.server = e.spawnServer(t)
+	t.Cleanup(func() {
+		if e.server != nil {
+			e.stopServer(t)
+		}
+	})
+}
+
+// spawnServer starts the process and waits for it to answer. The log is opened in
+// append mode and shared across restarts, so the record of a killed run and of the
+// recovery that followed sit in one file.
+func (e *env) spawnServer(t *testing.T) *serverProcess {
+	t.Helper()
+	logFile, err := os.OpenFile(filepath.Join(e.Scratch, "mdc.log"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatalf("acceptance: open the server log: %v", err)
+	}
 
 	cmd := exec.Command(e.Binary, "serve",
 		"--config", filepath.Join(e.Repo, "acceptance", "config", "config.yaml"),
@@ -369,22 +437,22 @@ func (e *env) startServer(t *testing.T) {
 		"SSL_CERT_FILE="+e.Replay.CAPath,
 	)
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
 		t.Fatalf("acceptance: start the server: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = cmd.Process.Signal(os.Interrupt)
-		done := make(chan struct{})
-		go func() {
-			_, _ = cmd.Process.Wait()
-			close(done)
-		}()
-		select {
-		case <-done:
-		case <-time.After(30 * time.Second):
-			_ = cmd.Process.Kill()
-		}
-	})
+	p := &serverProcess{cmd: cmd, log: logFile, done: make(chan struct{})}
+	go func() {
+		_ = cmd.Wait()
+		close(p.done)
+	}()
+	e.waitForHealth(t)
+	return p
+}
 
+// waitForHealth is the one question "is the product ready": not a port, not a file,
+// but the health endpoint the operator's own probe reads.
+func (e *env) waitForHealth(t *testing.T) {
+	t.Helper()
 	e.waitFor(t, 30*time.Second, "the product server answers /api/health", func() (bool, string) {
 		reply, err := httpGet(e.Server + "/api/health")
 		if err != nil {
@@ -404,4 +472,69 @@ func (e *env) startServer(t *testing.T) {
 		}
 		return true, ""
 	})
+}
+
+// stopServer asks the process to shut down the way an operator does and waits for it.
+func (e *env) stopServer(t *testing.T) {
+	t.Helper()
+	p := e.server
+	if p == nil {
+		return
+	}
+	e.server = nil
+	_ = p.cmd.Process.Signal(os.Interrupt)
+	select {
+	case <-p.done:
+	case <-time.After(30 * time.Second):
+		_ = p.cmd.Process.Kill()
+		<-p.done
+	}
+	_ = p.log.Close()
+}
+
+// killServer takes the process away without a chance to clean up: SIGKILL, which is
+// what a power cut or a container stop with an expired grace period looks like.
+func (e *env) killServer(t *testing.T) {
+	t.Helper()
+	p := e.server
+	if p == nil {
+		t.Fatal("acceptance: there is no server to kill")
+	}
+	e.server = nil
+	if err := p.cmd.Process.Kill(); err != nil {
+		t.Fatalf("acceptance: kill the server: %v", err)
+	}
+	<-p.done
+	_ = p.log.Close()
+}
+
+// restartServer is the recovery: the process starts again over the same database and
+// the same scratch root, which is exactly the situation the crash-recovery path was
+// written for.
+func (e *env) restartServer(t *testing.T) {
+	t.Helper()
+	e.startServer(t)
+}
+
+// buildWeb builds the frontend the binary embeds. It is a build step, not a
+// precondition: the byte a checkout compiles without Node is the placeholder page, and
+// the interface smoke test would then be visiting a placeholder.
+func (e *env) buildWeb(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(e.Repo, "web", "package.json")); err != nil {
+		t.Fatalf("acceptance: the frontend is not in this checkout, so the interface arm cannot run: %v", err)
+	}
+	e.npm(t, "ci", "--no-audit", "--no-fund")
+	e.npm(t, "run", "build")
+}
+
+// npm runs one frontend command in web/. The output is kept on failure and else
+// dropped: a successful `npm ci` writes pages nobody reads.
+func (e *env) npm(t *testing.T, args ...string) {
+	t.Helper()
+	cmd := exec.Command("npm", args...)
+	cmd.Dir = filepath.Join(e.Repo, "web")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("acceptance: npm %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
 }

@@ -49,3 +49,26 @@ services:
     # No restart policy: this container's lifetime is one run, and a crashed server
     # has to stay crashed so the failure is visible instead of being papered over.
     restart: "no"
+
+  # Emby is deliberately not part of any assertion: one media server is enough to prove
+  # the layout reads, and a second one would be a second truth to keep current. The
+  # service sits behind a compose profile, so it starts only when a human asks for it and
+  # the gate never pays for it:
+  #
+  #   docker compose -f acceptance/compose.yaml --profile emby up -d emby
+  #   (then point a client at http://127.0.0.1:${MDC_ACCEPT_EMBY_PORT:-8097} and add
+  #    ${MDC_ACCEPT_ROOT}/library as a Movies library by hand)
+  #
+  # It reads the same scratch root at the same absolute path, so a hand-run re-check
+  # looks at exactly the files the gate wrote. Nothing in this file asserts it, and
+  # nothing in the acceptance run waits for it.
+  emby:
+    profiles: ["emby"]
+    image: ${MDC_ACCEPT_EMBY_IMAGE:-emby/embyserver:4.9.1.0}
+    user: "${MDC_ACCEPT_UID:-0}:${MDC_ACCEPT_GID:-0}"
+    ports:
+      - "127.0.0.1:${MDC_ACCEPT_EMBY_PORT:-8097}:8096"
+    volumes:
+      - ${MDC_ACCEPT_ROOT}:${MDC_ACCEPT_ROOT}
+      - ${MDC_ACCEPT_ROOT}/emby/config:/config
+    restart: "no"

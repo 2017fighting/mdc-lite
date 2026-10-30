@@ -32,6 +32,14 @@ type runnerEnv struct {
 
 func newRunnerEnv(t *testing.T) *runnerEnv {
 	t.Helper()
+	return newRunnerEnvAt(t, t.TempDir())
+}
+
+// newRunnerEnvAt is newRunnerEnv with the output root chosen by the caller, which is how
+// a real cross-device write is set up: the media lives on the test's temporary
+// filesystem and the output root on another one.
+func newRunnerEnvAt(t *testing.T, out string) *runnerEnv {
+	t.Helper()
 	ctx := context.Background()
 	raw, err := store.Open(ctx, filepath.Join(t.TempDir(), "mdc.db"))
 	if err != nil {
@@ -41,7 +49,6 @@ func newRunnerEnv(t *testing.T) *runnerEnv {
 	st := tasks.New(raw, tasks.Config{RetryLimit: 5})
 
 	media, src := standardFixture(t)
-	out := t.TempDir()
 	return &runnerEnv{
 		ctx:   ctx,
 		raw:   raw,
@@ -330,6 +337,77 @@ func TestRunner_RerunSkipsUnchangedAndDeletesWhatIsNoLongerProduced(t *testing.T
 	}
 }
 
+// A write that could not happen is a failed *output step*, not a failed run beside four
+// green steps. The step trace is where an operator looks to find which step refused, and
+// it used to say `output: ok` for a run whose write had just failed.
+func TestRunner_AFailedWriteIsRecordedOnTheOutputStep(t *testing.T) {
+	// A real cross-device hardlink: /dev/shm is a different filesystem from the
+	// temporary directory the media is in, so `Apply` fails the way a mis-set
+	// `output.with.link` does.
+	other, err := os.MkdirTemp("/dev/shm", "mdc-exdev-")
+	if err != nil {
+		t.Skipf("/dev/shm is not available for a real EXDEV: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(other) })
+	e := newRunnerEnvAt(t, other)
+	taskID := e.createTask(t, "ABC-123", "ABC-123-cd1.mp4", "ABC-123-cd2.mp4")
+
+	outcome, err := e.run.RunTask(e.ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Status != tasks.RunFailed {
+		t.Fatalf("status = %q, want failed", outcome.Status)
+	}
+	for _, want := range []string{"not on the same filesystem", "copy or move"} {
+		if !strings.Contains(outcome.Error, want) {
+			t.Errorf("the run's error does not name %q: %q", want, outcome.Error)
+		}
+	}
+
+	type step struct {
+		Type   string
+		Status string
+		Error  string
+	}
+	rows, err := e.raw.Write().Query(
+		`SELECT type, status, COALESCE(error, '') FROM step_runs
+		 WHERE task_run_id = (SELECT id FROM task_runs WHERE task_id = ? ORDER BY run_no DESC LIMIT 1)
+		 ORDER BY id`, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var steps []step
+	for rows.Next() {
+		var one step
+		if err := rows.Scan(&one.Type, &one.Status, &one.Error); err != nil {
+			t.Fatal(err)
+		}
+		steps = append(steps, one)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) == 0 {
+		t.Fatal("the run recorded no steps")
+	}
+	last := steps[len(steps)-1]
+	if last.Type != "output" {
+		t.Fatalf("the last recorded step is %q, want output", last.Type)
+	}
+	if last.Status != "failed" {
+		t.Errorf("the output step is recorded as %q; a write that failed is the step failing", last.Status)
+	}
+	if !strings.Contains(last.Error, "copy") || !strings.Contains(last.Error, "move") {
+		t.Errorf("the step's own error does not name the fix: %q", last.Error)
+	}
+	// No half product: the plan never applied, so nothing is under the destination.
+	if _, err := os.Stat(filepath.Join(other, "ABC-123", "ABC-123-cd1.mp4")); !os.IsNotExist(err) {
+		t.Errorf("a failed link left a product behind: %v", err)
+	}
+}
+
 func TestRunner_AMissingRequiredFieldFailsTheRun(t *testing.T) {
 	e := newRunnerEnv(t)
 	e.src.fields.Title = nil
@@ -345,6 +423,16 @@ func TestRunner_AMissingRequiredFieldFailsTheRun(t *testing.T) {
 	}
 	if !strings.Contains(outcome.Error, "missing required field(s)") {
 		t.Errorf("the error must name the gate: %q", outcome.Error)
+	}
+	// A task run starts after `parse`, but the message has to name the step that
+	// actually failed — and its position in the pipeline file, not its position in
+	// this run. Blaming `parse` for the output step's refusal sends the operator to
+	// the wrong block of the file.
+	if !strings.Contains(outcome.Error, "step 8 (output)") {
+		t.Errorf("the error must name the output step's own position: %q", outcome.Error)
+	}
+	if strings.Contains(outcome.Error, "(parse)") {
+		t.Errorf("the output step's refusal is attributed to parse: %q", outcome.Error)
 	}
 	task, err := e.store.Task(e.ctx, taskID)
 	if err != nil {

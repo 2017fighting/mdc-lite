@@ -165,6 +165,21 @@ func (j *jellyfin) scan(t *testing.T, paths ...string) {
 	t.Logf("jellyfin: library scan triggered (%s)", strings.Join(paths, ", "))
 }
 
+// version is the server's own version string, read from the one endpoint that answers
+// before the wizard has run.
+func (j *jellyfin) version(t *testing.T) string {
+	t.Helper()
+	info := j.publicInfo(t)
+	if info == nil {
+		t.Fatal("jellyfin: /System/Info/Public does not answer, so the pinned version cannot be checked")
+	}
+	version, _ := info["Version"].(string)
+	if version == "" {
+		t.Fatalf("jellyfin: /System/Info/Public carries no Version: %v", info)
+	}
+	return version
+}
+
 // scanTaskID finds the server's library-scan task, by key rather than by name: the
 // name is translated, the key is not.
 func (j *jellyfin) scanTaskID(t *testing.T) string {

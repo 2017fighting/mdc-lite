@@ -295,8 +295,11 @@ func (e *Engine) Run(ctx context.Context) (*Result, error) {
 		State:    state,
 	}
 	for i, step := range e.steps {
+		// e.indexes is the step's position in the pipeline file, not its position in
+		// this run: a task-level rerun starts at `parse`, so everything a message
+		// says about "which step" has to come from the pipeline, never from the loop.
 		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("%s: stopped before step %d (%s): %w", e.pipeline.ID, i+1, step.Type(), err)
+			return nil, fmt.Errorf("%s: stopped before step %d (%s): %w", e.pipeline.ID, e.indexes[i], step.Type(), err)
 		}
 		started := time.Now()
 		runErr := step.Run(ctx, state)
@@ -324,7 +327,11 @@ func (e *Engine) Run(ctx context.Context) (*Result, error) {
 			}
 		}
 		if runErr != nil && e.onError[i] != config.OnErrorContinue {
-			return nil, stepError(e.pipeline, i, "%v", runErr)
+			// The step that failed is the one `e.indexes` names: indexing the loop here
+			// would blame whichever step happens to sit at that offset in the file, and
+			// a rerun that starts at `parse` would report a `parse: missing required
+			// field(s)` that no reader could make sense of.
+			return nil, stepError(e.pipeline, e.indexes[i]-1, "%v", runErr)
 		}
 	}
 	// The seed is the run's state object, so everything a step wrote is already

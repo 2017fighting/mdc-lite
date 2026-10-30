@@ -1,6 +1,6 @@
 # Where the acceptance corpus's directory names come from.
 #
-# Every directory the acceptance run materialises is listed here with one of two
+# Every directory the acceptance run materialises is listed here with one of three
 # provenances, and `go test ./acceptance/` checks both directions: a corpus
 # directory that is not listed fails, and a listed name no corpus file uses fails.
 #
@@ -15,6 +15,11 @@
 #   boundary  written by hand for one rule's counterexample (the spec's own cases:
 #             neighbours that must not merge, a duplicate stem, a conditional part
 #             marker, two discs of one number). Not from the library, and it says so.
+#   synthetic written by hand for one scenario of the environment itself: a source
+#             answer the run has to classify (the six reason codes, the two
+#             not-found markers), an output root on the second filesystem, a write
+#             that gets interrupted. The numbers may be real (a captured page's) or
+#             invented; neither is a claim about what a library holds.
 #
 # name<TAB>provenance
 CAWD-279	library
@@ -26,3 +31,12 @@ SSVR-122-parts	boundary
 ABC-123	boundary
 ABC-456	boundary
 ABC-124	boundary
+IPX-535	synthetic
+ZZZZ-9999	synthetic
+FC2-PPV-1234567	synthetic
+FAIL-500	synthetic
+FAIL-501	synthetic
+FAIL-409	synthetic
+FAIL-503	synthetic
+FAIL-200	synthetic
+FAIL-902	synthetic

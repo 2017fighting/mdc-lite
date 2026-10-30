@@ -1,0 +1,81 @@
+# The interrupted-write pipeline: the same chain, but `link: copy` and its own output
+# root, so the write of the video streams through a same-directory `.tmp` file for
+# long enough that the run can be killed inside it.
+#
+# Its corpus file is 256 MiB for exactly that reason (`RootSlow` in corpus.go). The
+# part-name and mixed-folder claims do not apply: the media server never reads this
+# root.
+name: acceptance-copy
+
+steps:
+  - type: scan
+    with:
+      roots: ["${MDC_ACCEPT_ROOT}/library-in"]
+      exclude: []
+
+  - type: filter
+    with:
+      rules:
+        - name: companions
+          when: {ext_in: [".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png"]}
+          then: include
+        - name: too-small
+          # Explicitly zero: this corpus is one-second clips (requirement, and the
+          # reason is above).
+          when: {min_size: 0}
+          then: exclude
+        - name: videos
+          when: {ext_in: [".mp4", ".mkv", ".avi", ".mov", ".m4v"]}
+          then: include
+        - name: everything-else
+          when: {stem_matches: "^.*$"}
+          then: exclude
+
+  - type: group
+    with:
+      max_distance: 2
+      max_files_for_levenshtein: 50
+      companion_extensions: [".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png"]
+
+  - type: parse
+    with:
+      rules:
+        - {builtin: default}
+
+  - type: scrape
+    with:
+      # Every source replays from committed captures. The per-source rate is raised
+      # because the replay answers instantly and a 1 req/s bucket would turn a four
+      # and a half task run into a minute of waiting for no added coverage.
+      sources:
+        - id: javdb
+          # `cooldown` is 1 ms, not the 5 min default: `FAIL-COOL` replays a 503, and a
+          # real cool-down would make the *other* numbers' javdb answers `cooldown` too.
+          # The reason code under test is the 503's own, not the limiter's.
+          rate: {requests_per_second: 50, burst: 20, cooldown: 1ms}
+        - id: javbus
+          # The per-request timeout is short so `FAIL-SLOW` (a site that answers after
+          # several seconds) becomes `timeout` in a second rather than in thirty. The
+          # replay answers everything else instantly.
+          rate: {requests_per_second: 50, burst: 20, cooldown: 1s}
+          timeout: 1s
+        - id: fc2
+          # Third because the replay needs it: `FC2-PPV-1234567` is the captured 200
+          # miss page, and a source that is not in the list is never asked.
+          rate: {requests_per_second: 50, burst: 20, cooldown: 1s}
+      timeout: 2m
+
+  - type: images
+    with: {}
+
+  - type: nfo
+    with:
+      template: default
+
+  - type: output
+    with:
+      root: "${MDC_ACCEPT_ROOT}/slow-library"
+      dir_template: "{{ number }}"
+      file_template: "{{ number }}-cd{{ part }}"
+      link: copy
+      required_fields: ["title", "fanart"]

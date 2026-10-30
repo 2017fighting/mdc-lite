@@ -52,10 +52,11 @@ type replayProxy struct {
 
 	server *httptest.Server
 
-	mu     sync.Mutex
-	pages  map[string]page
-	images map[string][]byte
-	seen   []request
+	mu      sync.Mutex
+	pages   map[string]page
+	images  map[string][]byte
+	seen    []request
+	scripts []routeScript
 
 	caCert *x509.Certificate
 	caKey  *ecdsa.PrivateKey
@@ -67,13 +68,43 @@ type page struct {
 	body   []byte
 }
 
+// routeScript is one deliberate answer that replaces what the captures hold. The
+// acceptance run uses it to make the network answer the way a real site sometimes
+// does — too slowly, with a 5xx, with a refusal, with the connection gone — because
+// the six reason codes are the product's reading of an answer, and a simulated
+// branch inside the product would prove only that the branch is reachable.
+//
+// The match is a predicate rather than a route key because two of the scripts have to
+// recognise the source's own query spelling (javdb's search carries the number in its
+// query string), and pinning that spelling in the test would make the test the second
+// copy of the source's URL shape.
+type routeScript struct {
+	name  string
+	match func(host, path, query string) bool
+	// status answers instead of the capture (`0` falls through to the capture).
+	status int
+	body   []byte
+	// delay holds the answer back so the product's own per-request timeout fires;
+	// `request.Context()` ends it, so a timed-out request does not hold the replay's
+	// shutdown open.
+	delay time.Duration
+	// hangup closes the connection before answering, which is the transport-shaped
+	// failure (`egress_unavailable`) rather than an HTTP answer.
+	hangup bool
+}
+
 // request is one answered request, kept so a test can assert what the product
 // actually asked for rather than what it was expected to ask for.
 type request struct {
 	Method string
 	Host   string
 	Path   string
+	Key    string
 	Status int
+	// Scripted is the name of the deliberate answer that replaced the capture, empty
+	// when the request was answered by one. The image assertion reads it: an image
+	// that did not arrive has to be a script, never a missing capture.
+	Scripted string
 }
 
 // imageExts are the extensions a replay answers as an image. A captured page's
@@ -133,6 +164,68 @@ func (r *replayProxy) Requests() []request {
 	return append([]request(nil), r.seen...)
 }
 
+// ScriptStatus answers a matching request with a status instead of its capture. It is
+// how the reason codes that start with a status code (`http_5xx`, `blocked`,
+// `cooldown`) are produced for real.
+func (r *replayProxy) ScriptStatus(t *testing.T, name string, match func(host, path, query string) bool, status int) {
+	t.Helper()
+	r.script(t, routeScript{name: name, match: match, status: status, body: []byte(name + "\n")})
+}
+
+// ScriptBody answers with these bytes, so a source that expects JSON can be given a
+// page instead: that is the `parse` code, and the bytes are a captured page rather
+// than an invented string.
+func (r *replayProxy) ScriptBody(t *testing.T, name string, match func(host, path, query string) bool, status int, body []byte) {
+	t.Helper()
+	r.script(t, routeScript{name: name, match: match, status: status, body: body})
+}
+
+// ScriptDelay holds the capture back for d, so the product's per-request timeout is
+// the thing that decides the outcome.
+func (r *replayProxy) ScriptDelay(t *testing.T, name string, match func(host, path, query string) bool, d time.Duration) {
+	t.Helper()
+	r.script(t, routeScript{name: name, match: match, delay: d})
+}
+
+// ScriptHangUp closes the connection instead of answering, which is what a dead exit
+// looks like from the client: not a status, not a 404 — no answer at all.
+func (r *replayProxy) ScriptHangUp(t *testing.T, name string, match func(host, path, query string) bool) {
+	t.Helper()
+	r.script(t, routeScript{name: name, match: match, hangup: true})
+}
+
+// ClearScripts drops every script, so an arm that made the network fail cannot leak
+// into the next one.
+func (r *replayProxy) ClearScripts() {
+	r.mu.Lock()
+	r.scripts = nil
+	r.mu.Unlock()
+}
+
+func (r *replayProxy) script(t *testing.T, sc routeScript) {
+	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, existing := range r.scripts {
+		if existing.name == sc.name {
+			t.Fatalf("replay: the script %q already exists", sc.name)
+		}
+	}
+	r.scripts = append(r.scripts, sc)
+}
+
+// scriptFor finds the deliberate answer for one request, if there is one.
+func (r *replayProxy) scriptFor(host, path, query string) (routeScript, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, sc := range r.scripts {
+		if sc.match(host, path, query) {
+			return sc, true
+		}
+	}
+	return routeScript{}, false
+}
+
 func (r *replayProxy) close() {
 	if r.server != nil {
 		r.server.Close()
@@ -190,6 +283,37 @@ func (r *replayProxy) tunnel(w http.ResponseWriter, req *http.Request) {
 // serve answers one request from the captures, or from the generated images.
 func (r *replayProxy) serve(w http.ResponseWriter, req *http.Request, host string) {
 	key := routeKeyOf(host, req.URL.Path, req.URL.RawQuery)
+	sc, scripted := r.scriptFor(host, req.URL.Path, req.URL.RawQuery)
+	if scripted {
+		if sc.hangup {
+			// Torn down mid-request: the client sees no answer instead of a status.
+			if hj, ok := w.(http.Hijacker); ok {
+				if conn, _, err := hj.Hijack(); err == nil {
+					_ = conn.Close()
+					r.record(request{Method: req.Method, Host: host, Path: req.URL.Path, Key: key, Status: 0, Scripted: sc.name})
+					return
+				}
+			}
+			r.record(request{Method: req.Method, Host: host, Path: req.URL.Path, Key: key, Status: 0, Scripted: sc.name})
+			return
+		}
+		if sc.delay > 0 {
+			select {
+			case <-time.After(sc.delay):
+			case <-req.Context().Done():
+				// The product gave up first; which is the point of the delay.
+				r.record(request{Method: req.Method, Host: host, Path: req.URL.Path, Key: key, Status: 0, Scripted: sc.name})
+				return
+			}
+		}
+		if sc.status != 0 {
+			w.WriteHeader(sc.status)
+			_, _ = w.Write(sc.body)
+			r.record(request{Method: req.Method, Host: host, Path: req.URL.Path, Key: key, Status: sc.status, Scripted: sc.name})
+			return
+		}
+	}
+
 	r.mu.Lock()
 	pg, ok := r.pages[key]
 	img, isImage := r.images[key]
@@ -220,9 +344,22 @@ func (r *replayProxy) serve(w http.ResponseWriter, req *http.Request, host strin
 		// can be on the site. That is what makes a missing fixture visible.
 		http.Error(w, "no capture for "+key, http.StatusNotFound)
 	}
+	r.record(request{Method: req.Method, Host: host, Path: req.URL.Path, Key: key, Status: status, Scripted: scriptName(sc, scripted)})
+}
+
+// record keeps one answered request, so a test can assert what the product actually
+// asked for instead of what it was expected to ask for.
+func (r *replayProxy) record(req request) {
 	r.mu.Lock()
-	r.seen = append(r.seen, request{Method: req.Method, Host: host, Path: req.URL.Path, Status: status})
+	r.seen = append(r.seen, req)
 	r.mu.Unlock()
+}
+
+func scriptName(sc routeScript, scripted bool) string {
+	if !scripted {
+		return ""
+	}
+	return sc.name
 }
 
 // routeKey is the address a capture stands in for, with `www.` dropped so the site's

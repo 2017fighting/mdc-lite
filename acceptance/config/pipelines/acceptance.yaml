@@ -1,13 +1,20 @@
 # The acceptance pipeline: the main chain, with the acceptance environment's names.
 #
 # It is the example pipeline the repository ships, narrowed to what this environment
-# can replay (javdb and javbus) and with the two settings the corpus forces:
+# can replay (javdb, javbus and fc2) and with the two settings the corpus forces:
 #
 #   - `min_size: 0`: the corpus's videos are one-second generated clips, so any
 #     minimum-size rule would throw the whole corpus away and the run would report
 #     "no tasks, everything fine". The default filter rule ships with a 100 MiB floor
 #     because that is right for a real library; here it has to be written down as 0.
 #   - `link: hardlink`: the default, so the run exercises the path a user gets.
+#
+# Three more knobs are shaped by the environment rather than by a real library, and
+# each says why where it is set: fc2 is replayed so the 200 miss page can be asserted,
+# javbus's per-request timeout is short so one number can be answered too slowly, and
+# javdb's cooldown is milliseconds because one number replays a 503 (the reason code is
+# the answer's, and a real cool-down would punish the other numbers in the batch for
+# something this environment did on purpose).
 #
 # `output.root` is the same absolute path inside the media server's container (the
 # scratch root is bind-mounted at the identical path), which is what makes "the server
@@ -51,13 +58,24 @@ steps:
 
   - type: scrape
     with:
-      # Both sources replay from committed captures. The per-source rate is raised
+      # Every source replays from committed captures. The per-source rate is raised
       # because the replay answers instantly and a 1 req/s bucket would turn a four
       # and a half task run into a minute of waiting for no added coverage.
       sources:
         - id: javdb
-          rate: {requests_per_second: 50, burst: 20, cooldown: 1s}
+          # `cooldown` is 1 ms, not the 5 min default: `FAIL-COOL` replays a 503, and a
+          # real cool-down would make the *other* numbers' javdb answers `cooldown` too.
+          # The reason code under test is the 503's own, not the limiter's.
+          rate: {requests_per_second: 50, burst: 20, cooldown: 1ms}
         - id: javbus
+          # The per-request timeout is short so `FAIL-SLOW` (a site that answers after
+          # several seconds) becomes `timeout` in a second rather than in thirty. The
+          # replay answers everything else instantly.
+          rate: {requests_per_second: 50, burst: 20, cooldown: 1s}
+          timeout: 1s
+        - id: fc2
+          # Third because the replay needs it: `FC2-PPV-1234567` is the captured 200
+          # miss page, and a source that is not in the list is never asked.
           rate: {requests_per_second: 50, burst: 20, cooldown: 1s}
       timeout: 2m
 

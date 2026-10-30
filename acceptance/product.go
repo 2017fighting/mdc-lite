@@ -43,11 +43,66 @@ type taskView struct {
 
 type taskDetail struct {
 	taskView
+	Metadata struct {
+		Title   string            `json:"title"`
+		Sources map[string]string `json:"sources"`
+		Missing []string          `json:"missing"`
+		Partial bool              `json:"partial"`
+	} `json:"metadata"`
 	TaskFiles []struct {
-		Path      string `json:"path"`
-		Role      string `json:"role"`
-		PartIndex int    `json:"part_index"`
+		Kind           string   `json:"kind"`
+		Path           string   `json:"path"`
+		Role           string   `json:"role"`
+		PartIndex      int      `json:"part_index"`
+		AssignedNumber string   `json:"assigned_number"`
+		IsPart         bool     `json:"is_part"`
+		Candidates     []string `json:"candidates"`
 	} `json:"task_files"`
+	StepRuns   []stepView      `json:"step_runs"`
+	SourceRuns []sourceRunView `json:"source_runs"`
+	FileRows   []fileRowView   `json:"file_rows"`
+}
+
+// stepView is one `step_runs` row as the detail page reads it.
+type stepView struct {
+	ID        int64           `json:"id"`
+	Idx       int             `json:"idx"`
+	Type      string          `json:"type"`
+	Name      string          `json:"name"`
+	Status    string          `json:"status"`
+	StartedAt string          `json:"started_at"`
+	MS        int64           `json:"ms"`
+	Summary   json.RawMessage `json:"summary"`
+	Error     string          `json:"error"`
+}
+
+// sourceRunView is one source's trace, including the six reason codes.
+type sourceRunView struct {
+	ID        int64           `json:"id"`
+	StepRunID int64           `json:"step_run_id"`
+	SourceID  string          `json:"source_id"`
+	Status    string          `json:"status"`
+	Err       string          `json:"err"`
+	Reason    string          `json:"reason"`
+	Fields    json.RawMessage `json:"fields"`
+	MS        int64           `json:"ms"`
+}
+
+// fileRowView is one line of the output ledger.
+type fileRowView struct {
+	ID        int64  `json:"id"`
+	TaskID    int64  `json:"task_id"`
+	TaskRunID int64  `json:"task_run_id"`
+	StepRunID int64  `json:"step_run_id"`
+	Kind      string `json:"kind"`
+	Role      string `json:"role"`
+	Idx       int    `json:"idx"`
+	Src       string `json:"src"`
+	Dst       string `json:"dst"`
+	Bytes     int64  `json:"bytes"`
+	SHA256    string `json:"sha256"`
+	Action    string `json:"action"`
+	CreatedAt string `json:"created_at"`
 }
 
 type batchResult struct {
@@ -108,6 +163,26 @@ func (p *product) detail(t *testing.T, id int64) taskDetail {
 		t.Fatalf("acceptance: decode task %d: %v (%s)", id, err, summarize(reply.body))
 	}
 	return out
+}
+
+// rerun asks for a task-level rerun (the suffix from `parse`). The endpoint answers
+// 202 with the task's new status (`queued`): the run itself is opened by the slot that
+// claims the task, so the answer cannot name the run.
+func (p *product) rerun(t *testing.T, id int64) {
+	t.Helper()
+	reply := p.post(t, "/api/tasks/"+strconv.FormatInt(id, 10)+"/rerun", nil)
+	if reply.status != http.StatusAccepted {
+		t.Fatalf("acceptance: rerun task %d: HTTP %d: %s", id, reply.status, summarize(reply.body))
+	}
+	var out struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(reply.body, &out); err != nil {
+		t.Fatalf("acceptance: decode the rerun answer: %v (%s)", err, summarize(reply.body))
+	}
+	if out.Status != "queued" {
+		t.Fatalf("acceptance: rerun task %d answered status %q, want queued", id, out.Status)
+	}
 }
 
 // waitForBatchSettled waits until no task in the batch is queued or running, and

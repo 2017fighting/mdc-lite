@@ -1,6 +1,9 @@
 package acceptance
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Every directory the acceptance run materialises has to be accounted for: either a
 // name copied from the owner's library, or a declared counterexample. Without this,
@@ -25,26 +28,56 @@ func TestEveryCorpusDirectoryIsAccountedFor(t *testing.T) {
 	}
 }
 
-// The two roots answer two different questions, so a case belongs to exactly one:
-// the library root's task count is the story being asserted against Jellyfin, and a
-// counterexample planted there would be a release the media server is asked about.
-func TestTheCorpusUsesBothRootsAndOnlyThose(t *testing.T) {
+// Each root answers one question, so a case belongs to exactly one of them: the
+// library root is the release the media server reads, the counterexample root is the
+// grouping rules, and the rest each drive one scenario of their own. Planting a
+// counterexample in the library root, for instance, would be a release the media
+// server is asked about.
+func TestTheCorpusUsesEveryRootAndOnlyThose(t *testing.T) {
+	all := []CorpusRoot{
+		RootLibrary, RootCounterexamples, RootSuccess, RootSources, RootExdev, RootSlow,
+	}
+	known := map[CorpusRoot]bool{}
+	for _, root := range all {
+		known[root] = true
+	}
 	roots := map[CorpusRoot]int{}
 	for _, file := range corpus {
-		switch file.Root {
-		case RootLibrary, RootCounterexamples:
-			roots[file.Root]++
-		default:
+		if !known[file.Root] {
 			t.Errorf("%s/%s: unknown corpus root %q", file.Root, file.Name, file.Root)
 		}
+		roots[file.Root]++
 		if file.Name == "" || file.Dir == "" {
 			t.Errorf("%+v: a corpus file needs a directory and a name", file)
 		}
+		if strings.TrimSpace(file.Note) == "" {
+			t.Errorf("%s/%s: a corpus file has to say what case it is", file.Root, file.Name)
+		}
 	}
-	for _, root := range []CorpusRoot{RootLibrary, RootCounterexamples} {
+	for _, root := range all {
 		if roots[root] == 0 {
 			t.Errorf("corpus root %q has no files", root)
 		}
+	}
+}
+
+// The corpus is one-second clips because the media server probes every file it is
+// asked to read. The one exception is the interrupted-write release, which exists to
+// be copied for long enough to be caught: if a second large file appears, the
+// exception has stopped being an exception.
+func TestOnlyTheInterruptedWriteReleaseIsLarge(t *testing.T) {
+	var large []string
+	for _, file := range corpus {
+		if file.Size <= 0 {
+			continue
+		}
+		large = append(large, string(file.Root)+"/"+file.Name)
+		if file.Root != RootSlow {
+			t.Errorf("%s/%s: a large file belongs to the interrupted-write root, nothing else", file.Root, file.Name)
+		}
+	}
+	if len(large) != 1 {
+		t.Errorf("large corpus files = %v, want exactly the one the copy is caught on", large)
 	}
 }
 
