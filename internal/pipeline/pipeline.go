@@ -508,20 +508,15 @@ func (r *Result) PrintManifest(w io.Writer, m *Manifest) {
 }
 
 func writeGroups(w io.Writer, g *Groups, parsed *Parsed) {
-	resolved, unresolved := indexParsed(parsed)
 	for i, grp := range g.Groups {
-		fmt.Fprintf(w, "group %d/%d: %s (primary, %s)%s\n", i+1, len(g.Groups), grp.Primary.Path, grp.PrimaryStem, mergedNote(grp))
+		fmt.Fprintf(w, "group %d/%d: %s (primary, %s)\n", i+1, len(g.Groups), grp.Primary.Path, grp.Number.Normalized)
 		parts := make([]string, len(grp.Parts))
 		for j, p := range grp.Parts {
-			parts[j] = fmt.Sprintf("%s [%s]", p.File.Path, describeMarker(p.Marker))
+			parts[j] = fmt.Sprintf("%s [%s]", p.File.Path, describeVersion(p))
 		}
 		fmt.Fprintf(w, "  parts:      %s\n", strings.Join(parts, " | "))
-		if item, ok := resolved[grp.Primary.Path]; ok {
-			fmt.Fprintf(w, "  number:     %s (raw %q, family %s)\n",
-				item.Number.Normalized, item.Number.Raw, item.Number.Family)
-		} else if u, ok := unresolved[grp.Primary.Path]; ok {
-			fmt.Fprintf(w, "  number:     none (%s)\n", describeUnresolved(u))
-		}
+		fmt.Fprintf(w, "  number:     %s (raw %q, family %s)\n",
+			grp.Number.Normalized, grp.Number.Raw, grp.Number.Family)
 		for _, c := range grp.Companions {
 			follows := "primary"
 			if c.FollowsPart > 0 {
@@ -530,17 +525,15 @@ func writeGroups(w io.Writer, g *Groups, parsed *Parsed) {
 			fmt.Fprintf(w, "  companion:  %s -> %s\n", c.File.Path, follows)
 		}
 	}
-	for _, d := range g.Duplicates {
-		names := make([]string, len(d.Files))
-		for i, f := range d.Files {
-			names[i] = f.Path
+	// A file no rule could number is not a group: it is one file waiting for a human,
+	// and the parse summary counts it. Printing it here is what makes a `mdc run` that
+	// stops before the fan-out say which files those are.
+	if parsed != nil {
+		for _, u := range parsed.Unresolved {
+			for _, f := range u.Files {
+				fmt.Fprintf(w, "needs a number (%s): %s\n", describeUnresolved(u), f.Path)
+			}
 		}
-		note := "a human decides"
-		fmt.Fprintf(w, "duplicate stem: %s/%s (%d files, %s): %s\n",
-			d.Dir, d.Stem, len(d.Files), note, strings.Join(names, ", "))
-	}
-	for _, warn := range g.Warnings {
-		fmt.Fprintf(w, "like parts, not merged: %s ~ %s\n", warn.A.Path, warn.B.Path)
 	}
 	for _, u := range g.Unmatched {
 		fmt.Fprintf(w, "unmatched companion (%s): %s\n", u.Reason, u.File.Path)
@@ -550,40 +543,31 @@ func writeGroups(w io.Writer, g *Groups, parsed *Parsed) {
 	}
 }
 
-// indexParsed makes the parse result readable by the group it belongs to. A
-// resolved file is keyed by its path, and an unresolved one — the first (and, per
-// file, only) entry in its list — the same way.
-func indexParsed(parsed *Parsed) (map[string]ParsedCandidate, map[string]Unresolved) {
-	resolved := map[string]ParsedCandidate{}
-	unresolved := map[string]Unresolved{}
-	if parsed == nil {
-		return resolved, unresolved
+// describeVersion renders a part's marker and version flags: the two pieces of name
+// evidence a group is built on, so a mis-sorted primary is visible without opening a
+// file.
+func describeVersion(p Part) string {
+	desc := describeMarker(p.Marker)
+	var flags []string
+	if p.Flags.IsChinese {
+		flags = append(flags, "chinese")
 	}
-	for _, item := range parsed.Items {
-		resolved[item.File.Path] = item
+	if p.Flags.IsUncensored {
+		flags = append(flags, "uncensored")
 	}
-	for _, u := range parsed.Unresolved {
-		if len(u.Files) > 0 {
-			unresolved[u.Files[0].Path] = u
-		}
+	if len(flags) > 0 {
+		desc += ", " + strings.Join(flags, "+")
 	}
-	return resolved, unresolved
+	return desc
 }
 
-// describeUnresolved renders why a group needs a human, with the candidates when
+// describeUnresolved renders why a file needs a human, with the candidates when
 // there are any to offer.
 func describeUnresolved(u Unresolved) string {
 	if len(u.Candidates) == 0 {
 		return u.Reason
 	}
 	return u.Reason + ": " + strings.Join(u.Candidates, ", ")
-}
-
-func mergedNote(grp Group) string {
-	if grp.DistanceMerged {
-		return ", merged by stem distance"
-	}
-	return ""
 }
 
 func describeMarker(m Marker) string {
@@ -636,30 +620,21 @@ type FilterSummary struct {
 
 // GroupSummary is the group step's summary projection.
 type GroupSummary struct {
-	Groups         int `json:"groups"`
-	Videos         int `json:"videos"`
-	Companions     int `json:"companions"`
-	DuplicateStems int `json:"duplicate_stems"`
-	DuplicateFiles int `json:"duplicate_files"`
-	Unmatched      int `json:"unmatched"`
-	Warnings       int `json:"warnings"`
+	Groups     int `json:"groups"`
+	Videos     int `json:"videos"`
+	Companions int `json:"companions"`
+	Unmatched  int `json:"unmatched"`
 }
 
 // String renders the group summary as one line.
 func (s GroupSummary) String() string {
 	parts := []string{
-		fmt.Sprintf("%d groups", s.Groups),
-		fmt.Sprintf("%d videos", s.Videos),
-		fmt.Sprintf("%d companions", s.Companions),
-	}
-	if s.DuplicateStems > 0 {
-		parts = append(parts, fmt.Sprintf("%d duplicate stem(s) (%d files, needs a human)", s.DuplicateStems, s.DuplicateFiles))
+		plural(s.Groups, "group", "groups"),
+		plural(s.Videos, "video", "videos"),
+		plural(s.Companions, "companion", "companions"),
 	}
 	if s.Unmatched > 0 {
 		parts = append(parts, fmt.Sprintf("%d unmatched companion(s)", s.Unmatched))
-	}
-	if s.Warnings > 0 {
-		parts = append(parts, fmt.Sprintf("%d look-like-parts warning(s)", s.Warnings))
 	}
 	return strings.Join(parts, ", ")
 }

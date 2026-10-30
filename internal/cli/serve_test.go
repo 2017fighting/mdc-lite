@@ -218,11 +218,11 @@ func TestServe_StartupResetsTheWorkTheLastProcessLeft(t *testing.T) {
         - name: everything-else
           when: {stem_matches: "^.*$"}
           then: exclude
-  - type: group
   - type: parse
     with:
       rules:
         - {builtin: default}
+  - type: group
   - type: output
     with:
       root: "`+filepath.Join(dir, "out")+`"
@@ -345,11 +345,11 @@ func TestServe_FilesABatchThroughTheService(t *testing.T) {
         - name: everything-else
           when: {stem_matches: "^.*$"}
           then: exclude
-  - type: group
   - type: parse
     with:
       rules:
         - {builtin: default}
+  - type: group
   - type: output
     with:
       root: "`+filepath.Join(dir, "out")+`"

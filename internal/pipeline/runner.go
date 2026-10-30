@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -353,7 +352,7 @@ func (r *Runner) priorLedger(ctx context.Context, taskID int64) ([]PriorRow, err
 // seedState reconstructs the parse artifact from the task's stored files. It is the
 // whole reason a rerun is fast: no walk, no rules, just the rows the fan-out wrote.
 func seedState(files []tasks.TaskFile, number string) *State {
-	grp := Group{}
+	grp := Group{Number: Number{Raw: number, Normalized: number}}
 	if len(files) > 0 {
 		grp.Dir = filepath.Dir(files[0].Path)
 	}
@@ -376,9 +375,16 @@ func seedState(files []tasks.TaskFile, number string) *State {
 			})
 			continue
 		}
-		grp.Parts = append(grp.Parts, Part{File: ref, Stem: stemOf(f.Path), Marker: Marker{Index: f.PartIndex}})
+		grp.Parts = append(grp.Parts, Part{
+			File:   ref,
+			Stem:   stemOf(f.Path),
+			Marker: Marker{Index: f.PartIndex},
+			// The version flags are name evidence, and the name is still on disk: a
+			// rerun re-reads them rather than needing a column for them.
+			Flags: versionFlags(stemOf(f.Path)),
+		})
 	}
-	sort.SliceStable(grp.Parts, func(a, b int) bool { return grp.Parts[a].Index() < grp.Parts[b].Index() })
+	sortParts(grp.Parts)
 	if len(grp.Parts) > 0 {
 		grp.Primary = grp.Parts[0].File
 		grp.PrimaryStem = grp.Parts[0].Stem

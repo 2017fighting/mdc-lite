@@ -91,7 +91,7 @@ func TestScrapeWithReadsThePipelinesOwnStep(t *testing.T) {
   - type: parse
     with: {rules: [{builtin: default}]}
   - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
+    with: {}
   - type: scrape
     with:
       sources:
@@ -146,7 +146,7 @@ func pipelineWith(t *testing.T, scrapeWith string) config.Pipeline {
   - type: parse
     with: {rules: [{builtin: default}]}
   - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
+    with: {}
   - type: scrape
     with:
 ` + scrapeWith + `

@@ -3,6 +3,7 @@ package pipeline
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -210,4 +211,23 @@ func sanitiseSegment(s string) string {
 		}
 	}
 	return out
+}
+
+// languageToken matches a subtitle's language suffix: a dot followed by a short
+// language name, optionally with a region (`zh`, `zh-cn`, `eng`, `jpn`).
+var languageToken = regexp.MustCompile(`(?i)^\.[a-z]{2,3}(?:[-_][a-z0-9]{2,4})?$`)
+
+// splitLanguageToken separates a name's trailing language token from the rest:
+// `ABC-123.zh` → (".zh", "ABC-123"). No trailing dot-token, or a token that does
+// not look like a language, is left alone: `.2024` and `.cd1` are not languages.
+func splitLanguageToken(stem string) (token, base string) {
+	i := strings.LastIndexByte(stem, '.')
+	if i <= 0 {
+		return "", stem
+	}
+	token = stem[i:]
+	if !languageToken.MatchString(token) {
+		return "", stem
+	}
+	return token, stem[:i]
 }

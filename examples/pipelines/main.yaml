@@ -52,8 +52,6 @@ steps:
 
   - type: group
     with:
-      max_distance: 2
-      max_files_for_levenshtein: 50
       companion_extensions: [".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png", ".webp"]
 
   # Task-level suffix: scrape → images → nfo → output. These run once per group

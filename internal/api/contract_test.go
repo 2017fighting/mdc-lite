@@ -46,8 +46,8 @@ type fixture struct {
 }
 
 // pipelineYAML is the test pipeline. It is the whole chain because a pipeline
-// without an `output` step does not validate, but only the prefix through `parse`
-// ever runs here: a preview and a manual trigger both stop at parse.
+// without an `output` step does not validate, but only the batch-level prefix
+// through `group` ever runs here: a preview and a manual trigger both stop there.
 func pipelineYAML(outDir string) string {
 	return `name: main
 steps:
@@ -63,12 +63,12 @@ steps:
         - name: everything-else
           when: {stem_matches: "^.*$"}
           then: exclude
-  - type: group
-    with: {}
   - type: parse
     with:
       rules:
         - {builtin: default}
+  - type: group
+    with: {}
   - type: scrape
     with: {}
   - type: images
@@ -83,8 +83,9 @@ steps:
 }
 
 // newFixture builds the server and the media tree. The corpus is chosen for its
-// outcomes: one resolved number, one ambiguous group with two parts, one group with
-// no candidate, and one file the filter turns away.
+// outcomes: one resolved number, two files offering two numbers each (one
+// needs_number task per file, since grouping never guesses), one file with no
+// candidate, and one file the filter turns away.
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	return newFixtureWith(t, nil)
@@ -265,7 +266,7 @@ func TestPipelines_ListsTheStepTypeSequence(t *testing.T) {
 		t.Fatalf("page = %+v", page)
 	}
 	got := strings.Join(page.Items[0].Steps, ",")
-	if got != "scan,filter,group,parse,scrape,images,nfo,output" {
+	if got != "scan,filter,parse,group,scrape,images,nfo,output" {
 		t.Errorf("steps = %q", got)
 	}
 	if page.Items[0].ID != "main" {
@@ -413,32 +414,36 @@ func TestPreview_Is202ThenPollableWithTheTableShape(t *testing.T) {
 	if res.WalkedFiles != 5 || res.Matched != 4 {
 		t.Errorf("walked/matched = %d/%d, want 5/4", res.WalkedFiles, res.Matched)
 	}
-	if len(res.Groups) != 3 {
-		t.Fatalf("groups = %d, want 3 (resolved, ambiguous, no_candidate): %+v", len(res.Groups), res.Groups)
+	if len(res.Groups) != 4 {
+		t.Fatalf("groups = %d, want 4 (resolved, two ambiguous files, no_candidate): %+v", len(res.Groups), res.Groups)
 	}
-	var resolved *service.PreviewGroup
-	var ambiguous *service.PreviewGroup
+	var resolved []*service.PreviewGroup
+	var ambiguous []*service.PreviewGroup
 	for i := range res.Groups {
 		switch res.Groups[i].Number {
 		case "ABC-123":
-			resolved = &res.Groups[i]
+			resolved = append(resolved, &res.Groups[i])
 		default:
 			if len(res.Groups[i].Candidates) == 2 {
-				ambiguous = &res.Groups[i]
+				ambiguous = append(ambiguous, &res.Groups[i])
 			}
 		}
 	}
-	if resolved == nil || len(resolved.Parts) != 1 || resolved.Occupied {
+	if len(resolved) != 1 || len(resolved[0].Parts) != 1 || resolved[0].Occupied {
 		t.Errorf("resolved group = %+v", resolved)
 	}
-	if ambiguous == nil {
-		t.Fatalf("no ambiguous group in %+v", res.Groups)
+	// An ambiguous file is a file a human numbers: one row each, never folded
+	// together by a guess.
+	if len(ambiguous) != 2 {
+		t.Fatalf("ambiguous rows = %+v, want one per file", res.Groups)
 	}
-	if len(ambiguous.Parts) != 2 {
-		t.Errorf("ambiguous parts = %v", ambiguous.Parts)
-	}
-	if strings.Join(ambiguous.Candidates, ",") != "ABP-123,ABP-124" {
-		t.Errorf("candidates = %v", ambiguous.Candidates)
+	for _, row := range ambiguous {
+		if len(row.Parts) != 1 {
+			t.Errorf("ambiguous row %+v, want only its own file", row)
+		}
+		if strings.Join(row.Candidates, ",") != "ABP-123,ABP-124" {
+			t.Errorf("candidates = %v", row.Candidates)
+		}
 	}
 
 	// `res` is not part of the contract: V1 probes no video stream.
@@ -500,8 +505,8 @@ func TestPreview_UnknownIDIs404(t *testing.T) {
 func TestCreateTasks_ReturnsTheBatchAndTheSkippedPaths(t *testing.T) {
 	f := newFixture(t)
 	res := f.createBatch()
-	if res.Created != 3 {
-		t.Errorf("created = %d, want 3 (one resolved, one ambiguous, one without a candidate)", res.Created)
+	if res.Created != 4 {
+		t.Errorf("created = %d, want 4 (one resolved, two ambiguous files, one without a candidate)", res.Created)
 	}
 	var filtered *service.SkippedPath
 	for i := range res.Skipped {
@@ -557,7 +562,7 @@ func TestTasks_ListFiltersAndPages(t *testing.T) {
 	f.createBatch()
 
 	all := f.listTasks("")
-	if all.Total != 3 || len(all.Items) != 3 || all.Page != 1 || all.PerPage != 20 {
+	if all.Total != 4 || len(all.Items) != 4 || all.Page != 1 || all.PerPage != 20 {
 		t.Fatalf("page = %+v", all)
 	}
 	for i := 1; i < len(all.Items); i++ {
@@ -583,8 +588,8 @@ func TestTasks_ListFiltersAndPages(t *testing.T) {
 	}
 
 	waiting := f.listTasks("?status=needs_number")
-	if waiting.Total != 2 {
-		t.Errorf("needs_number total = %d, want 2", waiting.Total)
+	if waiting.Total != 3 {
+		t.Errorf("needs_number total = %d, want 3", waiting.Total)
 	}
 	for _, item := range waiting.Items {
 		if item.Status != "needs_number" || len(item.Files) == 0 {
@@ -603,13 +608,13 @@ func TestTasks_ListFiltersAndPages(t *testing.T) {
 		t.Errorf("a trigger filter must be a join: %+v", got)
 	}
 	byTrigger := f.listTasks("?trigger=manual&status=queued&status=needs_number")
-	if byTrigger.Total != 3 {
+	if byTrigger.Total != 4 {
 		t.Errorf("multi-status total = %d", byTrigger.Total)
 	}
 
 	// A page past the end keeps the total and returns no items.
 	past := f.listTasks("?page=9")
-	if past.Total != 3 || len(past.Items) != 0 {
+	if past.Total != 4 || len(past.Items) != 0 {
 		t.Errorf("page 9 = %+v", past)
 	}
 	f.wantError(http.MethodGet, "/api/tasks?per_page=30", nil, http.StatusBadRequest, "bad_request")
@@ -836,7 +841,7 @@ func TestRerunMany_ReportsEachTaskSeparately(t *testing.T) {
 	}
 }
 
-func TestNumbers_RequireEveryVideoAndRequeueTheTask(t *testing.T) {
+func TestNumbers_RequireTheFilesNumberAndRequeueTheTask(t *testing.T) {
 	f := newFixture(t)
 	f.createBatch()
 	page := f.listTasks("?status=needs_number")
@@ -846,16 +851,17 @@ func TestNumbers_RequireEveryVideoAndRequeueTheTask(t *testing.T) {
 			ambiguous = &page.Items[i]
 		}
 	}
-	if ambiguous == nil || len(ambiguous.Files) != 2 {
-		t.Fatalf("no ambiguous two-part task: %+v", page.Items)
+	if ambiguous == nil || len(ambiguous.Files) != 1 {
+		t.Fatalf("no ambiguous task: %+v", page.Items)
 	}
 	if len(ambiguous.Files[0].Candidates) != 2 {
 		t.Errorf("the panel needs the parse candidates as chips: %+v", ambiguous.Files[0])
 	}
 
 	path := "/api/tasks/" + strconv.FormatInt(ambiguous.ID, 10) + "/numbers"
+	// A file left out of the body keeps the task waiting: every video needs a number.
 	env := f.wantError(http.MethodPost, path, map[string]any{
-		"files": []map[string]any{{"path": ambiguous.Files[0].Path, "assigned_number": "ABP-123"}},
+		"files": []map[string]any{},
 	}, http.StatusUnprocessableEntity, "numbers_incomplete")
 	var detail struct {
 		MissingPaths []string `json:"missing_paths"`
@@ -863,16 +869,11 @@ func TestNumbers_RequireEveryVideoAndRequeueTheTask(t *testing.T) {
 	if err := json.Unmarshal(env.Error.Detail, &detail); err != nil {
 		t.Fatalf("detail = %s: %v", env.Error.Detail, err)
 	}
-	if len(detail.MissingPaths) != 1 || detail.MissingPaths[0] != ambiguous.Files[1].Path {
+	if len(detail.MissingPaths) != 1 || detail.MissingPaths[0] != ambiguous.Files[0].Path {
 		t.Errorf("missing_paths = %v", detail.MissingPaths)
 	}
 
-	files := make([]map[string]any, 0, len(ambiguous.Files))
-	for i, file := range ambiguous.Files {
-		files = append(files, map[string]any{
-			"path": file.Path, "assigned_number": "abp-123", "is_part": i > 0,
-		})
-	}
+	files := []map[string]any{{"path": ambiguous.Files[0].Path, "assigned_number": "abp-123"}}
 	var res service.NumbersResult
 	f.doJSON(http.MethodPost, path, map[string]any{"files": files}, &res)
 	if res.Status != "queued" {
@@ -974,7 +975,7 @@ func TestBatches_FeedTheFilterDropdown(t *testing.T) {
 	if page.Items[0].ID != created.BatchID || page.Items[0].StartedAt == "" {
 		t.Errorf("batch = %+v (the time label is started_at)", page.Items[0])
 	}
-	if page.Items[0].Tasks != 3 || page.Items[0].Skipped != 1 {
+	if page.Items[0].Tasks != 4 || page.Items[0].Skipped != 1 || page.Items[0].NeedsNumber != 3 {
 		t.Errorf("counters = %+v", page.Items[0])
 	}
 	f.wantError(http.MethodGet, "/api/batches?limit=0", nil, http.StatusBadRequest, "bad_request")
@@ -1124,8 +1125,8 @@ func TestTasks_FilterByBatchAndCreationWindow(t *testing.T) {
 	first := f.createBatch()
 
 	inBatch := f.listTasks("?batch=" + strconv.FormatInt(first.BatchID, 10))
-	if inBatch.Total != 3 {
-		t.Errorf("batch filter total = %d, want 3", inBatch.Total)
+	if inBatch.Total != 4 {
+		t.Errorf("batch filter total = %d, want 4", inBatch.Total)
 	}
 	if got := f.listTasks("?batch=" + strconv.FormatInt(first.BatchID+1, 10)); got.Total != 0 {
 		t.Errorf("an unknown batch must select nothing: %+v", got)
@@ -1134,15 +1135,15 @@ func TestTasks_FilterByBatchAndCreationWindow(t *testing.T) {
 	// The window is inclusive on both ends, so a task's own timestamp finds it.
 	page := f.listTasks("")
 	at := page.Items[len(page.Items)-1].CreatedAt
-	if got := f.listTasks("?created_before=" + at); got.Total != 3 {
-		t.Errorf("created_before: total = %d, want 3", got.Total)
+	if got := f.listTasks("?created_before=" + at); got.Total != 4 {
+		t.Errorf("created_before: total = %d, want 4", got.Total)
 	}
 	after := "2100-01-01T00:00:00Z"
 	if got := f.listTasks("?created_after=" + after); got.Total != 0 {
 		t.Errorf("created_after in the future: total = %d, want 0", got.Total)
 	}
-	if got := f.listTasks("?created_before=" + after); got.Total != 3 {
-		t.Errorf("created_before in the future: total = %d, want 3", got.Total)
+	if got := f.listTasks("?created_before=" + after); got.Total != 4 {
+		t.Errorf("created_before in the future: total = %d, want 4", got.Total)
 	}
 }
 
@@ -1156,8 +1157,8 @@ func TestCreateTasks_HonoursTheScopeLedgerExclude(t *testing.T) {
 	}, &res)
 	// The walk itself is asserted by the next test; this one proves the request shape
 	// is accepted and that an exclusion outside every root is refused.
-	if res.Created != 3 {
-		t.Errorf("created = %d, want 3", res.Created)
+	if res.Created != 4 {
+		t.Errorf("created = %d, want 4", res.Created)
 	}
 	f.wantError(http.MethodPost, "/api/tasks", service.CreateBatchRequest{
 		Pipeline: "main",
@@ -1180,8 +1181,8 @@ func TestCreateTasks_ExcludeSkipsTheSubtree(t *testing.T) {
 	if page.Total != 0 {
 		t.Errorf("the excluded subtree was walked: %+v", page.Items)
 	}
-	if res.Created != 3 {
-		t.Errorf("created = %d, want the three files outside the exclusion", res.Created)
+	if res.Created != 4 {
+		t.Errorf("created = %d, want the four files outside the exclusion", res.Created)
 	}
 }
 

@@ -33,7 +33,7 @@ const filterParse = filterOnly + defaultParse
 
 // afterParse is the task-level suffix with every optional step left out.
 const afterParse = `  - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
+    with: {}
   - type: output
     with: {root: /o}
 `
@@ -673,7 +673,7 @@ func TestLoadPipelines_WithStructsDoNotLeakBetweenFiles(t *testing.T) {
   - type: parse
     with: {rules: [{builtin: default}]}
   - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
+    with: {}
   - type: output
     with: {root: /o}
 `)
@@ -697,7 +697,7 @@ func TestLoadPipelines_WithStructsDoNotLeakBetweenFiles(t *testing.T) {
   - type: parse
     with: {rules: [{builtin: default}]}
   - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
+    with: {}
   - type: output
     with: {root: /o}
 `)
@@ -739,8 +739,8 @@ func TestParsePipeline_WithDefaults(t *testing.T) {
 	}
 
 	group := p.Steps[3].WithValue.(*config.GroupWith)
-	if group.MaxDistance != 2 || group.MaxFilesForLevenshtein != 50 {
-		t.Errorf("group defaults = %+v", group)
+	if got := strings.Join(group.CompanionExtensions, ","); got != ".srt,.ass,.ssa,.jpg,.jpeg,.png,.webp" {
+		t.Errorf("group companion defaults = %q", got)
 	}
 
 	scrape := p.Steps[4].WithValue.(*config.ScrapeWith)
@@ -885,7 +885,7 @@ func TestParsePipeline_OmittedWithMeansDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("an omitted `with` must fall back to the defaults: %v", err)
 	}
-	if g := p.Steps[3].WithValue.(*config.GroupWith); g.MaxDistance != 2 {
+	if g := p.Steps[3].WithValue.(*config.GroupWith); len(g.CompanionExtensions) == 0 {
 		t.Errorf("group defaults missing: %+v", g)
 	}
 	if s := p.Steps[4].WithValue.(*config.ScrapeWith); len(s.Sources) != 4 {

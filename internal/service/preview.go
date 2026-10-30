@@ -304,27 +304,8 @@ func (s *Service) previewResult(ctx context.Context, run *pipeline.Result) Previ
 			Occupied:   occupied[u.Files[0].Path],
 		})
 	}
-	// A duplicate stem is group's judgement, not parse's: it never became one of
-	// Parsed's items, so the preview reads it from the group artifact's own list.
-	if st.Groups != nil {
-		for _, d := range st.Groups.Duplicates {
-			if len(d.Files) == 0 {
-				continue
-			}
-			parts := make([]string, 0, len(d.Files))
-			for _, f := range d.Files {
-				parts = append(parts, f.Path)
-			}
-			out.Groups = append(out.Groups, PreviewGroup{
-				Primary:    d.Files[0].Path,
-				Parts:      parts,
-				Candidates: nonNil(nil),
-				Dir:        d.Dir,
-				Size:       d.Files[0].Size,
-				Occupied:   occupied[d.Files[0].Path],
-			})
-		}
-	}
+	// A file no rule could number never became a group: parse records it as
+	// unresolved, and the preview lists it as its own row so a human can number it.
 	return out
 }
 

@@ -28,7 +28,7 @@ func writeMedia(t *testing.T, dir string, names ...string) {
 func scanAndStore(t *testing.T, dir string) (*store.Store, *tasks.Store, tasks.BatchResult) {
 	t.Helper()
 	ctx := context.Background()
-	e, err := build(t, testPipeline, Options{Input: Input{Roots: []string{dir}}, Until: "parse"})
+	e, err := build(t, testPipeline, Options{Input: Input{Roots: []string{dir}}, Until: "group"})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -110,9 +110,12 @@ func TestToIntake_ARealScanStoresOneBatchAndOneTaskPerGroup(t *testing.T) {
 	}
 }
 
-func TestToIntake_ADuplicateStemBecomesATaskThatHoldsBothFiles(t *testing.T) {
+// TestToIntake_VersionsOfOneNumberAreOneTask: the original and its uncensored copy
+// are the same work (ADR-0019), so they arrive as one numbered task with two files,
+// the original as primary — no human has to decide anything.
+func TestToIntake_VersionsOfOneNumberAreOneTask(t *testing.T) {
 	dir := t.TempDir()
-	writeMedia(t, dir, "ABC-123.mp4", "ABC-123-U.mp4")
+	writeMedia(t, dir, "ABC-123-U.mp4", "ABC-123.mp4")
 
 	raw, st, out := scanAndStore(t, dir)
 	ctx := context.Background()
@@ -125,10 +128,8 @@ func TestToIntake_ADuplicateStemBecomesATaskThatHoldsBothFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A duplicate stem never became a group, so its files arrive as bare paths; the
-	// first is the primary and both paths stay held while a human decides.
-	if task.Status != tasks.StatusNeedsNumber || task.LastError != tasks.ReasonDuplicateStem {
-		t.Errorf("task = %+v, want needs_number with duplicate_stem", task)
+	if task.Status != tasks.StatusQueued || task.Number != "ABC-123" {
+		t.Errorf("task = %+v, want a queued ABC-123", task)
 	}
 	files, err := st.TaskFiles(ctx, task.ID)
 	if err != nil {
@@ -137,15 +138,11 @@ func TestToIntake_ADuplicateStemBecomesATaskThatHoldsBothFiles(t *testing.T) {
 	if len(files) != 2 {
 		t.Fatalf("files = %d, want both versions held by the one task", len(files))
 	}
-	if files[0].Role != tasks.RolePrimary || files[1].Role != tasks.RolePart {
-		t.Errorf("roles = %s, %s, want primary then part", files[0].Role, files[1].Role)
+	if files[0].Role != tasks.RolePrimary || filepath.Base(files[0].Path) != "ABC-123.mp4" {
+		t.Errorf("primary = %+v, want the original", files[0])
 	}
-	// The names carry no part evidence, so no part order is invented: the human
-	// ticks "same work, a part of it" for that.
-	for _, f := range files {
-		if f.PartIndex != 0 {
-			t.Errorf("%s got part_index %d, want 0 until a human decides", f.Path, f.PartIndex)
-		}
+	if files[1].Role != tasks.RolePart || filepath.Base(files[1].Path) != "ABC-123-U.mp4" {
+		t.Errorf("second file = %+v, want the uncensored copy as a part of the same work", files[1])
 	}
 }
 

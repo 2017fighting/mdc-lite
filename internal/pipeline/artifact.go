@@ -115,11 +115,16 @@ type Marker struct {
 // Part is one video inside a group.
 type Part struct {
 	File FileRef
-	// Stem is the name with the noise and the effective marker stripped off. It
-	// is computed here and nowhere else: `parse` reads it, it does not re-derive
-	// it.
+	// Stem is the name with the noise, the effective marker and the version flags
+	// stripped off. `parse` computes it and nowhere else: `group` compares it to
+	// attach companions, it does not re-derive it.
 	Stem   string
 	Marker Marker
+	// Flags is the version evidence the name carried. Two files can be the same
+	// part and still be different versions (`ABC-123.mp4` and `ABC-123-C.mp4`), and
+	// this is what tells them apart — for the primary pick and, later, for the name
+	// they are written under.
+	Flags VersionFlags
 }
 
 // Index is the part number used for ordering. An unmarked file is part 1.
@@ -145,40 +150,27 @@ type Companion struct {
 	FollowsPart int
 }
 
-// Group is one work: the primary file plus its other parts and companions.
-// Everything in a group shares one directory — crossing directories never
-// merges, so the same number in two directories is two groups.
+// Group is one work: every file that parsed to one number, wherever it sits on
+// disk. The number is the identity (ADR-0019): the parts of a split work and the
+// versions of it (`-C`, `-U`) are all the same work and therefore one group, and
+// two directories holding one number are one group rather than two.
 type Group struct {
+	// Number is the 番号 every part parsed to. It is the group's identity and what
+	// the later steps scrape and name the output directory after.
+	Number Number
+	// Dir is the primary's directory. A group may span directories — that is what
+	// cross-directory aggregation means — so this is where the work starts, not
+	// where all of it lives.
 	Dir string
-	// Primary is the part with the smallest part index; it decides the number and
-	// the output directory name.
+	// Primary is the part the group is processed as: the lowest part number, and
+	// among the versions of that part the original before the chinese copy before
+	// the uncensored one. It decides the scraped metadata and every name derived
+	// from it.
 	Primary FileRef
 	// PrimaryStem is the primary's stem, i.e. the group's name once stripped.
 	PrimaryStem string
-	// DistanceMerged is true when the group exists only because both sides carry
-	// a marker and their stems are within max_distance (`SSVR-122-cd1` +
-	// `SSVR-123-cd2`). It is false when the stems are literally equal.
-	DistanceMerged bool
-	Parts          []Part
-	Companions     []Companion
-}
-
-// DuplicateStem is a set of files that strip to the same stem while none of
-// them carries an effective part marker (`ABC-123.mp4` + `ABC-123-U.mp4`). They
-// are not merged into a group: a copy is not a part, so a human decides.
-type DuplicateStem struct {
-	Dir   string
-	Stem  string
-	Files []FileRef
-}
-
-// Warning is a pair that looks like two parts of one work but did not merge
-// because their stems are further apart than max_distance. It is advisory: the
-// summary reports it, nothing acts on it.
-type Warning struct {
-	Dir string
-	A   FileRef
-	B   FileRef
+	Parts       []Part
+	Companions  []Companion
 }
 
 // UnmatchedFile is a companion that found no group to belong to.
@@ -187,8 +179,8 @@ type UnmatchedFile struct {
 	Reason string
 }
 
-// SkipNoGroup is the reason a companion is left out: no group in its directory
-// has a stem it matches.
+// SkipNoGroup is the reason a companion is left out: no group carries a number or
+// a stem it names.
 const SkipNoGroup = "no_group"
 
 // Number is one group's 番号 as `parse` decided it: Raw is the text the winning
@@ -230,10 +222,11 @@ const (
 	// ReasonAmbiguous means the file offered several numbers and none is the
 	// less specific reading of another. Candidates carries what to show the user.
 	ReasonAmbiguous = "ambiguous"
-	// ReasonDuplicateStem means the files strip to the same stem with no part
-	// marker on either side, so a human decides whether they are two parts or two
-	// versions. `parse` no longer emits it — `group` owns that judgement — but the
-	// code stays here because it is part of the panel's stable vocabulary.
+	// ReasonDuplicateStem meant two files sharing a stem with no part marker on
+	// either side. Nothing emits it any more: since ADR-0019 two versions of one
+	// number are one group, and a file with no number is its own needs_number task.
+	// The code stays because it is part of the panel's stable vocabulary — a task
+	// stored by an older build still says it.
 	ReasonDuplicateStem = "duplicate_stem"
 )
 
@@ -259,33 +252,24 @@ type Parsed struct {
 }
 
 // ParsedWork is one work the task-level steps can process: a group and the number
-// its primary parsed to.
+// it is processed under.
 type ParsedWork struct {
 	Group  Group
 	Number Number
 }
 
-// ParsedWorks gives the group view of a parse result to the steps that still read
-// Parsed (scrape, output, intake, preview). When `group` has run, its Groups are
-// the works and parse supplies each primary's number. Without a group artifact — a
-// dry run stopped at parse — every candidate is its own one-file work.
-//
-// #37 rewrites group to consume Parsed; this bridge exists only so the later steps
-// keep compiling and keep their one-work-at-a-time shape until then.
+// ParsedWorks gives the group view of a parse result to the steps that read it
+// (scrape, output, intake, preview). When `group` has run, its Groups are the
+// works and each one already carries its number. Without a group artifact — a dry
+// run stopped at parse — every candidate is its own one-file work.
 func ParsedWorks(st *State) []ParsedWork {
 	if st == nil || st.Parsed == nil {
 		return nil
 	}
-	byPath := make(map[string]ParsedCandidate, len(st.Parsed.Items))
-	for _, c := range st.Parsed.Items {
-		byPath[c.File.Path] = c
-	}
 	if st.Groups != nil && len(st.Groups.Groups) > 0 {
 		out := make([]ParsedWork, 0, len(st.Groups.Groups))
 		for _, g := range st.Groups.Groups {
-			if pc, ok := byPath[g.Primary.Path]; ok {
-				out = append(out, ParsedWork{Group: g, Number: pc.Number})
-			}
+			out = append(out, ParsedWork{Group: g, Number: g.Number})
 		}
 		return out
 	}
@@ -300,10 +284,11 @@ func ParsedWorks(st *State) []ParsedWork {
 // no group artifact to describe the work it belongs to.
 func candidateGroup(c ParsedCandidate) Group {
 	return Group{
+		Number:      c.Number,
 		Dir:         filepath.Dir(c.File.Path),
 		Primary:     c.File,
 		PrimaryStem: c.Stem,
-		Parts:       []Part{{File: c.File, Stem: c.Stem, Marker: c.Part}},
+		Parts:       []Part{{File: c.File, Stem: c.Stem, Marker: c.Part, Flags: c.Flags}},
 	}
 }
 
@@ -493,14 +478,12 @@ type Manifest struct {
 	Rows []Row
 }
 
-// Groups is what `group` produces: the works to process, the duplicate stems a
-// human has to settle, the companions that belong nowhere, and the advisory
-// warnings.
+// Groups is what `group` produces: the works to process, and the companions that
+// belong to no work. A file whose name yielded no number is not here — it never
+// became a group, and it reaches a human as its own needs_number task.
 type Groups struct {
-	Groups     []Group
-	Duplicates []DuplicateStem
-	Unmatched  []UnmatchedFile
-	Warnings   []Warning
+	Groups    []Group
+	Unmatched []UnmatchedFile
 }
 
 // VideoCount is the number of videos across every group.

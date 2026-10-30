@@ -31,10 +31,10 @@ const pipeline = `steps:
         - name: all
           when: {ext_in: [.mp4]}
           then: include
-  - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
+    with: {}
   - type: output
     with: {root: /media/library}
 `
@@ -74,7 +74,7 @@ func TestConfigCheck_PrintsPipelinesAndEffectiveKeysWithSources(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d, stderr: %s", code, errOut)
 	}
-	if !strings.Contains(out, "main") || !strings.Contains(out, "scan → filter → group → parse → output") {
+	if !strings.Contains(out, "main") || !strings.Contains(out, "scan → filter → parse → group → output") {
 		t.Errorf("the loaded pipeline is not listed:\n%s", out)
 	}
 	if !strings.Contains(out, ":9999") || !strings.Contains(out, "(file)") {
@@ -240,10 +240,10 @@ func scrapePipelineWith(with string) string {
         - name: all
           when: {ext_in: [.mp4]}
           then: include
-  - type: group
-    with: {max_distance: 2, max_files_for_levenshtein: 50}
   - type: parse
     with: {rules: [{builtin: default}]}
+  - type: group
+    with: {}
   - type: scrape
     with:
 ` + with + `

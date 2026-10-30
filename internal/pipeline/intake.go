@@ -7,9 +7,9 @@ import "github.com/2017fighting/mdc-lite/internal/tasks"
 //
 // The engine itself still touches no database (see Engine.Run) — it only says what
 // it found. The caller runs the prefix, turns the result into an intake, and lets
-// `tasks.CreateBatch` store it. A needs_number group keeps its companions: the
-// subtitle of a group whose number a human still has to type belongs to that task,
-// so the path stays held and the eventual run finds it.
+// `tasks.CreateBatch` store it. One group is one task, and a file no rule could
+// number is its own needs_number task: the task holds what it is about to process,
+// and a numbered task holds all of its number's parts and versions.
 
 // ToIntake turns one run's artifacts into the batch a trigger stores.
 func ToIntake(trigger tasks.Trigger, triggerRef string, res *Result) tasks.Intake {
@@ -29,18 +29,11 @@ func ToIntake(trigger tasks.Trigger, triggerRef string, res *Result) tasks.Intak
 			Files:  intakeFiles(work.Group),
 		})
 	}
+	// A file whose name yielded no number never became a group: it enters the intake
+	// as its own needs_number task, one file per task, so a human numbers exactly the
+	// file that is missing one.
 	for _, u := range parsed.Unresolved {
 		in.Groups = append(in.Groups, tasks.Group{NeedsNumber: u.Reason, Files: filesOfRefs(u.Files)})
-	}
-	// A duplicate stem never became a group: it is a human's call, so it enters the
-	// intake as its own needs_number set rather than as a numbered work.
-	if res.State.Groups != nil {
-		for _, d := range res.State.Groups.Duplicates {
-			in.Groups = append(in.Groups, tasks.Group{
-				NeedsNumber: ReasonDuplicateStem,
-				Files:       filesOfRefs(d.Files),
-			})
-		}
 	}
 	// The files filter turned away are input the trigger handed over, so they are
 	// part of the batch's `skipped` list with the reason the API reports. Scan's own
@@ -86,14 +79,13 @@ func intakeFiles(g Group) []tasks.InputFile {
 }
 
 // filesOfRefs is the fallback for a set that never became a group — a per-file
-// parse miss or a duplicate stem waiting for a human.
+// parse miss waiting for a human.
 //
-// Nothing here may claim part evidence the names do not have (ADR-0003: a
-// duplicate stem is not merged automatically), so part_index stays 0 for every
-// file: the row's role has no "maybe" value, and the first file is the primary
-// only because it is the alphabetically first, which is what the spec says a
-// primary is. Whether the second file is a part of the same work or another
-// version is the human's tick (`task_files.is_part`), not this function's guess.
+// Nothing here may claim part evidence the names do not have, so part_index stays 0
+// for every file: the row's role has no "maybe" value, and the first file is the
+// primary only because it is the alphabetically first. Whether a second file is a
+// part of the same work is the human's tick (`task_files.is_part`), not this
+// function's guess.
 func filesOfRefs(files []FileRef) []tasks.InputFile {
 	out := make([]tasks.InputFile, len(files))
 	for i, f := range files {

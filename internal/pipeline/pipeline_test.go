@@ -191,7 +191,7 @@ func TestRun_PrintsTheSummaryOfEveryStepItRan(t *testing.T) {
 		"until:    group   dry-run: nothing is written, nothing is stored",
 		"scan:    roots=1 walked=4 files=4 skipped={}",
 		"filter:  in=3 out=1 skipped={too-small: 1}",
-		"group:   1 groups, 2 videos, 1 companions",
+		"group:   1 group, 2 videos, 1 companion",
 		"group 1/1: " + filepath.Join(root, "ABC-123-cd1.mp4"),
 		"[cd1, confident]",
 		"[cd2, confident]",
@@ -203,7 +203,7 @@ func TestRun_PrintsTheSummaryOfEveryStepItRan(t *testing.T) {
 	}
 }
 
-func TestRun_PrintsEveryGroupNumberAndWhyOneNeedsAHuman(t *testing.T) {
+func TestRun_PrintsEveryGroupNumberAndWhyAFileNeedsAHuman(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "ABC-123-cd1.mp4"), 200)
 	writeFile(t, filepath.Join(root, "ABC-123-cd2.mp4"), 200)
@@ -214,7 +214,7 @@ func TestRun_PrintsEveryGroupNumberAndWhyOneNeedsAHuman(t *testing.T) {
 	writeFile(t, filepath.Join(root, "XYZ-999.mp4"), 200)
 	writeFile(t, filepath.Join(root, "XYZ-999-U.mp4"), 200)
 
-	e, err := build(t, testPipeline, Options{Input: Input{Roots: []string{root}}, Until: "parse", DryRun: true})
+	e, err := build(t, testPipeline, Options{Input: Input{Roots: []string{root}}, Until: "group", DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,13 +227,22 @@ func TestRun_PrintsEveryGroupNumberAndWhyOneNeedsAHuman(t *testing.T) {
 	got := out.String()
 
 	for _, want := range []string{
-		"until:    parse   dry-run: nothing is written, nothing is stored",
-		"parse:   4 groups, 6 parts, 2 resolved, 1 conflicting number (SSVR-123), 1 needs a number (no_candidate), 1 needs a number (ambiguous), 1 needs a number (duplicate_stem)",
+		"until:    group   dry-run: nothing is written, nothing is stored",
+		// Eight files, four of them carrying a confident part marker, six numbered:
+		// the malformed pair is ambiguous and `hello.mp4` has no number at all.
+		"parse:   8 files, 4 parts, 6 resolved, 1 uncensored, 1 needs a number (no_candidate), 1 needs a number (ambiguous)",
+		// The versions of one number are one work, not a duplicate sent to a human.
+		"group:   4 groups, 6 videos, 0 companions",
 		`number:     ABC-123 (raw "ABC-123", family generic)`,
-		"number:     none (no_candidate)",
-		"number:     none (ambiguous: ABC-123, XYZ-456)",
-		"conflict:   SSVR-123 (another part read a different number)",
-		"needs a number: duplicate_stem",
+		`number:     XYZ-999 (raw "XYZ-999", family generic)`,
+		// A number that is close enough to look like a typo is still another number:
+		// SSVR-122 and SSVR-123 are two works now.
+		`number:     SSVR-122 (raw "SSVR-122", family generic)`,
+		`number:     SSVR-123 (raw "SSVR-123", family generic)`,
+		// A file no rule could number never became a group: it is printed as what it
+		// is, one file waiting for a human.
+		"needs a number (no_candidate): " + filepath.Join(root, "hello.mp4"),
+		"needs a number (ambiguous: ABC-123, XYZ-456): " + filepath.Join(root, "ABC-123_XYZ-456.mp4"),
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output does not contain %q:\n%s", want, got)
@@ -241,12 +250,15 @@ func TestRun_PrintsEveryGroupNumberAndWhyOneNeedsAHuman(t *testing.T) {
 	}
 }
 
-func TestRun_PrintsWhenThePrimaryHadNoNumber(t *testing.T) {
+// TestRun_PrintsThePrimaryOfAHeterogeneousPair: leading zeros and case are spelling.
+// The two discs are one work, its number is the primary's reading of it, and
+// `mdc run` says so.
+func TestRun_PrintsThePrimaryOfAHeterogeneousPair(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "SECRET-cd1.mp4"), 200)
-	writeFile(t, filepath.Join(root, "SECRET-1-cd2.mp4"), 200)
+	writeFile(t, filepath.Join(root, "hnvr00152.part1.mp4"), 200)
+	writeFile(t, filepath.Join(root, "HNVR-152.part3.mp4"), 200)
 
-	e, err := build(t, testPipeline, Options{Input: Input{Roots: []string{root}}, Until: "parse"})
+	e, err := build(t, testPipeline, Options{Input: Input{Roots: []string{root}}, Until: "group"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,8 +269,10 @@ func TestRun_PrintsWhenThePrimaryHadNoNumber(t *testing.T) {
 	var out bytes.Buffer
 	res.Print(&out)
 	for _, want := range []string{
-		"1 adopted from another part (primary had no number)",
-		`number:     SECRET-001 (raw "SECRET-1", family generic; primary had no number, adopted from another part)`,
+		"group:   1 group, 2 videos, 0 companions",
+		"(primary, HNVR-152)",
+		`number:     HNVR-152 (raw "hnvr00152", family generic)`,
+		filepath.Join(root, "HNVR-152.part3.mp4") + " [part3, confident]",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output does not contain %q:\n%s", want, out.String())

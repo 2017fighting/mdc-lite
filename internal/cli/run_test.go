@@ -51,12 +51,12 @@ func setupRun(t *testing.T) runFixture {
         - name: everything-else
           when: {stem_matches: "^.*$"}
           then: exclude
-  - type: group
-    with: {}
   - type: parse
     with:
       rules:
         - {builtin: default}
+  - type: group
+    with: {}
   - type: output
     with: {root: /media/library}
 `)
@@ -84,7 +84,7 @@ func TestRun_PrintsTheBatchPrefixSummary(t *testing.T) {
 		"files=4",
 		"partial: 1",
 		"filter:  in=3 out=1",
-		"group:   1 groups, 2 videos, 1 companions",
+		"group:   1 group, 2 videos, 1 companion",
 		"ABC-123-cd1.mp4 [cd1, confident]",
 		"-> part 1",
 	} {
@@ -187,12 +187,12 @@ func TestRun_WritesTheOutputDirectoryUnlessDryRun(t *testing.T) {
         - name: videos
           when: {ext_in: [".mp4"]}
           then: include
-  - type: group
-    with: {}
   - type: parse
     with:
       rules:
         - {builtin: default}
+  - type: group
+    with: {}
   - type: output
     with:
       root: "`+library+`"
@@ -212,15 +212,16 @@ func TestRun_WritesTheOutputDirectoryUnlessDryRun(t *testing.T) {
 	}
 }
 
-func TestRun_UntilParsePrintsTheNumberOfEveryGroup(t *testing.T) {
+func TestRun_UntilGroupPrintsTheNumberOfEveryWork(t *testing.T) {
 	f := setupRun(t)
-	code, out, errOut := run(t, f.args("--pipeline", "main", "--roots", f.media, "--until", "parse", "--dry-run")...)
+	code, out, errOut := run(t, f.args("--pipeline", "main", "--roots", f.media, "--until", "group", "--dry-run")...)
 	if code != 0 {
 		t.Fatalf("exit %d: %s%s", code, out, errOut)
 	}
 	for _, want := range []string{
-		"until:    parse   dry-run: nothing is written, nothing is stored",
-		"parse:   1 group, 2 parts, 1 resolved",
+		"until:    group   dry-run: nothing is written, nothing is stored",
+		"parse:   3 files, 3 parts, 3 resolved",
+		"group:   1 group, 2 videos, 1 companion",
 		`number:     ABC-123 (raw "ABC-123", family generic)`, // the primary's reading
 	} {
 		if !strings.Contains(out, want) {
@@ -229,22 +230,19 @@ func TestRun_UntilParsePrintsTheNumberOfEveryGroup(t *testing.T) {
 	}
 }
 
-func TestRun_UntilParseSaysWhyAGroupNeedsANumber(t *testing.T) {
+func TestRun_UntilGroupSaysWhyAFileNeedsANumber(t *testing.T) {
 	f := setupRun(t)
-	// The two files strip to the same stem with no part marker on either side, so
-	// they are a copy and a version, not two parts: the group step refuses them and
-	// parse hands them to a human with the reason instead of a number.
-	for _, name := range []string{"XYZ-999.mp4", "XYZ-999-U.mp4"} {
-		if err := os.WriteFile(filepath.Join(f.media, name), make([]byte, 200), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	// A file whose name offers two numbers is not a work: it never becomes a group,
+	// and `mdc run` names it as the one file waiting for a human.
+	if err := os.WriteFile(filepath.Join(f.media, "XYZ-999_ABC-123.mp4"), make([]byte, 200), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	code, out, errOut := run(t, f.args("--pipeline", "main", "--roots", f.media, "--until", "parse", "--dry-run")...)
+	code, out, errOut := run(t, f.args("--pipeline", "main", "--roots", f.media, "--until", "group", "--dry-run")...)
 	if code != 0 {
 		t.Fatalf("exit %d: %s%s", code, out, errOut)
 	}
-	if !strings.Contains(out, "needs a number: duplicate_stem") {
-		t.Errorf("the unresolved group must name its reason:\n%s", out)
+	if !strings.Contains(out, "needs a number (ambiguous: ABC-123, XYZ-999): ") {
+		t.Errorf("the unresolved file must name its reason and its candidates:\n%s", out)
 	}
 }
 

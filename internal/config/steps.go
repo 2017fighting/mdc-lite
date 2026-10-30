@@ -48,11 +48,11 @@ type FilterWhen struct {
 	StemMatches string   `yaml:"stem_matches"`
 }
 
-// GroupWith configures `group`.
+// GroupWith configures `group`. There is no distance knob: since ADR-0019 a work's
+// identity is the number `parse` read, so there is nothing to measure between
+// names. What is left is the table that decides which files are companions.
 type GroupWith struct {
-	MaxDistance            int      `yaml:"max_distance"`
-	MaxFilesForLevenshtein int      `yaml:"max_files_for_levenshtein"`
-	CompanionExtensions    []string `yaml:"companion_extensions"`
+	CompanionExtensions []string `yaml:"companion_extensions"`
 }
 
 // ParseWith configures `parse`: the number rule table and the two tables that
@@ -338,20 +338,12 @@ func (w FilterWhen) validate() error {
 // GroupDefaults are the documented defaults of `group.with`.
 func GroupDefaults() GroupWith {
 	return GroupWith{
-		MaxDistance:            2,
-		MaxFilesForLevenshtein: 50,
-		CompanionExtensions:    []string{".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png", ".webp"},
+		CompanionExtensions: []string{".srt", ".ass", ".ssa", ".jpg", ".jpeg", ".png", ".webp"},
 	}
 }
 
 // Validate checks the group knobs.
 func (w *GroupWith) Validate() error {
-	if w.MaxDistance < 0 {
-		return fmt.Errorf("max_distance must be >= 0")
-	}
-	if w.MaxFilesForLevenshtein < 1 {
-		return fmt.Errorf("max_files_for_levenshtein must be >= 1")
-	}
 	for _, e := range w.CompanionExtensions {
 		if !extPattern.MatchString(e) {
 			return fmt.Errorf("companion_extensions entry %q must look like .srt", e)
