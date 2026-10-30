@@ -8,12 +8,12 @@ mdc-lite 的领域词汇表。写代码、起 issue、写测试名时用这里�
 - **流水线（pipeline）** —— 一份配置文件声明的一条完整处理链；`id` = 文件名字干（`main.yaml` → `main`），引用一律用 id。一个配置文件 = 一条完整流水线，不做层级合并。
 - **步骤（step）** —— 流水线里的一个环节。V1 八类：`scan` / `filter` / `group` / `parse` / `scrape` / `images` / `nfo` / `output`；第二批预留 `translate` / `normalize` / `refresh`。步骤元数据层只有四个键：`type` / `with` / `name` / `on_error`。
 - **批次（batch）** —— 一次触发一行（`batches` 表），扇出 N 个任务；全 skip 也留痕。
-- **扇出点（fanout）** —— `group` 之后：`scan`/`filter`/`group` 是**批次级**（每触发一次），`parse` 起是**任务级**（每分组一次）。
+- **扇出点（fanout）** —— `group` 之后：`scan`/`filter`/`parse`/`group` 是**批次级**（每触发一次），`scrape` 起是**任务级**（每分组/番号一次，见 ADR-0019）。
 - **任务（task）** —— 一个分组一行（`tasks` 表）；**调度单位 = 取消单位 = 留痕单位 = 重跑单位**。
 - **任务运行（task run）** —— 任务的一次执行（`task_runs` 表）；重跑开新行，`run_no` 自增 1 起。
 - **步骤运行（step run）** —— 每步每次运行一条摘要（`step_runs` 表），`summary_json` 是摘要投影（计数 + 前 N 条），不是产物全量。
 - **源运行（source run）** —— `scrape` 里每个源一条留痕（`source_runs` 表），含三态与原因码。
-- **预览（preview）** —— 跑到 `--until parse` 的一次扫描；异步 202 + 轮询，状态只在内存、不落 DB。
+- **预览（preview）** —— 跑到 `--until group` 的一次扫描；异步 202 + 轮询，状态只在内存、不落 DB。
 - **dry-run** —— 跑完整链但只出 `Plan`，不写盘、不落库。
 - **`mdc run`** —— 手动跑一条流水线的 CLI 子命令（`--pipeline/--roots/--until/--dry-run`）；`--until` 与 `--dry-run` 是预览与调试的同一入口，不写盘不落库。
 - **落盘（Plan / Apply）** —— 副作用步骤（`images`/`nfo`/`output`）只产出 `Plan{Writes []PlannedWrite}`，由引擎统一 `Apply`；`output` 是**唯一写盘出口**。
@@ -25,10 +25,12 @@ mdc-lite 的领域词汇表。写代码、起 issue、写测试名时用这里�
 - **主干（stem）** —— 文件名剥掉噪声（sanitize / 广告域 / 技术 token / 分辨率 / 旗标 / 字幕尾标）后的文本；分组的判据就长在主干上。
 - **分片标记（part marker）** —— 判定「这是同一作品的分片」的正面证据。两档：**确定标记**（`cd\d`/`disc\d`/`part\d`/`vol\d`/带分隔的 `-A/-B/-D`，无条件生效）与**条件标记**（尾随 1-2 位数字、粘连字母如 `9ofje121A`，需同目录兄弟文件同意）。**孤立尾号/尾字母（无兄弟同意时）留在主干、不进番号、也不是分片**（`ABC-123-1` 与 `ABC-123A` 的番号都是 `ABC-123`）：内置 generic 规则不吃「字母-数字-数字」与粘连尾字母形状；真有此形状的库用自定义 pattern 排在 builtin 前（#30 裁定）。
 - **分片（part）** —— 同一作品的一个视频片；落盘 `-cd{n}`。
-- **primary** —— 组内分片序号最小的文件；无标记文件视为第 1 片。primary 定番号、定目录名。
+- **版本旗标（version flag）** —— 标记视频版本特征的标识（如 `-C`/`_C`/`中文` 为中文字幕，`-U`/`_U`/`无码`/`破解`/`流出` 为破解无码）。落盘依次跟在分片之后（`-中文`、`-破解`）。
+- **primary** —— 组内主视频，用于决定媒体属性提取基准与默认匹配。优先选取 Part 1，同分片下按「原版 > 中文 > 破解」决出。
 - **伴随文件（companion）** —— 与视频同组但不参与分片证据的文件（字幕、图片）；字幕跟随对应视频改名，图片保持原名。**进输出目录**：`PlannedWrite.Kind = companion`、`file_rows.role = companion`（见 ADR-0017）。
-- **重复版本（duplicate stem）** —— 主干相同而两侧都没有生效分片标记（`ABC-123.mp4` + `ABC-123-U.mp4`）→ 交人判定，**不自动合成一组**。
-- **待补号（needs_number）** —— 任务状态之一：番号解析不出（`no_candidate`）、歧义（`ambiguous`）或重复版本（`duplicate_stem`）时等人填号。
+- **多版本聚合（version aggregation）** —— 同番号但不同版本（原版、-C、-UC）或分片的文件自动聚合到同一个 Group / Task（见 ADR-0019），不再交人判定。
+- **元数据复用（metadata reuse）** —— 后续批次扫描到同一番号的新增版本时，若数据库或输出目录已有有效元数据，直接复用元数据生成硬链接，跳过网络爬虫请求。
+- **待补号（needs_number）** —— 任务状态之一：番号解析不出（`no_candidate`）或歧义（`ambiguous`）时等人填号，单文件独立记录。
 - **番号（number）** —— `Number{Raw, Normalized, Family}`；`Family` 是规则标签（`fc2` / `date-code` / `dmm-content-id` / `generic`）。
 - **归一化（normalization）** —— 大写、`_`/空格 → `-`、粘连字母数字插连字符、尾号补零到 3 位（只补不截）、去首尾非字母数字、全角 → 半角；手填号与文件名走同一套。FC2 规范形保留 `FC2-PPV-3336019`。
 - **补零宽度表（per-prefix serial width）** —— 按番号前缀查该家族序列号的宽度。generic 规则读到编码器补零写法（`snis00440hhb`）时据此收回成 `SNIS-440`；表只收有实测依据的前缀，未列出的前缀保持名字里写的宽度（错号比无号更难发现）。
