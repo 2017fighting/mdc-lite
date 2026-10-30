@@ -47,10 +47,12 @@ jobs:
           docker version
           docker compose version
           # ③ mounts a tmpfs of its own, which needs CAP_SYS_ADMIN. Fail here, with
-          # the reason, instead of four minutes into the run.
+          # the reason, instead of four minutes into the run. The runner user is not
+          # root but has passwordless sudo, which is also the acceptance test's own
+          # fallback (acceptance/mount.go).
           mkdir -p /tmp/mdc-mount-probe
-          mount -t tmpfs tmpfs /tmp/mdc-mount-probe
-          umount /tmp/mdc-mount-probe
+          sudo -n mount -t tmpfs tmpfs /tmp/mdc-mount-probe
+          sudo -n umount /tmp/mdc-mount-probe
       - name: the interface arm's browser, with its system libraries
         run: |
           set -eu
@@ -106,8 +108,8 @@ jobs:
           docker version
           docker compose version
           mkdir -p /tmp/mdc-mount-probe
-          mount -t tmpfs tmpfs /tmp/mdc-mount-probe
-          umount /tmp/mdc-mount-probe
+          sudo -n mount -t tmpfs tmpfs /tmp/mdc-mount-probe
+          sudo -n umount /tmp/mdc-mount-probe
       - name: the interface arm's browser, with its system libraries
         run: |
           set -eu

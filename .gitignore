@@ -6,6 +6,13 @@
 /internal/web/dist/assets/
 /web/node_modules/
 
+# The frontend's own library directory is tracked, and this file says so on purpose:
+# a contributor's global excludes (the Windows-style `lib/` / `[Ll]ib` patterns many
+# templates ship) silently swallowed it once — the checkout compiled nowhere but the
+# machine that had the files on disk. A repo .gitignore outranks core.excludesFile,
+# so this negation holds regardless of the machine.
+!web/src/lib/
+
 # The interface smoke's own artefacts: a failing Playwright run writes the page it saw
 # into test-results/, which is useful to read once and never belongs in git.
 /web/test-results/
