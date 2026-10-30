@@ -1,0 +1,90 @@
+# The acceptance gate: the one-command environment from ADR-0014.
+#
+# It runs on pushes to main and nightly — not on every pull request. The pull-request
+# gate stays fast (go vet + go test + lint + frontend build/typecheck, no Docker); this
+# one brings up a real Jellyfin, replays the committed captures, runs the real binary
+# over the corpus and asserts what the media server read. A suite that takes minutes
+# belongs where it does not block a review but still really runs.
+#
+# Nightly also runs the gate's self-check, which proves the two sides: green unbroken,
+# red and specific broken. That doubles the runtime, which is why it is not part of a
+# main push.
+name: acceptance
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *" # nightly, off the hour so it does not race the other crons
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  accept:
+    name: make accept
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: docker and compose are usable
+        run: |
+          set -eu
+          docker version
+          docker compose version
+      - name: the acceptance environment asserts, from nothing
+        run: make accept
+      - name: the gate left its positive marker
+        run: |
+          # An exit code of 0 is also what a gate that skipped everything says, so the
+          # run has to leave a record of what it asserted.
+          set -eu
+          test -s acceptance/scratch/ran.json
+          cat acceptance/scratch/ran.json
+          grep -q '"assertions"' acceptance/scratch/ran.json
+          echo "the acceptance run recorded its assertions"
+      - name: logs, on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-logs
+          path: |
+            acceptance/scratch/*.log
+            acceptance/scratch/ran.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  self-check:
+    name: prove the gate can fail
+    # Nightly and on demand only: it runs the whole gate twice.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: the gate has both sides
+        # `set -o pipefail` is deliberately absent and there are no pipes: a pipe
+        # replaces the script's exit status with the last command's, which is a mistake
+        # that was made twice by hand in the repository this one learned from.
+        run: ./acceptance/tools/verify-accept-fails.sh
+      - name: logs, on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-self-check-logs
+          path: acceptance/scratch-falsify/
+          if-no-files-found: warn
+          retention-days: 7

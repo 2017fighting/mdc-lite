@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -84,6 +85,7 @@ func newEnvironment(t *testing.T) *env {
 
 	e.buildBinary(t)
 	e.composeUp(t)
+	e.assertServerOwnership(t)
 
 	// The primer, before the library is registered and scanned: the library has to
 	// hold something the first time the server looks at it.
@@ -101,6 +103,27 @@ func newEnvironment(t *testing.T) *env {
 	e.buildCorpus(t)
 	e.startServer(t)
 	return e
+}
+
+// assertServerOwnership checks the uid/gid alignment the container is started with:
+// everything the media server writes under the scratch root has to belong to the user
+// who owns it, or the next reset fails with a pile of permission errors and leaves
+// the state it was supposed to delete.
+func (e *env) assertServerOwnership(t *testing.T) {
+	t.Helper()
+	info, err := os.Stat(filepath.Join(e.Scratch, "jellyfin", "config"))
+	if err != nil {
+		t.Fatalf("acceptance: the media server's config directory is not there: %v", err)
+	}
+	sys, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return // not a unix system: nothing to assert
+	}
+	if int(sys.Uid) != os.Getuid() || int(sys.Gid) != os.Getgid() {
+		t.Errorf("the media server wrote %s as %d:%d, but this run is %d:%d; "+
+			"MDC_ACCEPT_UID/MDC_ACCEPT_GID are not aligned",
+			info.Name(), sys.Uid, sys.Gid, os.Getuid(), os.Getgid())
+	}
 }
 
 // stop tears the environment down, keeping the server's and the media server's logs

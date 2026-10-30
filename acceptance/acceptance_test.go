@@ -89,6 +89,14 @@ func TestAcceptance(t *testing.T) {
 					continue
 				}
 				it := &matches[0]
+				// The same absolute path inside and outside the container is what makes a
+				// library scan possible at all: the server has to be looking at the files
+				// the pipeline wrote, not at a mount point of its own.
+				if !strings.HasPrefix(it.Path, e.Library) {
+					problems = append(problems, rel.Number+": the server reports "+it.Path+
+						", which is not under the output root "+e.Library)
+					continue
+				}
 				want := nfos[rel.Number]
 				if it.Name != want.Title {
 					// A title could have come from the directory name; agreement with the

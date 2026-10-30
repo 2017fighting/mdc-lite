@@ -4,13 +4,20 @@
 
 ```
 make build          # CGO_ENABLED=0 静态单二进制（前端产物内嵌）
-make check          # PR 门禁：vet + test + lint + 前端 typecheck
+make check          # PR 门禁：vet + test + lint + 前端 typecheck（快，无 Docker）
+make accept         # 验收：真 Jellyfin + 回放夹具 + 宿主真二进制，断言落到媒体服务器读到的结果
 make config-check   # 打印 examples/ 的流水线与生效键及其来源
 
 bin/mdc config check --config /config/config.yaml
 bin/mdc serve        --config /config/config.yaml
 bin/mdc run          --pipeline main --roots /media/in --until group --dry-run
 ```
+
+`make accept` 是验收环境（见 `acceptance/README.md`）：docker compose 起**钉版本的真
+Jellyfin**、把各源的真机抓取**回放**在本地、用**宿主上从本检出构建的真二进制**跑一遍语料，
+断言的是**媒体服务器读到了什么**（NFO 标题与首映日、多分盘是一条条目、`IsInMixedFolder`、
+`extrafanart` 同目录、`{number}-cd{part}` 基名、分组反例）。它跑 main 推送与 nightly，
+不进 PR 门禁；`make accept-falsify` 把门禁的两面都证一遍（破坏→红且原因对，没破坏→绿）。
 
 `mdc run` 跑一条流水线并打印一次扫描的摘要（walk 了多少、进了多少候选、滤掉多少及原因、
 分了哪些组、写盘写了什么），不落库；`--until` 决定停在哪一步，`--dry-run` 只产出 `Plan`

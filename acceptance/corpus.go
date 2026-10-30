@@ -96,7 +96,7 @@ func loadProvenance(path string) (map[string]Provenance, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	out := map[string]Provenance{}
 	scanner := bufio.NewScanner(f)
