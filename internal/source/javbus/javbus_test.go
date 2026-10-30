@@ -2,9 +2,6 @@ package javbus
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +14,7 @@ import (
 
 	"github.com/2017fighting/mdc-lite/internal/fetch"
 	"github.com/2017fighting/mdc-lite/internal/field"
+	"github.com/2017fighting/mdc-lite/internal/fixtures"
 	"github.com/2017fighting/mdc-lite/internal/meta"
 	"github.com/2017fighting/mdc-lite/internal/source"
 )
@@ -28,15 +26,11 @@ const captureDir = "testdata/captures"
 
 func captures(t *testing.T) []source.CaptureInfo {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(captureDir, "fixtures.json"))
+	rows, err := fixtures.Load(captureDir)
 	if err != nil {
-		t.Fatalf("read the capture manifest: %v", err)
+		t.Fatalf("%v", err)
 	}
-	var out []source.CaptureInfo
-	if err := json.Unmarshal(data, &out); err != nil {
-		t.Fatalf("parse the capture manifest: %v", err)
-	}
-	return out
+	return rows
 }
 
 func captureBody(t *testing.T, name string) []byte {
@@ -135,23 +129,15 @@ func TestFieldsDeclaresExactlyTheTenFieldsTheSiteHas(t *testing.T) {
 }
 
 func TestCapturesMatchTheirManifest(t *testing.T) {
-	// The fixture discipline: the manifest says what the site answered, and the
-	// bytes on disk have to be those bytes. A capture somebody hand-edited to make a
-	// test pass would otherwise be invisible.
+	// The fixture discipline lives in internal/fixtures so all four sources and the
+	// acceptance replay answer to the same rules; what is left here is this source's
+	// own claim about what its captures are.
+	for _, problem := range fixtures.Problems(captureDir) {
+		t.Error(problem)
+	}
 	for _, c := range captures(t) {
-		body := captureBody(t, c.Path)
-		if len(body) != c.Bytes {
-			t.Errorf("%s: %d bytes on disk, manifest says %d", c.Path, len(body), c.Bytes)
-		}
-		sum := sha256.Sum256(body)
-		if got := hex.EncodeToString(sum[:]); got != c.SHA256 {
-			t.Errorf("%s: sha256 %s, manifest says %s", c.Path, got, c.SHA256)
-		}
 		if !strings.Contains(c.URL, "javbus") {
 			t.Errorf("%s: url %q does not look like a javbus capture", c.Path, c.URL)
-		}
-		if c.Captured == "" {
-			t.Errorf("%s: the manifest does not say when it was captured", c.Path)
 		}
 	}
 }

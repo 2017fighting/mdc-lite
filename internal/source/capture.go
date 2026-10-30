@@ -42,9 +42,18 @@ type Dumper interface {
 type CaptureInfo struct {
 	Path     string `json:"path"`
 	Leg      string `json:"leg,omitempty"`
-	URL      string `json:"url"`
-	Status   int    `json:"status"`
+	URL      string `json:"url,omitempty"`
+	Status   int    `json:"status,omitempty"`
 	Bytes    int    `json:"bytes"`
-	Captured string `json:"captured"`
+	Captured string `json:"captured,omitempty"`
 	SHA256   string `json:"sha256"`
+
+	// Reason marks a fixture that is not a capture at all: bytes somebody composed to
+	// hold a shape the site will not serve again. It is a closed set (`internal/
+	// fixtures` owns the list), because "the site was slow" is not a reason to invent
+	// a page, and a constructed fixture beside real ones is otherwise invisible.
+	Reason string `json:"reason,omitempty"`
+	// Note says why a constructed fixture exists. Required with Reason: the reason is
+	// a category, the note is the fact.
+	Note string `json:"note,omitempty"`
 }
