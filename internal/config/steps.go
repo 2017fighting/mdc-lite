@@ -223,10 +223,14 @@ type NfoWith struct {
 }
 
 // OutputDefaults are the documented defaults of `output.with`. `root` has none.
+//
+// `file_template` is the naming rule in template form: `{number}[-cd{part}][-中文]
+// [-破解]`. `part` renders empty for a part the source's name never marked, so a
+// work that is not split has no `-cd1`, and `version` carries the version suffix.
 func OutputDefaults() OutputWith {
 	return OutputWith{
 		DirTemplate:    "{{ number }}",
-		FileTemplate:   "{{ number }}-cd{{ part }}",
+		FileTemplate:   "{{ number }}{% if part %}-cd{{ part }}{% endif %}{{ version }}",
 		Link:           "hardlink",
 		RequiredFields: []string{string(field.Title), string(field.Fanart)},
 	}
@@ -511,7 +515,15 @@ func (w *OutputWith) Validate() error {
 // checkTemplateVars rejects a template that names a variable the render context
 // does not have. Only the shape is checked here; rendering belongs to the step.
 func checkTemplateVars(tpl string) error {
-	allowed := map[string]bool{string(field.Number): true, "part": true}
+	allowed := map[string]bool{
+		string(field.Number): true,
+		"part":               true,
+		// The naming rule's version half: the suffix as a whole, and its two
+		// halves for a template that spells them its own way.
+		"version":    true,
+		"chinese":    true,
+		"uncensored": true,
+	}
 	for _, f := range field.All() {
 		allowed[string(f)] = true
 	}
@@ -523,7 +535,7 @@ func checkTemplateVars(tpl string) error {
 		}
 		base := strings.Fields(name)[0]
 		if !allowed[base] {
-			return fmt.Errorf("%q names an unknown variable (allowed: number, part and the 14 source-level fields)", base)
+			return fmt.Errorf("%q names an unknown variable (allowed: number, part, version, chinese, uncensored and the 14 source-level fields)", base)
 		}
 	}
 	return nil

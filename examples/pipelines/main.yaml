@@ -109,7 +109,12 @@ steps:
   - type: output
     with:
       root: "/media/library"
+      # One directory per work, named by the number.
       dir_template: "{{ number }}"
-      file_template: "{{ number }}-cd{{ part }}"
+      # The naming rule, in template form: {number}[-cd{part}][-中文][-破解]. `part`
+      # is empty when the source's name never marked one, `version` is the version
+      # suffix ("" / -中文 / -破解 / -中文-破解), and `chinese` / `uncensored` are its
+      # two halves if you want to spell them your own way.
+      file_template: "{{ number }}{% if part %}-cd{{ part }}{% endif %}{{ version }}"
       link: hardlink
       required_fields: ["title", "fanart"]

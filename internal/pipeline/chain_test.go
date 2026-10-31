@@ -241,7 +241,7 @@ func TestChain_WritesTheDirectoryAJellyfinServerCanRead(t *testing.T) {
 		}
 	}
 
-	// The videos follow `{number}-cd{part}`, because this work is in two parts.
+	// The videos follow `{number}-cd{part}`, because these two names mark their parts.
 	for _, name := range []string{"ABC-123-cd1.mp4", "ABC-123-cd2.mp4"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("video %s: %v", name, err)
@@ -537,21 +537,152 @@ func containsField(fields []field.Name, want field.Name) bool {
 func stringPtr(s string) *string { return &s }
 
 func TestChain_ACompanionFollowsItsOwnPart(t *testing.T) {
-	media := t.TempDir()
-	writeFile(t, filepath.Join(media, "ABC-123-cd1.mp4"), 200)
-	writeFile(t, filepath.Join(media, "ABC-123-cd2.mp4"), 200)
-	// The subtitle names the second part, so it must follow that part's new name.
-	writeFile(t, filepath.Join(media, "ABC-123-cd2.eng.srt"), 10)
-	src := newFakeSource()
-	title := "Title"
-	src.fields.Title = &title
-	src.fields.Fanart = &source.ImageRef{Role: field.Fanart, URL: "https://fixture/fanart.jpg"}
-	src.images["https://fixture/fanart.jpg"] = jpegImage(t, 160, 90)
+	media, src := minimalFixture(t, "ABC-123-cd1.mp4", "ABC-123-cd2.mp4", "ABC-123-cd2.eng.srt")
 
 	out := t.TempDir()
 	runChain(t, media, out, Options{Env: Environment{Sources: source.NewRegistry(src)}}, "")
 	if _, err := os.Stat(filepath.Join(out, "ABC-123", "ABC-123-cd2.eng.srt")); err != nil {
 		t.Errorf("the subtitle must follow cd2 and keep .eng: %v", err)
+	}
+}
+
+// minimalFixture is the ticket's smaller corpus: the named files in one media
+// directory, and a fixture source carrying just enough (title and fanart) to pass
+// the default required-fields gate. The naming is what these tests measure.
+func minimalFixture(t *testing.T, files ...string) (media string, src *fakeSource) {
+	t.Helper()
+	media = t.TempDir()
+	for _, name := range files {
+		writeFile(t, filepath.Join(media, name), 200)
+	}
+	src = newFakeSource()
+	title := "Title"
+	src.fields.Title = &title
+	src.fields.Fanart = &source.ImageRef{Role: field.Fanart, URL: "https://fixture/fanart.jpg"}
+	src.images["https://fixture/fanart.jpg"] = jpegImage(t, 160, 90)
+	return media, src
+}
+
+// TestChain_VersionsOfOneNumberShareOneDirectory is ticket #38 through the whole
+// chain: the parts and versions of one number become hard links in the work's own
+// directory, beside one `movie.nfo` and one set of images, and a subtitle follows
+// the video it belongs to under that video's new name.
+func TestChain_VersionsOfOneNumberShareOneDirectory(t *testing.T) {
+	media, src := minimalFixture(t, "ABC-123.mp4", "ABC-123-C.mp4", "ABC-123-UC.mp4", "ABC-123.zh.srt")
+
+	out := t.TempDir()
+	runChain(t, media, out, Options{Env: Environment{Sources: source.NewRegistry(src)}}, "")
+
+	dir := filepath.Join(out, "ABC-123")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("the work's own directory: %v", err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	want := []string{
+		"ABC-123.mp4", "ABC-123-中文.mp4", "ABC-123-中文-破解.mp4",
+		"ABC-123.zh.srt", "movie.nfo", "poster.jpg", "fanart.jpg",
+	}
+	for _, name := range want {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s: %v (the directory holds %v)", name, err, names)
+		}
+	}
+	// Exactly one of each: one work, one NFO, one set of images.
+	if len(names) != len(want) {
+		t.Errorf("the directory holds %v, want exactly %v", names, want)
+	}
+
+	// The versions are links to their own source, not copies of it.
+	for _, pair := range [][2]string{
+		{"ABC-123.mp4", "ABC-123.mp4"},
+		{"ABC-123-C.mp4", "ABC-123-中文.mp4"},
+		{"ABC-123-UC.mp4", "ABC-123-中文-破解.mp4"},
+	} {
+		source, err := os.Stat(filepath.Join(media, pair[0]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		linked, err := os.Stat(filepath.Join(dir, pair[1]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !os.SameFile(source, linked) {
+			t.Errorf("%s is not a hard link to %s", pair[1], pair[0])
+		}
+	}
+}
+
+// TestChain_AMarkedChineseWorkNamesEveryPart is the acceptance criterion that the
+// part and the version have to agree on one name: `ABC-123-cd2-C.mp4` is
+// `ABC-123-cd2-中文.mp4`, and the subtitle of that part follows it.
+func TestChain_AMarkedChineseWorkNamesEveryPart(t *testing.T) {
+	media, src := minimalFixture(t, "ABC-123-cd1-C.mp4", "ABC-123-cd2-C.mp4", "ABC-123-cd1.zh.srt")
+
+	out := t.TempDir()
+	runChain(t, media, out, Options{Env: Environment{Sources: source.NewRegistry(src)}}, "")
+
+	dir := filepath.Join(out, "ABC-123")
+	for _, name := range []string{"ABC-123-cd1-中文.mp4", "ABC-123-cd2-中文.mp4", "ABC-123-cd1-中文.zh.srt"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// TestChain_ASubtitleFollowsItsVersionNotJustItsPart pins the version half of
+// "a subtitle follows the video it belongs to": since ADR-0019 several versions of
+// one part sit in one group, and `ABC-123-C.zh.srt` is the chinese copy's subtitle.
+// Its video is written as `ABC-123-中文.mp4`, so the subtitle has to carry that new
+// name — the `-C` spelling is exactly what must not survive.
+func TestChain_ASubtitleFollowsItsVersionNotJustItsPart(t *testing.T) {
+	media, src := minimalFixture(t, "ABC-123.mp4", "ABC-123-C.mp4", "ABC-123.zh.srt", "ABC-123-C.zh.srt")
+
+	out := t.TempDir()
+	runChain(t, media, out, Options{Env: Environment{Sources: source.NewRegistry(src)}}, "")
+
+	dir := filepath.Join(out, "ABC-123")
+	for _, name := range []string{"ABC-123.mp4", "ABC-123-中文.mp4", "ABC-123.zh.srt", "ABC-123-中文.zh.srt"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// A subtitle named after the old spelling would leave the library with a file
+	// no video carries the name of.
+	if _, err := os.Stat(filepath.Join(dir, "ABC-123-C.zh.srt")); !os.IsNotExist(err) {
+		t.Error("the subtitle kept the source's -C spelling instead of following its version")
+	}
+}
+
+// TestChain_ASecondFileForOneNameFailsAfterTheFirst pins the collision rule: two
+// sources of one part and one version are one name, and the run refuses to guess.
+// The first file is written, the second is refused by name, and the task fails — a
+// silently overwritten file would be the one outcome nobody can see.
+func TestChain_ASecondFileForOneNameFailsAfterTheFirst(t *testing.T) {
+	media, src := minimalFixture(t, "ABC-123-cd1-1080p.mp4", "ABC-123-cd1-720p.mp4")
+
+	out := t.TempDir()
+	res, err := build1(t, media, out, Options{Env: Environment{Sources: source.NewRegistry(src)}}, "")
+	if err != nil {
+		t.Fatalf("planning is not where the collision surfaces: %v", err)
+	}
+	manifest, err := Apply(context.Background(), res.State.Plan)
+	if err == nil {
+		t.Fatal("two files for one name must not both be written")
+	}
+	for _, want := range []string{"ABC-123-cd1.mp4", "1080p", "720p"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q", err, want)
+		}
+	}
+	if len(manifest.Rows) != 1 {
+		t.Errorf("the first write happened, the second did not: %d rows", len(manifest.Rows))
+	}
+	if _, statErr := os.Stat(filepath.Join(out, "ABC-123", "ABC-123-cd1.mp4")); statErr != nil {
+		t.Errorf("the first file still lands: %v", statErr)
 	}
 }
 

@@ -49,6 +49,12 @@ func ToIntake(trigger tasks.Trigger, triggerRef string, res *Result) tasks.Intak
 
 // intakeFiles lists a group's files the way `task_files` stores them: the primary
 // first, the other parts by index, the companions last.
+//
+// `part_index` is the part marker the name carried, so an unmarked part stores 0 and
+// `Part.Index()`'s "an unmarked file is part 1" stays where it belongs, in the
+// ordering. The rename needs the difference: `ABC-123.mp4` is `ABC-123.mp4` in the
+// library, whether or not a second disc sits next to it, and the task's own rows are
+// the only place that evidence survives a rerun.
 func intakeFiles(g Group) []tasks.InputFile {
 	out := make([]tasks.InputFile, 0, len(g.Parts)+len(g.Companions))
 	for _, p := range g.Parts {
@@ -60,7 +66,7 @@ func intakeFiles(g Group) []tasks.InputFile {
 			Path:      p.File.Path,
 			Kind:      tasks.KindVideo,
 			Role:      role,
-			PartIndex: p.Index(),
+			PartIndex: p.Marker.Index,
 			Size:      p.File.Size,
 			ModTime:   p.File.ModTime,
 		})

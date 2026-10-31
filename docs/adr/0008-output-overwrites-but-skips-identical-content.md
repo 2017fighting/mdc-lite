@@ -10,7 +10,7 @@
 
 ## 决定
 
-- `output.with` 键面：`root`（必填）/ `dir_template`（默认 `{{ number }}`）/ `file_template`（默认 `{{ number }}-cd{{ part }}`，只管分片）/ `link ∈ {hardlink, copy, move}`（默认 `hardlink`）/ `required_fields`。
+- `output.with` 键面：`root`（必填）/ `dir_template`（默认 `{{ number }}`）/ `file_template`（默认写的就是命名规则 `{{ number }}{% if part %}-cd{{ part }}{% endif %}{{ version }}`，分片与版本都在里面，见 ADR-0020）/ `link ∈ {hardlink, copy, move}`（默认 `hardlink`）/ `required_fields`。
 - **覆盖，但 `sha256` 相同且文件仍在则跳过写入**（保住 mtime）。
 - **清理**：按上次落盘台账删掉本次不再产出的旧产物；**只删台账里记过、且落在该任务输出目录内的文件**，台账之外一律不动。
 - **原子写**：同目录 `.tmp` → `rename`；`hardlink` 直接产生最终名。

@@ -376,8 +376,11 @@ func seedState(files []tasks.TaskFile, number string) *State {
 			continue
 		}
 		grp.Parts = append(grp.Parts, Part{
-			File:   ref,
-			Stem:   stemOf(f.Path),
+			File: ref,
+			Stem: stemOf(f.Path),
+			// `part_index` is the marker the name carried (0 = none), not
+			// `Part.Index()`'s "unmarked counts as part 1" — intakeFiles explains why
+			// the difference is load-bearing for the rename.
 			Marker: Marker{Index: f.PartIndex},
 			// The version flags are name evidence, and the name is still on disk: a
 			// rerun re-reads them rather than needing a column for them.

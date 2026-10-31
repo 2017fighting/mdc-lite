@@ -24,11 +24,17 @@ import (
 
 // Apply executes a plan. Files are checked for cancellation between writes, never in
 // the middle of one: a run either leaves a whole file behind or none.
+//
+// A destination may be named once. Two sources claiming one name is the one thing a
+// writer must not paper over: the first file is written, the second is refused with
+// both sources named, and the run fails — a silently overwritten file is the outcome
+// nobody can see afterwards.
 func Apply(ctx context.Context, plan *Plan) (*Manifest, error) {
 	m := &Manifest{}
 	if plan == nil {
 		return m, nil
 	}
+	claimed := map[string]string{}
 	for _, item := range plan.Items {
 		for _, w := range item.Writes {
 			if err := ctx.Err(); err != nil {
@@ -39,6 +45,11 @@ func Apply(ctx context.Context, plan *Plan) (*Manifest, error) {
 				removeTemp(w.Dst)
 				return m, err
 			}
+			if prev, taken := claimed[w.Dst]; taken {
+				return m, fmt.Errorf("%s: two files want the same output name (%s and %s); remove or rename one of them",
+					w.Dst, prev, w.Src)
+			}
+			claimed[w.Dst] = w.Src
 			row, err := applyWrite(w)
 			if err != nil {
 				return m, err

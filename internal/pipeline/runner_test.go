@@ -634,7 +634,7 @@ func TestRunner_ASingleVideoKeepsItsNameAndItsSubtitle(t *testing.T) {
 		Trigger:    tasks.TriggerManual,
 		PipelineID: "main",
 		Groups: []tasks.Group{{Number: "ABC-123", Files: []tasks.InputFile{
-			{Path: filepath.Join(media, "ABC-123.mp4"), Kind: tasks.KindVideo, Role: tasks.RolePrimary, PartIndex: 1, Size: info.Size()},
+			{Path: filepath.Join(media, "ABC-123.mp4"), Kind: tasks.KindVideo, Role: tasks.RolePrimary, PartIndex: 0, Size: info.Size()},
 			{Path: filepath.Join(media, "ABC-123.zh.srt"), Kind: tasks.KindCompanion, Role: tasks.RoleCompanion},
 		}}},
 	})

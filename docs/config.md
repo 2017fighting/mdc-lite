@@ -48,7 +48,7 @@
 | `scrape` | `sources` 为全局序 `[javdb, dmm, javbus, fc2]`、`priority` 把 14 个字段全写全（见下）、`timeout: 5m`；源级 `timeout` 30s、`rate` 1 req/s + burst 2 + 冷却 5m |
 | `images` | 无键 |
 | `nfo` | `template: default` |
-| `output` | `dir_template: {{ number }}`、`file_template: {{ number }}-cd{{ part }}`、`link: hardlink`、`required_fields: [title, fanart]`；**`root` 必填** |
+| `output` | `dir_template: {{ number }}`、`file_template: {{ number }}{% if part %}-cd{{ part }}{% endif %}{{ version }}`、`link: hardlink`、`required_fields: [title, fanart]`；**`root` 必填** |
 
 `scrape.with.sources` 是有序列表，每项是**裸 id** 或**带 id 的对象**：`sources: [javdb, {id: dmm, timeout: 30s, domains: [dmm.co.jp]}]`。源级的四个旋钮（`proxy` / `domains` / `rate` / `timeout`）就挂在这一项里，位置与设置不分家。
 
@@ -187,7 +187,11 @@ config/pipelines/main.yaml:24:18: step 2 (filter): unknown field "rules[0].when.
 - **原子写**：图片 / NFO / 伴随文件 / `copy` 都是同目录 `.tmp` → `rename`；`hardlink` 直接产最终名；`move` 就是 `rename`。跨设备 `EXDEV` → 任务 `failed`，错误点名「改 `output.with.link=copy|move`」，**不自动回退**。
 - **伴随文件有落盘通道**（ADR-0017）：字幕跟随对应视频改名（保留自己的语言 token，例如 `ABC-123.zh.srt` 跟着 `ABC-123-cd1.mp4` 变成 `ABC-123-cd1.zh.srt`），图片保持原名；`Kind = companion` / `role = companion`、照常进台账，因此幂等与清理对它同样成立，且**不受 `link` 开关影响**。
 - **`required_fields` 默认 `[title, fanart]`，`fanart` 按字节到手判**；缺则 `output` 步失败（→ 任务 `failed`），除非 `output.on_error: continue`（→ 任务 `partial`，能写的照写）。任何 14 字段缺失都让 `Metadata.Partial = true`。
-- **多分片时 primary 也带 `-cd1`**：spec §4 的「primary 裸名」与 §10 的 `file_template` 默认值冲突；取 §10——模板对**每个**分片生效（`{{ number }}-cd{{ part }}` → `ABC-123-cd1.mp4`），因为它是配置面写死的键，取证文档里的多分盘目录示例也是 `-cd1`；组内只有一个文件时仍保留源文件名。
+- **命名规则是「先分片、后版本」**（ADR-0020，取代早先「多分片时 primary 也带 `-cd1`、单文件保留源文件名」的裁决）：`{number}[-cd{part}][-中文][-破解]`，默认 `file_template` 就是这句话。三件事随之改口：**源文件名不再进库**（组内只有一个文件时也按规则渲染，`MIDA-557-C.mp4` → `MIDA-557-中文.mp4`，`MIDV-804.2025.1080p…-MTeam.mkv` → `MIDV-804.mkv`，否则同一部的两次下载会在库里成两条）；**`-cd{n}` 只在名字写了分片标记时出现**（`ABC-123.mp4` 与 `ABC-123-cd2.mp4` 同组时前者仍是 `ABC-123.mp4`）；**版本顺序是规则的**（`-UC` 与 `-CU` 都是 `-中文-破解`）。
+- **字幕跟的是「分片 × 版本」，不只是分片**：组内同一分片有多个版本是 ADR-0019 后的新形状，字幕按自己名字里的版本旗标选跟随对象——`ABC-123-C.zh.srt` 跟着中字版落成 `ABC-123-中文.zh.srt`；名字里没有版本证据的字幕跟该分片的主版本（原版）。版本旗标跟重跑一样从文件名重读（`versionFlags`），不需要新列。
+- **模板变量多了三个**：`version`（`""` / `-中文` / `-破解` / `-中文-破解`）、`chinese`、`uncensored`，`part` 在未标记分片时**渲染为空**（`{% if part %}` 因此能直接用）。`dir_template` 用同一套上下文，分片与版本在目录名上是空值——目录按番号，不按版本。
+- **`task_files.part_index` 是名字里的分片标记，无标记就是 0**：任务落盘走 `task_files` 重建的组（重跑也从这里，见下条），若这里存 `Part.Index()` 的「无标记算第 1 片」，单文件作品会莫名变成 `-cd1`。「无标记算第 1 片」只留在排序里（`Part.Index()`）。
+- **同一目标名只准一个来源**：`Apply` 写第二个进同一路径的文件时直接失败并点名两个源文件（`ABC-123-cd1-1080p.mp4` 与 `ABC-123-cd1-720p.mp4` 都解析成「cd1、原版」就是这种情况）。先写的那一个留在盘上，任务 `failed` ——静默覆盖是唯一看不见的结局。
 - **任务重跑从 `group` 之后开始，不重跑 `parse`/`group`**：番号已经是 `tasks.number` 这一行事实（可能由人填过），重跑 `parse` 只会用文件名的推断去覆盖它。所以重跑用 `task_files` 重建 parse 产物（`Options.Seed`），再从 `scrape` 起跑；重扫目录、重跑剥离规则都不发生。
 - **`scrape` 按波次并发调度**：每波 = 每个未满足字段在其候选列表里的**当前首选源**去重后的集合，并发各问一次；一波回来后，每个字段取「候选序里**最早**已答且贡献了的源」——**不靠返回顺序**（每字段一个游标，位置决定优先级）。仍有缺口 → 下一波；**无缺口即停**；每个源每番号**只问一次**。某个源抽风只影响它负责的字段：它的候选位置之后的人接手，步骤本身不失败。
 - **图片字段两阶段**：`Scrape` 只给地址；只有「将要胜出」的那个源会被 `FetchImage`（**未胜出不取**），字节到手才算贡献（**胜出源全取、不封顶**）；取图失败 = 该源该字段无贡献 → 照常落到下一个候选（候选可能已经在手，或需要下一波去问）。

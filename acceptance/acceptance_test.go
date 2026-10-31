@@ -24,19 +24,21 @@ import (
 type release struct {
 	Number string
 	// Videos are the file names inside the release's output directory, in part order.
-	// A single-file release keeps the source file's name; a multi-disc release is
-	// `{number}-cd{part}`, which is the naming rule this environment pins down.
+	// Every name is `{number}[-cd{part}][-中文][-破解]` — the source's own spelling
+	// never survives, because two downloads of one work have to be one entry.
 	Videos []string
 }
 
 // releases is the main chain's expectation, in the corpus's own order.
 var releases = []release{
 	{Number: "CAWD-279", Videos: []string{"CAWD-279.mp4"}},
-	// The `-C` in the directory and file name is a flag, not part of the number.
-	{Number: "MIDA-557", Videos: []string{"MIDA-557-C.mp4"}},
-	// A scene-named release: the number is inside the noise, the file keeps its name.
-	{Number: "MIDV-804", Videos: []string{"MIDV-804.2025.1080p.DMM.WEB-DL.AAC2.0.HFR.H.264-MTeam.mkv"}},
-	// Two discs of one number: the only case where the file template applies.
+	// The `-C` in the directory and file name is a flag, not part of the number: the
+	// library's name says 中文.
+	{Number: "MIDA-557", Videos: []string{"MIDA-557-中文.mp4"}},
+	// A scene-named release: the number is inside the noise, and the library's name is
+	// the number, not the scene's label.
+	{Number: "MIDV-804", Videos: []string{"MIDV-804.mkv"}},
+	// Two discs of one number, both marked in their own names.
 	{Number: "SSIS-001", Videos: []string{"SSIS-001-cd1.mp4", "SSIS-001-cd2.mp4"}},
 }
 

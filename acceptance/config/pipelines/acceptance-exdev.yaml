@@ -75,6 +75,6 @@ steps:
     with:
       root: "${MDC_ACCEPT_ROOT}/exdev-fs/library"
       dir_template: "{{ number }}"
-      file_template: "{{ number }}-cd{{ part }}"
+      file_template: "{{ number }}{% if part %}-cd{{ part }}{% endif %}{{ version }}"
       link: hardlink
       required_fields: ["title", "fanart"]

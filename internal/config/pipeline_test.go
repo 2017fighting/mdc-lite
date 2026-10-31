@@ -752,7 +752,8 @@ func TestParsePipeline_WithDefaults(t *testing.T) {
 	}
 
 	output := p.Steps[7].WithValue.(*config.OutputWith)
-	if output.DirTemplate != "{{ number }}" || output.FileTemplate != "{{ number }}-cd{{ part }}" {
+	if output.DirTemplate != "{{ number }}" ||
+		output.FileTemplate != "{{ number }}{% if part %}-cd{{ part }}{% endif %}{{ version }}" {
 		t.Errorf("output templates = %q / %q", output.DirTemplate, output.FileTemplate)
 	}
 	if output.Link != "hardlink" {

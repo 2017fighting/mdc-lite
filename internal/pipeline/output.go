@@ -122,27 +122,60 @@ func (s *outputStep) Run(_ context.Context, st *State) error {
 
 // outputDir renders the directory template under the configured root.
 func (s *outputStep) outputDir(number string, md meta.Metadata) (string, error) {
-	rel, err := s.paths.RenderDir(templateVars(number, "", md))
+	rel, err := s.paths.RenderDir(fileVars(number, "", VersionFlags{}, md))
 	if err != nil {
 		return "", fmt.Errorf("dir_template: %w", err)
 	}
 	return filepath.Join(s.cfg.Root, filepath.FromSlash(rel)), nil
 }
 
-// videoBase is the name a part's video file gets. A single-file work keeps the
-// source name (nothing about it needs inventing); a split work uses
-// `file_template`, whose default is `{number}-cd{part}`.
-func (s *outputStep) videoBase(grp Group, p Part, number string, md meta.Metadata) (string, error) {
-	if len(grp.Parts) == 1 {
-		base := stemOf(p.File.Path)
-		return base, nil
+// The version half of the naming rule. The order is fixed here — 中文 then 破解 —
+// and not by the order the source's own name wrote them: `ABC-123-UC.mp4` and
+// `ABC-123-CU.mp4` are one file in the library.
+const (
+	versionChinese    = "-中文"
+	versionUncensored = "-破解"
+)
+
+// versionSuffix is the tail of a name: `-中文`, `-破解`, both, or nothing.
+func versionSuffix(f VersionFlags) string {
+	var b strings.Builder
+	if f.IsChinese {
+		b.WriteString(versionChinese)
 	}
-	rendered, err := s.paths.RenderFile(templateVars(number, p.Index(), md))
+	if f.IsUncensored {
+		b.WriteString(versionUncensored)
+	}
+	return b.String()
+}
+
+// fileVars is the naming context of a video's or a subtitle's name: the shared
+// field set plus the three variables the naming rule is made of. `part` is the part
+// number the name says, empty when the source's name carried no marker (a work that
+// was not split has no `-cd1`); `version` is the whole version suffix, and the two
+// booleans are its halves for a template that spells them its own way.
+func fileVars(number string, part any, flags VersionFlags, md meta.Metadata) map[string]any {
+	vars := templateVars(number, part, md)
+	vars["version"] = versionSuffix(flags)
+	vars["chinese"] = flags.IsChinese
+	vars["uncensored"] = flags.IsUncensored
+	return vars
+}
+
+// videoBase is the name a part's video gets: the default `file_template` renders
+// `{number}[-cd{part}][-中文][-破解]` — the number from the group, then this part's
+// own evidence. Never the source's name: two spellings of one work (`ABC-123.mp4`,
+// `abc00123-cd1.mp4`) are one work, and the library's name has to say so.
+func (s *outputStep) videoBase(p Part, number string, md meta.Metadata) (string, error) {
+	var part any = ""
+	if p.Marker.Index > 0 {
+		part = p.Index()
+	}
+	rendered, err := s.paths.RenderFile(fileVars(number, part, p.Flags, md))
 	if err != nil {
 		return "", fmt.Errorf("file_template: %w", err)
 	}
-	base := stemOf(filepath.FromSlash(rendered))
-	return base, nil
+	return stemOf(filepath.FromSlash(rendered)), nil
 }
 
 func (s *outputStep) planVideos(item PlanItem) ([]PlannedWrite, error) {
@@ -154,7 +187,7 @@ func (s *outputStep) planVideos(item PlanItem) ([]PlannedWrite, error) {
 	}
 	var out []PlannedWrite
 	for _, p := range item.Group.Parts {
-		base, err := s.videoBase(item.Group, p, item.Number.Normalized, item.Metadata)
+		base, err := s.videoBase(p, item.Number.Normalized, item.Metadata)
 		if err != nil {
 			return nil, err
 		}
@@ -223,6 +256,13 @@ func (s *outputStep) planCompanions(dir string, item PlanItem) ([]PlannedWrite, 
 
 // companionName is the subtitle rename: the video's target base plus the
 // companion's own language token plus its extension.
+//
+// The video it follows is picked twice, and the second pick is the one the
+// version rule added: `FollowsPart` names the part, but since ADR-0019 several
+// *versions* of one part sit in one group, and a subtitle belongs to the version
+// its own name carries (`ABC-123-C.zh.srt` is the chinese copy's subtitle, and
+// that copy's new name is `ABC-123-中文`). A companion whose version names no
+// part keeps following the followed part's own primary — the original.
 func (s *outputStep) companionName(item PlanItem, c Companion) (string, error) {
 	grp := item.Group
 	part := grp.Parts[0]
@@ -234,7 +274,8 @@ func (s *outputStep) companionName(item PlanItem, c Companion) (string, error) {
 			}
 		}
 	}
-	targetBase, err := s.videoBase(grp, part, item.Number.Normalized, item.Metadata)
+	part = versionOfPart(grp, part, versionFlags(stemOf(c.File.Path)))
+	targetBase, err := s.videoBase(part, item.Number.Normalized, item.Metadata)
 	if err != nil {
 		return "", err
 	}
@@ -248,6 +289,22 @@ func (s *outputStep) companionName(item PlanItem, c Companion) (string, error) {
 		token = compBase[len(c.Stem):]
 	}
 	return targetBase + token + c.File.Ext, nil
+}
+
+// versionOfPart picks the version of a part a companion belongs to: the one whose
+// flags say the same thing the companion's own name says. Parts are in `sortParts`
+// order, so the first match is the primary of that version; no match returns the
+// part as given, which is the followed part's own primary.
+func versionOfPart(grp Group, part Part, flags VersionFlags) Part {
+	if flags == (VersionFlags{}) {
+		return part
+	}
+	for _, p := range grp.Parts {
+		if p.Index() == part.Index() && p.Flags == flags {
+			return p
+		}
+	}
+	return part
 }
 
 // imageCompanion reports whether a companion is an image, i.e. one that keeps its
