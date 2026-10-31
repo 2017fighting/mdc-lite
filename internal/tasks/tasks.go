@@ -451,6 +451,11 @@ func (s *Store) TaskFiles(ctx context.Context, taskID int64) ([]TaskFile, error)
 
 // FindMetadataJSON answers "what did an earlier task already find for this
 // number": the most recent `metadata_json` a task of that number finished with.
+//
+// It is not scoped by pipeline: what the sources said about a work is a fact about
+// the work, not about which pipeline happened to ask. Whether the answer can be
+// written is a separate question, and the caller answers it against the current
+// pipeline's required fields.
 // Only a run that reached the end counts — a failed or cancelled one may have
 // collected half a work, and reusing that would hide the retry. `partial` does
 // count: it means the run finished with gaps, and whether those gaps matter is the
