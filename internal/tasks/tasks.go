@@ -14,6 +14,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/2017fighting/mdc-lite/internal/store"
@@ -446,6 +447,33 @@ func (s *Store) TaskFiles(ctx context.Context, taskID int64) ([]TaskFile, error)
 		return nil, err
 	}
 	return readTaskFiles(ctx, db, taskID)
+}
+
+// FindMetadataJSON answers "what did an earlier task already find for this
+// number": the most recent `metadata_json` a task of that number finished with.
+// Only a run that reached the end counts — a failed or cancelled one may have
+// collected half a work, and reusing that would hide the retry.
+func (s *Store) FindMetadataJSON(ctx context.Context, number string) (string, bool, error) {
+	if strings.TrimSpace(number) == "" {
+		return "", false, nil
+	}
+	db, err := s.db.Read()
+	if err != nil {
+		return "", false, err
+	}
+	var raw string
+	err = db.QueryRowContext(ctx,
+		`SELECT metadata_json FROM tasks
+		  WHERE upper(number) = upper(?) AND status IN (?, ?) AND metadata_json NOT IN ('', '{}')
+		  ORDER BY id DESC LIMIT 1`, number, string(StatusSucceeded), string(StatusPartial),
+	).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("tasks: find metadata for %s: %w", number, err)
+	}
+	return raw, true, nil
 }
 
 func readTaskFiles(ctx context.Context, q queryer, taskID int64) ([]TaskFile, error) {

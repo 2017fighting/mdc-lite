@@ -47,7 +47,7 @@ func (s *imagesStep) Run(_ context.Context, st *State) error {
 	summary := &ImagesSummary{Items: len(st.Scraped.Items), Missing: newCounts()}
 	for _, item := range st.Scraped.Items {
 		md := item.Metadata
-		img := ImagesItem{Group: item.Group, Number: item.Number, Metadata: md}
+		img := ImagesItem{Group: item.Group, Number: item.Number, Metadata: md, Reused: item.Reused}
 
 		for _, blob := range item.Images {
 			ext := sniffImageExt(blob.Bytes)
@@ -69,18 +69,23 @@ func (s *imagesStep) Run(_ context.Context, st *State) error {
 			summary.Notes = append(summary.Notes, "从横版封套右侧裁切 poster.jpg (2:3)")
 		}
 
-		present := map[field.Name]bool{}
-		for _, f := range img.Files {
-			present[f.Role] = true
-		}
-		for _, f := range imageFields {
-			if !present[f] {
-				// "The source gave a URL but the bytes never arrived" is a missing
-				// field, so forget the provenance too: Sources answers "who supplied
-				// it", and nobody did.
-				img.Metadata.Forget(f)
-				summary.Missing[string(f)]++
+		if !item.Reused {
+			present := map[field.Name]bool{}
+			for _, f := range img.Files {
+				present[f.Role] = true
 			}
+			for _, f := range imageFields {
+				if !present[f] {
+					// "The source gave a URL but the bytes never arrived" is a missing
+					// field, so forget the provenance too: Sources answers "who supplied
+					// it", and nobody did.
+					img.Metadata.Forget(f)
+					summary.Missing[string(f)]++
+				}
+			}
+		}
+		if item.Reused {
+			summary.Reused++
 		}
 		img.Missing = append([]field.Name(nil), img.Metadata.Missing...)
 		img.Partial = len(img.Missing) > 0
@@ -231,6 +236,10 @@ type ImagesSummary struct {
 	Images       int `json:"images"`
 	Cropped      int `json:"cropped"`
 	PartialItems int `json:"partial_items"`
+	// Reused counts the groups whose images were already in the output directory:
+	// nothing was downloaded, which is what makes a reuse hit look like an empty
+	// step in a trace.
+	Reused int `json:"reused"`
 	// Missing is keyed by field name: how many groups lack it.
 	Missing map[string]int `json:"missing"`
 	// Notes is the human-readable trace the detail page shows; the crop sentence
@@ -244,6 +253,9 @@ func (s ImagesSummary) String() string {
 	parts := []string{
 		plural(s.Items, "group", "groups"),
 		fmt.Sprintf("%d images", s.Images),
+	}
+	if s.Reused > 0 {
+		parts = append(parts, fmt.Sprintf("%d 复用已有图片", s.Reused))
 	}
 	if s.Cropped > 0 {
 		parts = append(parts, fmt.Sprintf("%d poster(s) 从横版封套右侧裁切 poster.jpg (2:3)", s.Cropped))

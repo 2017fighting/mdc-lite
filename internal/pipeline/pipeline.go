@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/2017fighting/mdc-lite/internal/config"
+	"github.com/2017fighting/mdc-lite/internal/meta"
 	"github.com/2017fighting/mdc-lite/internal/source"
 )
 
@@ -46,6 +47,8 @@ type Environment struct {
 	// flight at once. Zero means no per-task cap (the Fetcher's global cap still
 	// applies); the product always passes the configured number.
 	Images int
+	// MetadataStore looks up previously stored task metadata by number for reuse.
+	MetadataStore MetadataStore
 }
 
 // Options are the knobs `mdc run`, the preview and a monitor tick share.
@@ -71,6 +74,14 @@ type Options struct {
 	// the seam the task runner uses to write `step_runs` one row at a time, which is
 	// why it is not the engine that knows about the database.
 	OnStep func(ctx context.Context, o StepOutcome) error
+	// Rescrape asks the sources again even where an earlier task already knows the
+	// number. A rerun sets it: a rerun is an operator saying "the stored answer is
+	// not what I want", which is the one case where reuse would be wrong.
+	Rescrape bool
+	// OutputDirResolver answers "where would this number's directory be", which is
+	// where metadata reuse looks. Build derives it from the output step; a caller
+	// may pass its own (a preview that stops before `output` has no output step).
+	OutputDirResolver func(number string, md meta.Metadata) string
 }
 
 // StepOutcome is one step's result, as an observer sees it.
@@ -197,7 +208,16 @@ var constructors = map[string]func(config.Step, Options) (Step, error){
 		if !ok {
 			return nil, fmt.Errorf("the scrape settings were not decoded (was the pipeline loaded through config.LoadPipelineFile?)")
 		}
-		return newScrape(*w, opts.Env.Sources, opts.Env.Images)
+		var scrapeOpts []ScrapeOption
+		if !opts.Rescrape {
+			if opts.OutputDirResolver != nil {
+				scrapeOpts = append(scrapeOpts, WithOutputDir(opts.OutputDirResolver))
+			}
+			if opts.Env.MetadataStore != nil {
+				scrapeOpts = append(scrapeOpts, WithMetadataStore(opts.Env.MetadataStore))
+			}
+		}
+		return newScrape(*w, opts.Env.Sources, opts.Env.Images, scrapeOpts...)
 	},
 	config.StepImages: func(s config.Step, _ Options) (Step, error) {
 		w, ok := s.WithValue.(*config.ImagesWith)
@@ -243,6 +263,20 @@ func Build(p config.Pipeline, opts Options) (*Engine, error) {
 		}
 	}
 	e := &Engine{pipeline: p, opts: opts, onError: make([]config.OnError, 0, stop-start+1), indexes: make([]int, 0, stop-start+1)}
+	// The output step owns the directory rule, so reuse reads it from there: one
+	// template, one answer. A template the resolver cannot compile is left to the
+	// output step's constructor, which refuses the build with the proper message.
+	if opts.OutputDirResolver == nil {
+		for _, st := range p.Steps {
+			if st.Type != config.StepOutput {
+				continue
+			}
+			if ow, ok := st.WithValue.(*config.OutputWith); ok && ow.Root != "" {
+				opts.OutputDirResolver = buildOutputDirResolver(ow.Root, ow.DirTemplate)
+			}
+			break
+		}
+	}
 	available := map[string]bool{}
 	for i := 0; i <= stop; i++ {
 		st := p.Steps[i]

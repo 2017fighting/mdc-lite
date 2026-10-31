@@ -47,6 +47,9 @@ type scrapeStep struct {
 	// plans is one field's candidate list, resolved once at build time: the ids
 	// this build actually has, in the order the configuration asks for them.
 	plans []fieldPlan
+
+	outputDir     func(number string, md meta.Metadata) string
+	metadataStore MetadataStore
 }
 
 // fieldPlan is one source-level field's candidate list. The list is the whole
@@ -57,7 +60,7 @@ type fieldPlan struct {
 	ids  []string
 }
 
-func newScrape(w config.ScrapeWith, reg source.Registry, images int) (Step, error) {
+func newScrape(w config.ScrapeWith, reg source.Registry, images int, opts ...ScrapeOption) (Step, error) {
 	plans := make([]fieldPlan, 0, len(field.All()))
 	for _, name := range field.All() {
 		ids := w.Sources.IDs()
@@ -86,6 +89,9 @@ func newScrape(w config.ScrapeWith, reg source.Registry, images int) (Step, erro
 	step := &scrapeStep{cfg: w, sources: reg, plans: plans}
 	if images > 0 {
 		step.imageSlots = make(chan struct{}, images)
+	}
+	for _, opt := range opts {
+		opt(step)
 	}
 	return step, nil
 }
@@ -144,6 +150,9 @@ func (s *scrapeStep) Run(ctx context.Context, st *State) error {
 		for _, f := range scraped.Metadata.Missing {
 			summary.Missing[string(f)]++
 		}
+		if scraped.Reused {
+			summary.Reused++
+		}
 		summary.Images += len(scraped.Images)
 		out.Items = append(out.Items, scraped)
 	}
@@ -166,6 +175,10 @@ type scrapedAnswer struct {
 // scrapeOne runs one number through the field-level fallback.
 func (s *scrapeStep) scrapeOne(ctx context.Context, work ParsedWork) (ScrapedItem, []SourceAttempt, error) {
 	number := work.Number.Normalized
+	if md, ok := s.tryReuse(ctx, work); ok {
+		return ScrapedItem{Group: work.Group, Number: work.Number, Metadata: md, Reused: true}, nil, nil
+	}
+
 	if s.cfg.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.cfg.Timeout))
@@ -554,11 +567,14 @@ type SourceAttempt struct {
 // ScrapeSummary is the scrape step's summary projection: counts only. The per-source
 // detail lands in `source_runs`, which is what the detail page reads.
 type ScrapeSummary struct {
-	Items    int            `json:"items"`
-	Failed   int            `json:"failed"`
-	NotFound int            `json:"notfound"`
-	Images   int            `json:"images"`
-	Missing  map[string]int `json:"missing"`
+	Items    int `json:"items"`
+	Failed   int `json:"failed"`
+	NotFound int `json:"notfound"`
+	Images   int `json:"images"`
+	// Reused counts the numbers whose metadata came from disk or the database
+	// instead of the network: zero source requests is the point of the count.
+	Reused  int            `json:"reused"`
+	Missing map[string]int `json:"missing"`
 	// Results counts by "id:status", so the summary answers "how did javdb do"
 	// without repeating source_runs.
 	Results map[string]int `json:"results"`
@@ -572,6 +588,9 @@ func (s ScrapeSummary) String() string {
 	parts := []string{
 		plural(s.Items, "number", "numbers"),
 		fmt.Sprintf("%d images", s.Images),
+	}
+	if s.Reused > 0 {
+		parts = append(parts, fmt.Sprintf("%d reused", s.Reused))
 	}
 	if s.Failed > 0 {
 		parts = append(parts, fmt.Sprintf("%d source(s) failed", s.Failed))

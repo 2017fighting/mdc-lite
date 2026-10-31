@@ -163,10 +163,18 @@ func (r *Runner) execute(ctx context.Context, task tasks.Task, run tasks.Run) (t
 		// operator looks to find out which step refused.
 		pendingOutput *StepOutcome
 	)
+	env := r.envFor(p)
+	if env.MetadataStore == nil && r.store != nil {
+		env.MetadataStore = r.store
+	}
 	opts := Options{
 		From: from,
 		Seed: state,
-		Env:  r.envFor(p),
+		Env:  env,
+		// A rerun of the same task is an operator asking for the sources again, so
+		// it scrapes afresh. The first run of a task, on the other hand, reuses what
+		// an earlier task already found for this number (issue #39).
+		Rescrape: run.No > 1,
 		OnStep: func(ctx context.Context, o StepOutcome) error {
 			if o.Type == config.StepOutput && o.Status != "failed" {
 				held := o

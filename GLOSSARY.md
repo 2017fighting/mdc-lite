@@ -29,7 +29,7 @@ mdc-lite 的领域词汇表。写代码、起 issue、写测试名时用这里�
 - **primary** —— 组内主视频，用于决定媒体属性提取基准与默认匹配。优先选取 Part 1，同分片下按「原版 > 中文 > 破解」决出。
 - **伴随文件（companion）** —— 与视频同组但不参与分片证据的文件（字幕、图片）；字幕跟随对应视频改名，图片保持原名。**进输出目录**：`PlannedWrite.Kind = companion`、`file_rows.role = companion`（见 ADR-0017）。
 - **多版本聚合（version aggregation）** —— 同番号但不同版本（原版、-C、-UC）或分片的文件自动聚合到同一个 Group / Task（见 ADR-0019），不再交人判定。
-- **元数据复用（metadata reuse）** —— 后续批次扫描到同一番号的新增版本时，若数据库或输出目录已有有效元数据，直接复用元数据生成硬链接，跳过网络爬虫请求。
+- **元数据复用（metadata reuse）** —— 后续批次扫描到同一番号的新增版本时，直接装载已有元数据并落盘，**不发一次外部爬虫请求、不下一张图**。两个来源，按序查：输出目录里的 `movie.nfo`（反解成元数据，`sources` 记 `nfo`），其次是库里该番号最近一次 `succeeded`/`partial` 的 `metadata_json`。**接受条件**是目标目录里已经有 `poster` 与 `fanart` 这两个文件（图片字段记 `local`）：跳过网络就等于承诺输出步骤仍能写出一份完整作品，光有元数据而没有图的目录复用后只会写出一个没有封面的作品。复用命中的任务 `source_runs` 为空，`step_runs` 的 `scrape` 摘要里 `results` 为空。**重跑（同一任务的第二次运行）不复用**——那是一次显式要求重新刮削。
 - **待补号（needs_number）** —— 任务状态之一：番号解析不出（`no_candidate`）或歧义（`ambiguous`）时等人填号，单文件独立记录。
 - **番号（number）** —— `Number{Raw, Normalized, Family}`；`Family` 是规则标签（`fc2` / `date-code` / `dmm-content-id` / `generic`）。
 - **归一化（normalization）** —— 大写、`_`/空格 → `-`、粘连字母数字插连字符、尾号补零到 3 位（只补不截）、去首尾非字母数字、全角 → 半角；手填号与文件名走同一套。FC2 规范形保留 `FC2-PPV-3336019`。

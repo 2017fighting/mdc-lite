@@ -326,3 +326,41 @@ func TestFinishRun_WritesMetadataAndKeepsItWhenARerunHasNone(t *testing.T) {
 		t.Errorf("metadata_json = %s, want the previous run's", after.MetadataJSON)
 	}
 }
+
+func TestFindMetadataJSON_ReturnsLatestSuccessfulMetadataByNumber(t *testing.T) {
+	e := openStore(t)
+	task := oneTask(t, e)
+
+	// Before any run finishes
+	raw, ok, err := e.st.FindMetadataJSON(e.ctx, "ABC-123")
+	if err != nil {
+		t.Fatalf("FindMetadataJSON: %v", err)
+	}
+	if ok || raw != "" {
+		t.Errorf("found metadata before task finished: %v, %q", ok, raw)
+	}
+
+	run := begin(t, e, task.ID)
+	metadata := `{"title":"ABC-123","sources":{"title":"javbus"}}`
+	if err := e.st.FinishRun(e.ctx, run.ID, tasks.Outcome{Status: tasks.RunSucceeded, MetadataJSON: metadata}); err != nil {
+		t.Fatalf("FinishRun: %v", err)
+	}
+
+	// Case insensitive lookup
+	raw, ok, err = e.st.FindMetadataJSON(e.ctx, "abc-123")
+	if err != nil {
+		t.Fatalf("FindMetadataJSON: %v", err)
+	}
+	if !ok || raw != metadata {
+		t.Errorf("got (%v, %q), want (true, %q)", ok, raw, metadata)
+	}
+
+	// Non-existent number
+	raw, ok, err = e.st.FindMetadataJSON(e.ctx, "XYZ-999")
+	if err != nil {
+		t.Fatalf("FindMetadataJSON: %v", err)
+	}
+	if ok || raw != "" {
+		t.Errorf("found metadata for non-existent number: %v, %q", ok, raw)
+	}
+}

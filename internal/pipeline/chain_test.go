@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/2017fighting/mdc-lite/internal/config"
@@ -34,8 +35,10 @@ type fakeSource struct {
 	fetchErr map[string]bool
 
 	// scrapes counts the calls, so a test can assert that a source was (or was not)
-	// asked at all.
-	scrapes int
+	// asked at all. The counters are atomic because the engine asks a wave's
+	// sources — and fetches a wave's images — concurrently.
+	scrapes      atomic.Int64
+	imageFetches atomic.Int64
 }
 
 func newFakeSource() *fakeSource {
@@ -53,7 +56,7 @@ func (f *fakeSource) ID() string { return f.id }
 func (f *fakeSource) Fields() []field.Name { return f.declared }
 
 func (f *fakeSource) Scrape(_ context.Context, _ string) (source.Result, error) {
-	f.scrapes++
+	f.scrapes.Add(1)
 	if f.scrapeErr != nil {
 		return source.Result{}, f.scrapeErr
 	}
@@ -61,6 +64,7 @@ func (f *fakeSource) Scrape(_ context.Context, _ string) (source.Result, error) 
 }
 
 func (f *fakeSource) FetchImage(_ context.Context, ref source.ImageRef) ([]byte, error) {
+	f.imageFetches.Add(1)
 	if f.fetchErr[ref.URL] {
 		return nil, errors.New("fixture source: image is a 404")
 	}
@@ -713,5 +717,83 @@ func TestApply_DoesNotStartAFileAfterTheContextDied(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("a cancelled apply left files behind: %v", entries)
+	}
+}
+
+// TestChain_SubsequentVersionReusesMetadataAndHardlinks tests Issue #39:
+// When an earlier run already scraped ABC-123 into the output directory, a later
+// run processing an additional version (ABC-123-C.mp4) must reuse the existing
+// metadata, perform zero external scraper and image download requests, and hardlink
+// the new version into the output directory.
+func TestChain_SubsequentVersionReusesMetadataAndHardlinks(t *testing.T) {
+	// 1. Initial run: scrape ABC-123.mp4
+	media1, src := minimalFixture(t, "ABC-123.mp4")
+	out := t.TempDir()
+
+	runChain(t, media1, out, Options{Env: Environment{Sources: source.NewRegistry(src)}}, "")
+
+	dir := filepath.Join(out, "ABC-123")
+	nfoPath := filepath.Join(dir, "movie.nfo")
+	nfoBefore, err := os.ReadFile(nfoPath)
+	if err != nil {
+		t.Fatalf("first run should write movie.nfo: %v", err)
+	}
+	video1Path := filepath.Join(dir, "ABC-123.mp4")
+	if _, err := os.Stat(video1Path); err != nil {
+		t.Fatalf("first run should link ABC-123.mp4: %v", err)
+	}
+
+	// First run made external requests
+	if got := src.scrapes.Load(); got != 1 {
+		t.Fatalf("first run src.scrapes = %d, want 1", got)
+	}
+
+	// 2. Subsequent run: new media folder with new version ABC-123-C.mp4
+	media2 := t.TempDir()
+	writeFile(t, filepath.Join(media2, "ABC-123-C.mp4"), 300)
+
+	// Reset counters on fakeSource
+	src.scrapes.Store(0)
+	src.imageFetches.Store(0)
+
+	_, secondManifest := runChain(t, media2, out, Options{Env: Environment{Sources: source.NewRegistry(src)}}, "")
+
+	// Acceptance criterion: 外部源在复用命中时零网络请求
+	if got := src.scrapes.Load(); got != 0 {
+		t.Errorf("second run src.scrapes = %d, want 0 (zero network requests when reusing metadata)", got)
+	}
+	if got := src.imageFetches.Load(); got != 0 {
+		t.Errorf("second run src.imageFetches = %d, want 0 (zero image requests when reusing metadata)", got)
+	}
+
+	// Acceptance criterion: 输出步骤正确接收复用元数据并完成新版本视频的硬链接
+	video2Path := filepath.Join(dir, "ABC-123-中文.mp4")
+	linked, err := os.Stat(video2Path)
+	if err != nil {
+		t.Fatalf("second run must create hardlink for ABC-123-中文.mp4: %v", err)
+	}
+	src2, err := os.Stat(filepath.Join(media2, "ABC-123-C.mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(src2, linked) {
+		t.Errorf("%s is not a hardlink to %s", video2Path, filepath.Join(media2, "ABC-123-C.mp4"))
+	}
+
+	// Acceptance criterion: 本地目标目录存在有效 movie.nfo 时，任务识别并复用已存在的元数据
+	// movie.nfo should be preserved
+	nfoAfter, err := os.ReadFile(nfoPath)
+	if err != nil {
+		t.Fatalf("movie.nfo must still exist: %v", err)
+	}
+	if string(nfoBefore) != string(nfoAfter) {
+		t.Errorf("movie.nfo was modified:\nbefore:\n%s\nafter:\n%s", string(nfoBefore), string(nfoAfter))
+	}
+
+	// In the manifest, movie.nfo should be skipped
+	for _, row := range secondManifest.Rows {
+		if row.Dst == nfoPath && row.Action != ActionSkipped {
+			t.Errorf("movie.nfo write action = %q, want %q", row.Action, ActionSkipped)
+		}
 	}
 }

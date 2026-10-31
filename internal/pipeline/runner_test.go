@@ -854,3 +854,55 @@ func TestRunner_AShutdownEndsTheRunAsInterruptedAndRequeuesTheTask(t *testing.T)
 		t.Errorf("runs = %+v, want one finished interrupted run", runs)
 	}
 }
+
+func TestRunner_NewVersionReusesMetadataFromPriorTask(t *testing.T) {
+	e := newRunnerEnv(t)
+	// Task 1: the first part and version of ABC-123.
+	task1ID := e.createTask(t, "ABC-123", "ABC-123-cd1.mp4")
+	outcome1, err := e.run.RunTask(e.ctx, task1ID)
+	if err != nil {
+		t.Fatalf("RunTask 1: %v", err)
+	}
+	if outcome1.Status != tasks.RunSucceeded {
+		t.Fatalf("task 1 status = %q, want succeeded", outcome1.Status)
+	}
+	if got := e.src.scrapes.Load(); got != 1 {
+		t.Fatalf("task 1 src.scrapes = %d, want 1", got)
+	}
+
+	// Task 2: a chinese version of the same part, in a batch of its own.
+	writeFile(t, filepath.Join(e.media, "ABC-123-cd1-C.mp4"), 200)
+	task2ID := e.createTask(t, "ABC-123", "ABC-123-cd1-C.mp4")
+
+	// Reset source counters: second task should NOT call external source
+	e.src.scrapes.Store(0)
+	e.src.imageFetches.Store(0)
+
+	outcome2, err := e.run.RunTask(e.ctx, task2ID)
+	if err != nil {
+		t.Fatalf("RunTask 2: %v", err)
+	}
+	if outcome2.Status != tasks.RunSucceeded {
+		t.Fatalf("task 2 status = %q (%s), want succeeded", outcome2.Status, outcome2.Error)
+	}
+
+	if got := e.src.scrapes.Load(); got != 0 {
+		t.Errorf("task 2 src.scrapes = %d, want 0 (metadata reuse skipped external spider)", got)
+	}
+	if got := e.src.imageFetches.Load(); got != 0 {
+		t.Errorf("task 2 src.imageFetches = %d, want 0", got)
+	}
+
+	// Step runs of task 2: scrape should have 0 source_runs
+	runs, err := e.store.Runs(e.ctx, task2ID)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("runs: %v", err)
+	}
+	srcRuns, err := e.store.SourceRunsOfSteps(e.ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcRuns) != 0 {
+		t.Errorf("task 2 recorded %v source_runs, want 0 when reusing metadata", srcRuns)
+	}
+}

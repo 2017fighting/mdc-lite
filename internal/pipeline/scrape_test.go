@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -172,7 +174,7 @@ func TestScrapeBudgetRecordsTheSourcesItNeverReached(t *testing.T) {
 	if attempts[1].Status != "failed" || attempts[1].Reason != source.ReasonTimeout {
 		t.Errorf("the source that was never asked = %+v, want failed/timeout", attempts[1])
 	}
-	if next.scrapes != 0 {
+	if next.scrapes.Load() != 0 {
 		t.Error("a source was asked after the number's budget ran out")
 	}
 }
@@ -718,4 +720,207 @@ func TestScrapeWithoutAnImageLimitStillKeepsEveryImage(t *testing.T) {
 	if got := probe.peak.Load(); got != 2 {
 		t.Errorf("peak in-flight = %d, want both to overlap (no per-task cap)", got)
 	}
+}
+
+type mockMetadataStore struct {
+	data map[string]string
+}
+
+func (m *mockMetadataStore) FindMetadataJSON(_ context.Context, number string) (string, bool, error) {
+	if m.data == nil {
+		return "", false, nil
+	}
+	v, ok := m.data[strings.ToUpper(number)]
+	return v, ok, nil
+}
+
+func TestScrape_ReusesMetadataFromOutputDirNFO(t *testing.T) {
+	outDir := t.TempDir()
+	movieDir := filepath.Join(outDir, "ABC-123")
+	if err := os.MkdirAll(movieDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nfoContent := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie>
+  <title>ABC-123 Reused Title</title>
+  <originaltitle>Reused Title</originaltitle>
+  <plot>Reused Plot</plot>
+  <premiered>2024-01-01</premiered>
+  <releasedate>2024-01-01</releasedate>
+  <runtime>120</runtime>
+  <studio>Reused Studio</studio>
+  <director>Reused Director</director>
+  <tag>Tag1</tag>
+  <tag>发行: Reused Publisher</tag>
+  <actor>
+    <name>Reused Actor</name>
+    <role>女优</role>
+  </actor>
+</movie>`
+	if err := os.WriteFile(filepath.Join(movieDir, "movie.nfo"), []byte(nfoContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Reuse is only accepted when the directory holds what its metadata claims;
+	// otherwise skipping the network would write a work with no cover.
+	for _, name := range []string{"poster.jpg", "fanart.jpg"} {
+		if err := os.WriteFile(filepath.Join(movieDir, name), []byte("jpg"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	src := &callCountingSource{id: "fixture"}
+	step, err := newScrape(scrapeCfg("fixture"), source.NewRegistry(src), 0,
+		WithOutputDir(func(num string, _ meta.Metadata) string { return filepath.Join(outDir, num) }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	st := scrapeState("ABC-123")
+	if err := step.Run(context.Background(), st); err != nil {
+		t.Fatalf("scrape step run: %v", err)
+	}
+
+	// External source must receive zero calls
+	if src.scrapes != 0 {
+		t.Errorf("src.scrapes = %d, want 0 when reusing NFO", src.scrapes)
+	}
+	if src.images != 0 {
+		t.Errorf("src.images = %d, want 0 when reusing NFO", src.images)
+	}
+
+	if st.Scraped == nil || len(st.Scraped.Items) != 1 {
+		t.Fatalf("Scraped items = %v, want 1 item", st.Scraped)
+	}
+	item := st.Scraped.Items[0]
+	if !item.Reused {
+		t.Errorf("item.Reused = false, want true")
+	}
+	if item.Metadata.Title != "Reused Title" {
+		t.Errorf("Title = %q, want %q", item.Metadata.Title, "Reused Title")
+	}
+	if item.Metadata.Plot != "Reused Plot" {
+		t.Errorf("Plot = %q, want %q", item.Metadata.Plot, "Reused Plot")
+	}
+	if item.Metadata.Studio != "Reused Studio" {
+		t.Errorf("Studio = %q, want %q", item.Metadata.Studio, "Reused Studio")
+	}
+	if item.Metadata.Publisher != "Reused Publisher" {
+		t.Errorf("Publisher = %q, want %q", item.Metadata.Publisher, "Reused Publisher")
+	}
+	if len(item.Metadata.Actors) != 1 || item.Metadata.Actors[0].Name != "Reused Actor" || item.Metadata.Actors[0].Gender != meta.Female {
+		t.Errorf("Actors = %+v, want Reused Actor (female)", item.Metadata.Actors)
+	}
+	if len(item.Images) != 0 {
+		t.Errorf("Images = %d, want 0 downloaded images on reuse", len(item.Images))
+	}
+}
+
+func TestScrape_ReusesMetadataFromMetadataStore(t *testing.T) {
+	outDir := t.TempDir()
+	// No movie.nfo here: the record is the only source of the fields. The images
+	// are on disk, which is what makes the record reusable at all.
+	movieDir := filepath.Join(outDir, "ABC-123")
+	if err := os.MkdirAll(movieDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"poster.jpg", "fanart.jpg"} {
+		if err := os.WriteFile(filepath.Join(movieDir, name), []byte("jpg"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	store := &mockMetadataStore{
+		data: map[string]string{
+			"ABC-123": `{"title":"Stored Title","plot":"Stored Plot","sources":{"title":"javbus","plot":"javbus","fanart":"javbus","poster":"javbus"}}`,
+		},
+	}
+
+	src := &callCountingSource{id: "fixture"}
+	step, err := newScrape(scrapeCfg("fixture"), source.NewRegistry(src), 0,
+		WithOutputDir(func(num string, _ meta.Metadata) string { return filepath.Join(outDir, num) }),
+		WithMetadataStore(store),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	st := scrapeState("ABC-123")
+	if err := step.Run(context.Background(), st); err != nil {
+		t.Fatalf("scrape step run: %v", err)
+	}
+
+	if src.scrapes != 0 {
+		t.Errorf("src.scrapes = %d, want 0 when reusing from store", src.scrapes)
+	}
+	if src.images != 0 {
+		t.Errorf("src.images = %d, want 0 when reusing from store", src.images)
+	}
+
+	if st.Scraped == nil || len(st.Scraped.Items) != 1 {
+		t.Fatalf("Scraped items = %v, want 1 item", st.Scraped)
+	}
+	item := st.Scraped.Items[0]
+	if !item.Reused {
+		t.Errorf("item.Reused = false, want true")
+	}
+	if item.Metadata.Title != "Stored Title" {
+		t.Errorf("Title = %q, want %q", item.Metadata.Title, "Stored Title")
+	}
+	if item.Metadata.Plot != "Stored Plot" {
+		t.Errorf("Plot = %q, want %q", item.Metadata.Plot, "Stored Plot")
+	}
+}
+
+func TestScrape_CorruptNFOFallsBackToExternalSource(t *testing.T) {
+	outDir := t.TempDir()
+	movieDir := filepath.Join(outDir, "ABC-123")
+	if err := os.MkdirAll(movieDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Malformed XML
+	if err := os.WriteFile(filepath.Join(movieDir, "movie.nfo"), []byte("not xml at all"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	title := "External Title"
+	fields := source.Fields{Title: &title}
+	src := &callCountingSource{id: "fixture", fields: fields}
+	step, err := newScrape(scrapeCfg("fixture"), source.NewRegistry(src), 0,
+		WithOutputDir(func(num string, _ meta.Metadata) string { return filepath.Join(outDir, num) }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	st := scrapeState("ABC-123")
+	if err := step.Run(context.Background(), st); err != nil {
+		t.Fatalf("scrape step run: %v", err)
+	}
+
+	// External source should be called as fallback
+	if src.scrapes != 1 {
+		t.Errorf("src.scrapes = %d, want 1 when NFO is corrupt", src.scrapes)
+	}
+	if st.Scraped.Items[0].Metadata.Title != "External Title" {
+		t.Errorf("Title = %q, want %q", st.Scraped.Items[0].Metadata.Title, "External Title")
+	}
+}
+
+type callCountingSource struct {
+	id      string
+	fields  source.Fields
+	scrapes int
+	images  int
+}
+
+func (c *callCountingSource) ID() string           { return c.id }
+func (c *callCountingSource) Fields() []field.Name { return c.fields.Names() }
+func (c *callCountingSource) Scrape(_ context.Context, _ string) (source.Result, error) {
+	c.scrapes++
+	return source.Result{Found: true, Fields: c.fields}, nil
+}
+func (c *callCountingSource) FetchImage(_ context.Context, _ source.ImageRef) ([]byte, error) {
+	c.images++
+	return []byte("jpg"), nil
 }

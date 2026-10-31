@@ -313,6 +313,7 @@ type ScrapedItem struct {
 	Number   Number
 	Metadata meta.Metadata
 	Images   []ImageBlob
+	Reused   bool
 }
 
 // Scraped is what `scrape` produces.
@@ -348,6 +349,7 @@ type ImagesItem struct {
 	// contribution to the run's partial status (the crop failing does not fail the
 	// task, it only leaves the poster missing).
 	Partial bool
+	Reused  bool
 }
 
 // Images is what `images` produces.
