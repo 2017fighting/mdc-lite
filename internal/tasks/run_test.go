@@ -346,13 +346,14 @@ func TestFindMetadataJSON_ReturnsLatestSuccessfulMetadataByNumber(t *testing.T) 
 		t.Fatalf("FinishRun: %v", err)
 	}
 
-	// Case insensitive lookup
+	// The lookup is on the stored, normalized number: a differently-spelled one is a
+	// different string, and normalizing happens before a task is written.
 	raw, ok, err = e.st.FindMetadataJSON(e.ctx, "abc-123")
 	if err != nil {
 		t.Fatalf("FindMetadataJSON: %v", err)
 	}
-	if !ok || raw != metadata {
-		t.Errorf("got (%v, %q), want (true, %q)", ok, raw, metadata)
+	if ok || raw != "" {
+		t.Errorf("found metadata for a number that was never stored: %v, %q", ok, raw)
 	}
 
 	// Non-existent number

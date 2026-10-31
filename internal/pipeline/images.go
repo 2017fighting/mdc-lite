@@ -23,8 +23,9 @@ import (
 // imagesStep does the two things V1 asks of it: name the images for the output
 // directory, and cut a poster out of the fanart when no source supplied one.
 //
-// It downloads nothing and calls no source. The bytes are already in hand, because
-// `scrape` only marks an image field as contributed once FetchImage succeeded.
+// It downloads nothing and calls no source. The bytes are already in hand: `scrape`
+// marks an image field as contributed only once FetchImage succeeded — or, on a
+// reuse hit, because the directory already holds the file (`withLocalImages`).
 type imagesStep struct {
 	cfg config.ImagesWith
 }
@@ -69,7 +70,7 @@ func (s *imagesStep) Run(_ context.Context, st *State) error {
 			summary.Notes = append(summary.Notes, "从横版封套右侧裁切 poster.jpg (2:3)")
 		}
 
-		if !item.Reused {
+		if item.Reused == ReuseNone {
 			present := map[field.Name]bool{}
 			for _, f := range img.Files {
 				present[f.Role] = true
@@ -78,13 +79,14 @@ func (s *imagesStep) Run(_ context.Context, st *State) error {
 				if !present[f] {
 					// "The source gave a URL but the bytes never arrived" is a missing
 					// field, so forget the provenance too: Sources answers "who supplied
-					// it", and nobody did.
+					// it", and nobody did. A reused field is the exception: its bytes are
+					// the files already in the directory, which this step did not fetch
+					// and must not judge.
 					img.Metadata.Forget(f)
 					summary.Missing[string(f)]++
 				}
 			}
-		}
-		if item.Reused {
+		} else {
 			summary.Reused++
 		}
 		img.Missing = append([]field.Name(nil), img.Metadata.Missing...)
@@ -197,6 +199,28 @@ var imageFields = []field.Name{field.Poster, field.Fanart, field.Extrafanarts}
 // are written unchanged. Anything else (webp, svg, a sniffing failure) is named
 // `.jpg`, which is the whitelist rule of §8 — the bytes are not re-encoded.
 var imageExtensions = map[string]bool{"jpg": true, "jpeg": true, "png": true, "gif": true, "tbn": true}
+
+// imageFileExtensions is what the output directory may hold for one image, as
+// extensions with their dot. It is `imageExtensions` plus webp, which the engine
+// itself never writes (it names those `.jpg`) but a companion image may keep, and
+// it is the one list both the naming side and the reuse lookup ask.
+func imageFileExtensions() []string {
+	return []string{".jpg", ".jpeg", ".png", ".gif", ".tbn", ".webp"}
+}
+
+// isImageExt reports whether a path or file name's extension is one of them.
+func isImageExt(ext string) bool {
+	ext = strings.ToLower(ext)
+	if !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
+	for _, known := range imageFileExtensions() {
+		if ext == known {
+			return true
+		}
+	}
+	return false
+}
 
 // SniffImageFormat reads the magic bytes and names the format, or "" when the
 // bytes are not a format this build knows. Content-Type is not trusted: the site's

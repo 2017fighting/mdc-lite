@@ -452,7 +452,10 @@ func (s *Store) TaskFiles(ctx context.Context, taskID int64) ([]TaskFile, error)
 // FindMetadataJSON answers "what did an earlier task already find for this
 // number": the most recent `metadata_json` a task of that number finished with.
 // Only a run that reached the end counts — a failed or cancelled one may have
-// collected half a work, and reusing that would hide the retry.
+// collected half a work, and reusing that would hide the retry. `partial` does
+// count: it means the run finished with gaps, and whether those gaps matter is the
+// caller's question (reuse re-checks the output step's required fields), not this
+// one's.
 func (s *Store) FindMetadataJSON(ctx context.Context, number string) (string, bool, error) {
 	if strings.TrimSpace(number) == "" {
 		return "", false, nil
@@ -463,8 +466,10 @@ func (s *Store) FindMetadataJSON(ctx context.Context, number string) (string, bo
 	}
 	var raw string
 	err = db.QueryRowContext(ctx,
+		// `number` is stored normalized (the same rule the filename and a hand-typed
+		// number go through), so equality is the whole comparison.
 		`SELECT metadata_json FROM tasks
-		  WHERE upper(number) = upper(?) AND status IN (?, ?) AND metadata_json NOT IN ('', '{}')
+		  WHERE number = ? AND status IN (?, ?) AND metadata_json NOT IN ('', '{}')
 		  ORDER BY id DESC LIMIT 1`, number, string(StatusSucceeded), string(StatusPartial),
 	).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {

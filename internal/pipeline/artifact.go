@@ -313,7 +313,10 @@ type ScrapedItem struct {
 	Number   Number
 	Metadata meta.Metadata
 	Images   []ImageBlob
-	Reused   bool
+	// Reused says where the metadata came from instead of the network. It is what
+	// makes a run with zero source requests readable, and `ReuseNFO` additionally
+	// means the file on disk is the source, so it must not be rewritten.
+	Reused ReuseKind
 }
 
 // Scraped is what `scrape` produces.
@@ -349,7 +352,10 @@ type ImagesItem struct {
 	// contribution to the run's partial status (the crop failing does not fail the
 	// task, it only leaves the poster missing).
 	Partial bool
-	Reused  bool
+	// Reused carries the scrape step's reuse kind. `nfo` renders from this artifact
+	// when the pipeline has no `images` step, and a reused `movie.nfo` must still be
+	// left alone there.
+	Reused ReuseKind
 }
 
 // Images is what `images` produces.
@@ -365,6 +371,10 @@ type NfoItem struct {
 	Metadata meta.Metadata
 	Content  string
 	Warnings []string
+	// Reused is `ReuseNFO` when the directory already had a `movie.nfo` that this
+	// metadata was read from: `output` then leaves that file untouched, because
+	// re-rendering what was just parsed would rewrite a file the run did not improve.
+	Reused ReuseKind
 }
 
 // NfoDoc is what `nfo` produces: text, never a file. Writing belongs to `output`,

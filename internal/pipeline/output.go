@@ -33,11 +33,18 @@ func newOutput(w config.OutputWith, onError config.OnError) (Step, error) {
 	if err != nil {
 		return nil, err
 	}
-	required := make([]field.Name, 0, len(w.RequiredFields))
-	for _, f := range w.RequiredFields {
-		required = append(required, field.Name(f))
+	return &outputStep{cfg: w, onError: onError, required: requiredFields(w.RequiredFields), paths: paths}, nil
+}
+
+// requiredFields maps `output.with.required_fields` onto the field vocabulary. The
+// output step's gate and metadata reuse's gate are the same gate, so the mapping
+// happens once.
+func requiredFields(names []string) []field.Name {
+	out := make([]field.Name, 0, len(names))
+	for _, name := range names {
+		out = append(out, field.Name(name))
 	}
-	return &outputStep{cfg: w, onError: onError, required: required, paths: paths}, nil
+	return out
 }
 
 func (s *outputStep) Type() string { return config.StepOutput }
@@ -59,10 +66,10 @@ func (s *outputStep) Run(_ context.Context, st *State) error {
 			images[img.Group.Primary.Path] = img
 		}
 	}
-	nfo := map[string]string{}
+	nfo := map[string]NfoItem{}
 	if st.NfoDoc != nil {
 		for _, doc := range st.NfoDoc.Items {
-			nfo[doc.Group.Primary.Path] = doc.Content
+			nfo[doc.Group.Primary.Path] = doc
 		}
 	}
 
@@ -94,13 +101,17 @@ func (s *outputStep) Run(_ context.Context, st *State) error {
 			planned.Writes = append(planned.Writes, planImages(dir, img.Files)...)
 			summary.Images += len(img.Files)
 		}
-		if content, ok := nfo[key]; ok {
+		// A work whose metadata was read from its own `movie.nfo` keeps that file: the
+		// values came out of it through a lossy parse, so writing them back would
+		// rewrite a file this run cannot improve, and rewrite it with less than it
+		// holds.
+		if doc, ok := nfo[key]; ok && doc.Reused != ReuseNFO {
 			planned.Writes = append(planned.Writes, PlannedWrite{
 				Kind: WriteNfo,
 				Role: RoleNfo,
 				Mode: ModeBytes,
 				Dst:  filepath.Join(dir, "movie.nfo"),
-				Data: []byte(content),
+				Data: []byte(doc.Content),
 			})
 			summary.Nfo++
 		}
@@ -310,8 +321,7 @@ func versionOfPart(grp Group, part Part, flags VersionFlags) Part {
 // imageCompanion reports whether a companion is an image, i.e. one that keeps its
 // own name instead of following a video.
 func imageCompanion(ext string) bool {
-	ext = strings.ToLower(strings.TrimPrefix(ext, "."))
-	return imageExtensions[ext] || ext == "webp"
+	return isImageExt(ext)
 }
 
 // outputInput is the richest artifact `output` can find. `nfo` and `images` are
@@ -347,6 +357,7 @@ func stateItems(st *State, withParsed bool) []ImagesItem {
 				Metadata: item.Metadata,
 				Missing:  item.Metadata.Missing,
 				Partial:  item.Metadata.Partial,
+				Reused:   item.Reused,
 			})
 		}
 		return out

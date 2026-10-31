@@ -66,6 +66,7 @@ func (s *nfoStep) Run(_ context.Context, st *State) error {
 			Number:   item.Number,
 			Metadata: item.Metadata,
 			Content:  buf.String(),
+			Reused:   item.Reused,
 		})
 		summary.Rendered++
 	}
@@ -121,6 +122,12 @@ func resolveTemplate(sel, templatesDir string) (label, body string, err error) {
 	}
 }
 
+// publisherTagPrefix is where the publisher goes: neither server has a field for it,
+// so it rides in a `<tag>` and the prefix is the only thing telling it apart from the
+// work's own tags. `parseNFO` reads it back with this same string, which is why the
+// template is built from it rather than repeating the literal.
+const publisherTagPrefix = "发行: "
+
 // builtinNfoTemplate is the `default` template. Its mapping is fixed by spec §9:
 // title carries the number prefix, plot never becomes <outline>, releasedate is
 // written twice (premiered + releasedate, because the two servers disagree about
@@ -141,7 +148,7 @@ const builtinNfoTemplate = `<?xml version="1.0" encoding="UTF-8" standalone="yes
     <name>{{ series }}</name>
   </set>
 {% endif %}{% if studio %}  <studio>{{ studio }}</studio>
-{% endif %}{% if publisher %}  <tag>发行: {{ publisher }}</tag>
+{% endif %}{% if publisher %}  <tag>` + publisherTagPrefix + `{{ publisher }}</tag>
 {% endif %}{% for d in director %}  <director>{{ d }}</director>
 {% endfor %}{% for t in tags %}  <tag>{{ t }}</tag>
 {% endfor %}{% for a in actors %}  <actor>

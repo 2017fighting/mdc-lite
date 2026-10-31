@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/2017fighting/mdc-lite/internal/config"
+	"github.com/2017fighting/mdc-lite/internal/field"
 	"github.com/2017fighting/mdc-lite/internal/meta"
 	"github.com/2017fighting/mdc-lite/internal/source"
 )
@@ -78,10 +79,25 @@ type Options struct {
 	// number. A rerun sets it: a rerun is an operator saying "the stored answer is
 	// not what I want", which is the one case where reuse would be wrong.
 	Rescrape bool
-	// OutputDirResolver answers "where would this number's directory be", which is
-	// where metadata reuse looks. Build derives it from the output step; a caller
-	// may pass its own (a preview that stops before `output` has no output step).
-	OutputDirResolver func(number string, md meta.Metadata) string
+	// Reuse is what metadata reuse needs to ask the questions `output` answers.
+	// Build derives it from the output step; nil (a preview, a rescrape) means the
+	// sources are always asked.
+	Reuse *ReuseGate
+}
+
+// ReuseGate is the "may this number skip the network?" test, in the terms the
+// writing side already uses: where a work lives, and what it must supply.
+type ReuseGate struct {
+	// Dir answers "where would this number's directory be", rendering the same
+	// `dir_template` `output` writes through.
+	Dir func(number string, md meta.Metadata) string
+	// Required is `output.with.required_fields`. Skipping the network cannot leave
+	// the run unable to finish, so a work that cannot supply these is scraped.
+	Required []field.Name
+	// Images is whether this pipeline writes images at all. When it does, a reused
+	// image field has to be backed by a file the earlier run wrote; when it does not,
+	// no run would have written one, so the metadata is all there is to check.
+	Images bool
 }
 
 // StepOutcome is one step's result, as an observer sees it.
@@ -209,13 +225,8 @@ var constructors = map[string]func(config.Step, Options) (Step, error){
 			return nil, fmt.Errorf("the scrape settings were not decoded (was the pipeline loaded through config.LoadPipelineFile?)")
 		}
 		var scrapeOpts []ScrapeOption
-		if !opts.Rescrape {
-			if opts.OutputDirResolver != nil {
-				scrapeOpts = append(scrapeOpts, WithOutputDir(opts.OutputDirResolver))
-			}
-			if opts.Env.MetadataStore != nil {
-				scrapeOpts = append(scrapeOpts, WithMetadataStore(opts.Env.MetadataStore))
-			}
+		if opts.Reuse != nil {
+			scrapeOpts = append(scrapeOpts, WithReuse(*opts.Reuse))
 		}
 		return newScrape(*w, opts.Env.Sources, opts.Env.Images, scrapeOpts...)
 	},
@@ -262,21 +273,17 @@ func Build(p config.Pipeline, opts Options) (*Engine, error) {
 			return nil, fmt.Errorf("%s: starting at %q needs the artifacts of the steps before it", p.File, opts.From)
 		}
 	}
-	e := &Engine{pipeline: p, opts: opts, onError: make([]config.OnError, 0, stop-start+1), indexes: make([]int, 0, stop-start+1)}
-	// The output step owns the directory rule, so reuse reads it from there: one
-	// template, one answer. A template the resolver cannot compile is left to the
-	// output step's constructor, which refuses the build with the proper message.
-	if opts.OutputDirResolver == nil {
-		for _, st := range p.Steps {
-			if st.Type != config.StepOutput {
-				continue
-			}
-			if ow, ok := st.WithValue.(*config.OutputWith); ok && ow.Root != "" {
-				opts.OutputDirResolver = buildOutputDirResolver(ow.Root, ow.DirTemplate)
-			}
-			break
+	// The output step owns the directory rule and the required-fields gate, so reuse
+	// reads both from there: one rule, one answer, and a template error is this
+	// build's error.
+	if !opts.Rescrape && opts.Reuse == nil {
+		gate, err := reuseGate(p)
+		if err != nil {
+			return nil, err
 		}
+		opts.Reuse = gate
 	}
+	e := &Engine{pipeline: p, opts: opts, onError: make([]config.OnError, 0, stop-start+1), indexes: make([]int, 0, stop-start+1)}
 	available := map[string]bool{}
 	for i := 0; i <= stop; i++ {
 		st := p.Steps[i]

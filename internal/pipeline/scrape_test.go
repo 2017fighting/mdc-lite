@@ -734,6 +734,16 @@ func (m *mockMetadataStore) FindMetadataJSON(_ context.Context, number string) (
 	return v, ok, nil
 }
 
+// reuseGateFor is the gate Build derives from a pipeline: the default directory rule
+// under out, the default required fields, and whether images land at all.
+func reuseGateFor(out string, writesImages bool) ReuseGate {
+	return ReuseGate{
+		Dir:      func(num string, _ meta.Metadata) string { return filepath.Join(out, num) },
+		Required: requiredFields(config.OutputDefaults().RequiredFields),
+		Images:   writesImages,
+	}
+}
+
 func TestScrape_ReusesMetadataFromOutputDirNFO(t *testing.T) {
 	outDir := t.TempDir()
 	movieDir := filepath.Join(outDir, "ABC-123")
@@ -770,7 +780,7 @@ func TestScrape_ReusesMetadataFromOutputDirNFO(t *testing.T) {
 
 	src := &callCountingSource{id: "fixture"}
 	step, err := newScrape(scrapeCfg("fixture"), source.NewRegistry(src), 0,
-		WithOutputDir(func(num string, _ meta.Metadata) string { return filepath.Join(outDir, num) }),
+		WithReuse(reuseGateFor(outDir, true)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -793,8 +803,8 @@ func TestScrape_ReusesMetadataFromOutputDirNFO(t *testing.T) {
 		t.Fatalf("Scraped items = %v, want 1 item", st.Scraped)
 	}
 	item := st.Scraped.Items[0]
-	if !item.Reused {
-		t.Errorf("item.Reused = false, want true")
+	if item.Reused != ReuseNFO {
+		t.Errorf("item.Reused = %q, want %q", item.Reused, ReuseNFO)
 	}
 	if item.Metadata.Title != "Reused Title" {
 		t.Errorf("Title = %q, want %q", item.Metadata.Title, "Reused Title")
@@ -838,8 +848,8 @@ func TestScrape_ReusesMetadataFromMetadataStore(t *testing.T) {
 
 	src := &callCountingSource{id: "fixture"}
 	step, err := newScrape(scrapeCfg("fixture"), source.NewRegistry(src), 0,
-		WithOutputDir(func(num string, _ meta.Metadata) string { return filepath.Join(outDir, num) }),
 		WithMetadataStore(store),
+		WithReuse(reuseGateFor(outDir, true)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -861,8 +871,8 @@ func TestScrape_ReusesMetadataFromMetadataStore(t *testing.T) {
 		t.Fatalf("Scraped items = %v, want 1 item", st.Scraped)
 	}
 	item := st.Scraped.Items[0]
-	if !item.Reused {
-		t.Errorf("item.Reused = false, want true")
+	if item.Reused != ReuseRecord {
+		t.Errorf("item.Reused = %q, want %q", item.Reused, ReuseRecord)
 	}
 	if item.Metadata.Title != "Stored Title" {
 		t.Errorf("Title = %q, want %q", item.Metadata.Title, "Stored Title")
@@ -870,6 +880,68 @@ func TestScrape_ReusesMetadataFromMetadataStore(t *testing.T) {
 	if item.Metadata.Plot != "Stored Plot" {
 		t.Errorf("Plot = %q, want %q", item.Metadata.Plot, "Stored Plot")
 	}
+}
+
+// TestScrape_APipelineWithoutImagesReusesTheRecordButNotTheNFO pins the difference
+// between the two reuse sources, which only shows without an `images` step: an NFO
+// carries text fields only, so the image fields a required-fields gate may want have
+// to come from the record or from files. A pipeline that writes no images has no
+// files, so the record is the only source that can still answer for `fanart` — and
+// an NFO alone must not be trusted to, or `output` would fail right after reuse.
+func TestScrape_APipelineWithoutImagesReusesTheRecordButNotTheNFO(t *testing.T) {
+	nfoContent := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie><title>ABC-123 Reused Title</title><originaltitle>Reused Title</originaltitle></movie>`
+
+	t.Run("an NFO alone is not enough", func(t *testing.T) {
+		out := t.TempDir()
+		dir := filepath.Join(out, "ABC-123")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "movie.nfo"), []byte(nfoContent), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		title := "Scraped Title"
+		src := &callCountingSource{id: "fixture", fields: source.Fields{Title: &title}}
+		step, err := newScrape(scrapeCfg("fixture"), source.NewRegistry(src), 0,
+			WithReuse(reuseGateFor(out, false)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := step.Run(context.Background(), scrapeState("ABC-123")); err != nil {
+			t.Fatalf("scrape step run: %v", err)
+		}
+		if src.scrapes != 1 {
+			t.Errorf("src.scrapes = %d, want 1: an NFO cannot answer for a required image field", src.scrapes)
+		}
+	})
+
+	t.Run("the record can", func(t *testing.T) {
+		out := t.TempDir()
+		store := &mockMetadataStore{data: map[string]string{
+			"ABC-123": `{"title":"Stored Title","sources":{"title":"javbus","fanart":"javbus"}}`,
+		}}
+		src := &callCountingSource{id: "fixture"}
+		step, err := newScrape(scrapeCfg("fixture"), source.NewRegistry(src), 0,
+			WithMetadataStore(store), WithReuse(reuseGateFor(out, false)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		st := scrapeState("ABC-123")
+		if err := step.Run(context.Background(), st); err != nil {
+			t.Fatalf("scrape step run: %v", err)
+		}
+		if src.scrapes != 0 {
+			t.Errorf("src.scrapes = %d, want 0: the record carries the image field's provenance", src.scrapes)
+		}
+		item := st.Scraped.Items[0]
+		if item.Reused != ReuseRecord {
+			t.Errorf("item.Reused = %q, want %q", item.Reused, ReuseRecord)
+		}
+		if !item.Metadata.Has(field.Fanart) {
+			t.Error("the record's fanart claim must survive a pipeline that writes no images")
+		}
+	})
 }
 
 func TestScrape_CorruptNFOFallsBackToExternalSource(t *testing.T) {
@@ -887,7 +959,7 @@ func TestScrape_CorruptNFOFallsBackToExternalSource(t *testing.T) {
 	fields := source.Fields{Title: &title}
 	src := &callCountingSource{id: "fixture", fields: fields}
 	step, err := newScrape(scrapeCfg("fixture"), source.NewRegistry(src), 0,
-		WithOutputDir(func(num string, _ meta.Metadata) string { return filepath.Join(outDir, num) }),
+		WithReuse(reuseGateFor(outDir, true)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -923,4 +995,84 @@ func (c *callCountingSource) Scrape(_ context.Context, _ string) (source.Result,
 func (c *callCountingSource) FetchImage(_ context.Context, _ source.ImageRef) ([]byte, error) {
 	c.images++
 	return []byte("jpg"), nil
+}
+
+// TestScrape_RefusesReuseWhenARequiredFieldIsNotOnDisk is the gate: a directory
+// with a perfect `movie.nfo` but no fanart is not reusable, because the run would
+// otherwise write a work whose required field nothing will ever fetch. The sources
+// are asked instead — one scrape now beats a task that fails at `output`.
+func TestScrape_RefusesReuseWhenARequiredFieldIsNotOnDisk(t *testing.T) {
+	outDir := t.TempDir()
+	movieDir := filepath.Join(outDir, "ABC-123")
+	if err := os.MkdirAll(movieDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nfoContent := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie><title>ABC-123 Reused Title</title><originaltitle>Reused Title</originaltitle></movie>`
+	if err := os.WriteFile(filepath.Join(movieDir, "movie.nfo"), []byte(nfoContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// poster only: the default gate also wants fanart.
+	if err := os.WriteFile(filepath.Join(movieDir, "poster.jpg"), []byte("jpg"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	title := "Scraped Title"
+	fanart := "https://fixture/fanart.jpg"
+	src := &callCountingSource{id: "fixture", fields: source.Fields{Title: &title, Fanart: &source.ImageRef{Role: field.Fanart, URL: fanart}}}
+	step, err := newScrape(scrapeCfg("fixture"), source.NewRegistry(src), 0,
+		WithReuse(reuseGateFor(outDir, true)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	st := scrapeState("ABC-123")
+	if err := step.Run(context.Background(), st); err != nil {
+		t.Fatalf("scrape step run: %v", err)
+	}
+	if src.scrapes != 1 {
+		t.Errorf("src.scrapes = %d, want 1: a directory that cannot satisfy the gate must not be reused", src.scrapes)
+	}
+	item := st.Scraped.Items[0]
+	if item.Reused != ReuseNone {
+		t.Errorf("item.Reused = %q, want none", item.Reused)
+	}
+	if item.Metadata.Title != "Scraped Title" {
+		t.Errorf("Title = %q, want the scraped one", item.Metadata.Title)
+	}
+}
+
+// TestScrape_AnEmptyPosterIsNotACover keeps the gate honest about what a file is: a
+// zero-byte image is a failed download, not a cover, so the directory is not
+// reusable and the sources are asked again.
+func TestScrape_AnEmptyPosterIsNotACover(t *testing.T) {
+	outDir := t.TempDir()
+	movieDir := filepath.Join(outDir, "ABC-123")
+	if err := os.MkdirAll(movieDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nfoContent := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<movie><title>ABC-123 Reused Title</title><originaltitle>Reused Title</originaltitle></movie>`
+	if err := os.WriteFile(filepath.Join(movieDir, "movie.nfo"), []byte(nfoContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(movieDir, "fanart.jpg"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	title := "Scraped Title"
+	src := &callCountingSource{id: "fixture", fields: source.Fields{Title: &title}}
+	step, err := newScrape(scrapeCfg("fixture"), source.NewRegistry(src), 0,
+		WithReuse(reuseGateFor(outDir, true)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := step.Run(context.Background(), scrapeState("ABC-123")); err != nil {
+		t.Fatalf("scrape step run: %v", err)
+	}
+	if src.scrapes != 1 {
+		t.Errorf("src.scrapes = %d, want 1: an empty fanart.jpg is not a fanart", src.scrapes)
+	}
 }

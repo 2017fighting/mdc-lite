@@ -38,15 +38,25 @@ type pathRenderer struct {
 // newPathRenderer compiles both templates up front, so a template syntax error is
 // a build-time refusal rather than a surprise while writing a task's output.
 func newPathRenderer(dirTemplate, fileTemplate string) (*pathRenderer, error) {
-	r := &pathRenderer{}
-	var err error
-	if r.dirSegments, err = compileSegments(dirTemplate); err != nil {
-		return nil, fmt.Errorf("dir_template: %w", err)
+	r, err := newDirRenderer(dirTemplate)
+	if err != nil {
+		return nil, err
 	}
 	if r.fileSegments, err = compileSegments(fileTemplate); err != nil {
 		return nil, fmt.Errorf("file_template: %w", err)
 	}
 	return r, nil
+}
+
+// newDirRenderer compiles only the directory template. Metadata reuse asks the same
+// question `output` answers — "where does this work live" — and must not answer it
+// a second way, so it renders through this instead of its own copy of the rule.
+func newDirRenderer(dirTemplate string) (*pathRenderer, error) {
+	segments, err := compileSegments(dirTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("dir_template: %w", err)
+	}
+	return &pathRenderer{dirSegments: segments}, nil
 }
 
 // RenderDir renders the directory template into a relative path whose segments are

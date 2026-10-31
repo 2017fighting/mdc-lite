@@ -887,22 +887,45 @@ func TestRunner_NewVersionReusesMetadataFromPriorTask(t *testing.T) {
 	}
 
 	if got := e.src.scrapes.Load(); got != 0 {
-		t.Errorf("task 2 src.scrapes = %d, want 0 (metadata reuse skipped external spider)", got)
+		t.Errorf("task 2 src.scrapes = %d, want 0: reuse must ask no source", got)
 	}
 	if got := e.src.imageFetches.Load(); got != 0 {
-		t.Errorf("task 2 src.imageFetches = %d, want 0", got)
+		t.Errorf("task 2 src.imageFetches = %d, want 0: reuse must download no image", got)
 	}
 
-	// Step runs of task 2: scrape should have 0 source_runs
+	// The trace of the second task: every step ran, and `scrape` recorded no source
+	// run at all — "zero requests" is a claim about the ledger, not just the counter.
 	runs, err := e.store.Runs(e.ctx, task2ID)
 	if err != nil || len(runs) != 1 {
 		t.Fatalf("runs: %v", err)
 	}
-	srcRuns, err := e.store.SourceRunsOfSteps(e.ctx, nil)
+	steps, err := e.store.Steps(e.ctx, tasks.Owner{TaskRunID: runs[0].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stepIDs []int64
+	var reused int
+	for _, step := range steps {
+		stepIDs = append(stepIDs, step.ID)
+		if step.Type == config.StepScrape {
+			var summary ScrapeSummary
+			if err := json.Unmarshal([]byte(step.SummaryJSON), &summary); err != nil {
+				t.Fatalf("scrape summary %q: %v", step.SummaryJSON, err)
+			}
+			reused = summary.Reused
+		}
+	}
+	if len(stepIDs) == 0 {
+		t.Fatal("the second task recorded no steps")
+	}
+	srcRuns, err := e.store.SourceRunsOfSteps(e.ctx, stepIDs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(srcRuns) != 0 {
-		t.Errorf("task 2 recorded %v source_runs, want 0 when reusing metadata", srcRuns)
+		t.Errorf("task 2 recorded source runs %v, want none when reusing metadata", srcRuns)
+	}
+	if reused != 1 {
+		t.Errorf("task 2's scrape summary says %d reused numbers, want 1", reused)
 	}
 }

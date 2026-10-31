@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/2017fighting/mdc-lite/internal/config"
 	"github.com/2017fighting/mdc-lite/internal/field"
@@ -151,9 +152,16 @@ func chainConfig(t *testing.T, root, extra string) config.Pipeline {
 // task run does — minus the database.
 func runChain(t *testing.T, media, out string, opts Options, extra string) (*Result, *Manifest) {
 	t.Helper()
+	return runChainBody(t, chainConfig(t, out, extra), media, opts)
+}
+
+// runChainBody is runChain over a pipeline the caller built, which is how a test
+// reaches the shapes a pipeline may legitimately have (`images` is optional).
+func runChainBody(t *testing.T, p config.Pipeline, media string, opts Options) (*Result, *Manifest) {
+	t.Helper()
 	opts.Input = Input{Roots: []string{media}}
 	opts.Env = Environment{Sources: source.NewRegistry(opts.Env.Sources["fixture"])}
-	engine, err := Build(chainConfig(t, out, extra), opts)
+	engine, err := Build(p, opts)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -738,6 +746,7 @@ func TestChain_SubsequentVersionReusesMetadataAndHardlinks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first run should write movie.nfo: %v", err)
 	}
+	nfoMtime := modTimeOf(t, nfoPath)
 	video1Path := filepath.Join(dir, "ABC-123.mp4")
 	if _, err := os.Stat(video1Path); err != nil {
 		t.Fatalf("first run should link ABC-123.mp4: %v", err)
@@ -756,7 +765,7 @@ func TestChain_SubsequentVersionReusesMetadataAndHardlinks(t *testing.T) {
 	src.scrapes.Store(0)
 	src.imageFetches.Store(0)
 
-	_, secondManifest := runChain(t, media2, out, Options{Env: Environment{Sources: source.NewRegistry(src)}}, "")
+	res, secondManifest := runChain(t, media2, out, Options{Env: Environment{Sources: source.NewRegistry(src)}}, "")
 
 	// Acceptance criterion: 外部源在复用命中时零网络请求
 	if got := src.scrapes.Load(); got != 0 {
@@ -781,19 +790,42 @@ func TestChain_SubsequentVersionReusesMetadataAndHardlinks(t *testing.T) {
 	}
 
 	// Acceptance criterion: 本地目标目录存在有效 movie.nfo 时，任务识别并复用已存在的元数据
-	// movie.nfo should be preserved
+	// The file the values were read from is left alone: rewriting it from a lossy
+	// parse would be the one way this run could make the directory worse.
 	nfoAfter, err := os.ReadFile(nfoPath)
 	if err != nil {
 		t.Fatalf("movie.nfo must still exist: %v", err)
 	}
-	if string(nfoBefore) != string(nfoAfter) {
-		t.Errorf("movie.nfo was modified:\nbefore:\n%s\nafter:\n%s", string(nfoBefore), string(nfoAfter))
+	if !bytes.Equal(nfoBefore, nfoAfter) {
+		t.Errorf("movie.nfo was rewritten:\nbefore:\n%s\nafter:\n%s", nfoBefore, nfoAfter)
 	}
-
-	// In the manifest, movie.nfo should be skipped
+	if now := modTimeOf(t, nfoPath); !now.Equal(nfoMtime) {
+		t.Errorf("movie.nfo was touched: mtime %v → %v", nfoMtime, now)
+	}
+	// …and the run's own ledger says nothing about it, because it wrote nothing.
 	for _, row := range secondManifest.Rows {
-		if row.Dst == nfoPath && row.Action != ActionSkipped {
-			t.Errorf("movie.nfo write action = %q, want %q", row.Action, ActionSkipped)
+		if row.Dst == nfoPath {
+			t.Errorf("the reused run recorded %q for movie.nfo, want no row at all", row.Action)
 		}
 	}
+
+	// The step trace says the metadata was reused, not fetched: zero source
+	// requests is the point, and "why is scrape empty" has to be answerable.
+	if got := res.State.ScrapeRun.Reused; got != 1 {
+		t.Errorf("scrape summary reused = %d, want 1", got)
+	}
+	if got := res.State.ScrapeRun.Attempts; len(got) != 0 {
+		t.Errorf("scrape summary has %d attempts, want none", len(got))
+	}
+}
+
+// modTimeOf is the file's mtime, which is how "this run did not touch it" is
+// measured: content equality alone would also pass after an identical rewrite.
+func modTimeOf(t *testing.T, path string) time.Time {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.ModTime()
 }

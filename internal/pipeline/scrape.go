@@ -48,7 +48,9 @@ type scrapeStep struct {
 	// this build actually has, in the order the configuration asks for them.
 	plans []fieldPlan
 
-	outputDir     func(number string, md meta.Metadata) string
+	// gate is what metadata reuse needs, or the zero value when this step always
+	// asks the sources.
+	gate          ReuseGate
 	metadataStore MetadataStore
 }
 
@@ -150,7 +152,7 @@ func (s *scrapeStep) Run(ctx context.Context, st *State) error {
 		for _, f := range scraped.Metadata.Missing {
 			summary.Missing[string(f)]++
 		}
-		if scraped.Reused {
+		if scraped.Reused != ReuseNone {
 			summary.Reused++
 		}
 		summary.Images += len(scraped.Images)
@@ -175,8 +177,8 @@ type scrapedAnswer struct {
 // scrapeOne runs one number through the field-level fallback.
 func (s *scrapeStep) scrapeOne(ctx context.Context, work ParsedWork) (ScrapedItem, []SourceAttempt, error) {
 	number := work.Number.Normalized
-	if md, ok := s.tryReuse(ctx, work); ok {
-		return ScrapedItem{Group: work.Group, Number: work.Number, Metadata: md, Reused: true}, nil, nil
+	if md, kind, ok := s.tryReuse(ctx, work); ok {
+		return ScrapedItem{Group: work.Group, Number: work.Number, Metadata: md, Reused: kind}, nil, nil
 	}
 
 	if s.cfg.Timeout > 0 {
