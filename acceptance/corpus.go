@@ -54,6 +54,13 @@ const (
 	// RootSources holds one directory per source answer the run has to classify: the
 	// site's own not-found markers and the six reason codes.
 	RootSources CorpusRoot = "sources-in"
+	// RootHeterogeneous is the release whose parts are named two ways in two
+	// directories — a padded serial and a hyphenated one. One work, one release.
+	// It is the #33 shape and it also lands, because its number is a captured one.
+	RootHeterogeneous CorpusRoot = "heterogeneous-in"
+	// RootVersions holds the versions of one number that arrive in one batch:
+	// the original, the chinese copy and the leaked copy.
+	RootVersions CorpusRoot = "versions-in"
 	// RootExdev is the release whose output root sits on the environment's second
 	// filesystem, so a hardlink really is EXDEV.
 	RootExdev CorpusRoot = "exdev-in"
@@ -123,20 +130,14 @@ var corpus = []CorpusFile{
 		Note: "a neighbour pair: ABP-647 must not absorb ABP-648"},
 	{Root: RootCounterexamples, Dir: abpDir, Name: "ABP-648.mp4",
 		Note: "the other neighbour, with no marker to justify merging"},
-	{Root: RootCounterexamples, Dir: "ABC-123", Name: "ABC-123.mp4",
-		Note: "a duplicate stem, first copy"},
-	{Root: RootCounterexamples, Dir: "ABC-123", Name: "ABC-123-U.mp4",
-		Note: "the leaked copy of the same stem: duplicate_stem, not a merge"},
 	{Root: RootCounterexamples, Dir: "SSVR-122-parts", Name: "SSVR-122-cd1.mp4",
-		Note: "two discs whose stems differ by one digit, both explicitly marked"},
+		Note: "marked as a part, but its number is its own: SSVR-122"},
 	{Root: RootCounterexamples, Dir: "SSVR-122-parts", Name: "SSVR-123-cd2.mp4",
-		Note: "…and the second one, which must merge anyway"},
-	{Root: RootCounterexamples, Dir: "ABC-456", Name: "ABC-123-cd1.mp4",
-		Note: "explicitly marked but three digits away from its sibling"},
-	{Root: RootCounterexamples, Dir: "ABC-456", Name: "ABC-456-cd2.mp4",
-		Note: "…the sibling it must not merge with, only warn about"},
+		Note: "one digit away and marked too; since ADR-0019 a number, not a sibling, so it must stay a release of its own"},
 	{Root: RootCounterexamples, Dir: "ABC-124", Name: "ABC-124-1.mp4",
 		Note: "a lone trailing digit is not a part marker: one file, one task"},
+	{Root: RootCounterexamples, Dir: "no-number", Name: "hello.mp4",
+		Note: "no rule can read a number off this name: one file waiting for a human, which is what the interface arm fills"},
 
 	// --- the narrowed pipeline ----------------------------------------------------
 	// IPX-535 is a captured javbus page and nothing else: title and cover arrive,
@@ -167,6 +168,28 @@ var corpus = []CorpusFile{
 		Note: "the site answered 200 with something the parser cannot read: reason `parse`"},
 	{Root: RootSources, Dir: "FAIL-902", Name: "FAIL-902.mp4",
 		Note: "the connection died before an answer: reason `egress_unavailable`"},
+
+	// --- a work whose parts are named two ways ------------------------------------
+	// #33's shape with a captured number, so the arm can assert the landing too: the
+	// padded serial and the hyphenated one are one number, the parts are in two
+	// directories, and the release is one directory of `{number}-cd{part}` files.
+	{Root: RootHeterogeneous, Dir: "CAWD-279-parts", Name: "cawd00279.part1_8K.mp4",
+		Note: "a padded serial with a part marker: a spelling of CAWD-279, not another work"},
+	{Root: RootHeterogeneous, Dir: "CAWD-279-parts", Name: "cawd00279.part2_8K.mp4",
+		Note: "the same spelling's second disc"},
+	{Root: RootHeterogeneous, Dir: "CAWD-279-cd3", Name: "CAWD-279.part3_8K.mp4",
+		Note: "the third disc, written the hyphenated way in another directory: still part of the same work"},
+
+	// --- the versions of one number, in one batch ---------------------------------
+	// `MIDA-557-C` already landed in the main batch; these are what a library looks
+	// like when the other two copies of the same work arrive afterwards. One task,
+	// three videos, and the metadata the first batch wrote is reused on disk.
+	{Root: RootVersions, Dir: "MIDA-557", Name: "MIDA-557.mp4",
+		Note: "the original, next to the chinese copy the main batch already wrote"},
+	{Root: RootVersions, Dir: "MIDA-557", Name: "MIDA-557-C.mp4",
+		Note: "the chinese copy: `-C` is a flag, and the library's name says 中文"},
+	{Root: RootVersions, Dir: "MIDA-557", Name: "MIDA-557-UC.mp4",
+		Note: "the leaked copy: one work with both flags, named `-中文-破解`"},
 
 	// --- the other filesystem ------------------------------------------------------
 	// The same captured release as the main chain, in its own directory: the output

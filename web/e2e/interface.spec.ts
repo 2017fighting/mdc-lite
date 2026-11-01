@@ -24,9 +24,7 @@ const NUMBER = required('MDC_E2E_NUMBER')
 const TASK_ID = required('MDC_E2E_TASK_ID')
 const CORPUS_DIR = required('MDC_E2E_CORPUS_DIR')
 const WAITING_FILE = required('MDC_E2E_WAITING_FILE')
-const WAITING_SECOND = required('MDC_E2E_WAITING_SECOND_FILE')
 const WAITING_PATH = required('MDC_E2E_WAITING_PATH')
-const WAITING_SECOND_PATH = required('MDC_E2E_WAITING_SECOND_PATH')
 const WAITING_NUMBER = required('MDC_E2E_WAITING_NUMBER')
 
 // Serial: the needs-number test changes the state the list tests read, and the view
@@ -85,17 +83,13 @@ test('the needs-number panel fills a number and the task leaves the queue', asyn
   await expect(panel).toBeVisible()
 
   // Each row is keyed by its path in the DOM, which is the only stable handle: the
-  // labels are the file names, and a duplicate stem's two files differ exactly there.
-  const first = panel.locator(`div[data-path="${WAITING_PATH}"]`)
-  const second = panel.locator(`div[data-path="${WAITING_SECOND_PATH}"]`)
-  await expect(first).toContainText(WAITING_FILE)
-  await expect(second).toContainText(WAITING_SECOND)
+  // labels are the file names. Since ADR-0019 an unnumbered file is a task of its
+  // own, so the panel has exactly one row and one number to type — no conflict to
+  // arbitrate, no second part to tick.
+  const row = panel.locator(`div[data-path="${WAITING_PATH}"]`)
+  await expect(row).toContainText(WAITING_FILE)
 
-  await first.getByRole('textbox').fill(WAITING_NUMBER)
-  await second.getByRole('textbox').fill(WAITING_NUMBER)
-  // The second file is the same work's second part: that checkbox is what makes the
-  // submission one release instead of a conflict.
-  await second.getByRole('checkbox').check()
+  await row.getByRole('textbox').fill(WAITING_NUMBER)
 
   const submit = panel.getByRole('button', { name: '提交并重跑' })
   await expect(submit).toBeEnabled()

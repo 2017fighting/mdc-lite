@@ -12,9 +12,12 @@
 #             full-width characters are the point. The file names inside them are the
 #             corpus's own (see acceptance/corpus.go) — what this ledger records is
 #             where each directory name came from.
-#   boundary  written by hand for one rule's counterexample (the spec's own cases:
-#             neighbours that must not merge, a duplicate stem, a conditional part
-#             marker, two discs of one number). Not from the library, and it says so.
+#   boundary  written by hand to exercise one rule of the product, either side of
+#             it: the spec's own counterexamples (neighbours that must not merge,
+#             a conditional part marker, two marked numbers staying two works, a
+#             name with no number) and its must-merge positives (one work spelled
+#             two ways in two directories, the versions of one number). Not from
+#             the library, and it says so.
 #   synthetic written by hand for one scenario of the environment itself: a source
 #             answer the run has to classify (the six reason codes, the two
 #             not-found markers), an output root on the second filesystem, a write
@@ -28,8 +31,10 @@ MIDV-804.2025.1080p.DMM.WEB-DL.AAC2.0.HFR.H.264-MTeam	library
 ABP-647 绝对的铁板濑名光莉[高清中文字幕]	library
 SSIS-001	boundary
 SSVR-122-parts	boundary
-ABC-123	boundary
-ABC-456	boundary
+CAWD-279-parts	boundary
+CAWD-279-cd3	boundary
+MIDA-557	boundary
+no-number	boundary
 ABC-124	boundary
 IPX-535	synthetic
 ZZZZ-9999	synthetic

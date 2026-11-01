@@ -567,12 +567,87 @@ func minimalFixture(t *testing.T, files ...string) (media string, src *fakeSourc
 	for _, name := range files {
 		writeFile(t, filepath.Join(media, name), 200)
 	}
-	src = newFakeSource()
+	return media, minimalSource(t)
+}
+
+// minimalSource is minimalFixture's source on its own, for the tests that lay their
+// files out in more than one directory.
+func minimalSource(t *testing.T) *fakeSource {
+	t.Helper()
+	src := newFakeSource()
 	title := "Title"
 	src.fields.Title = &title
 	src.fields.Fanart = &source.ImageRef{Role: field.Fanart, URL: "https://fixture/fanart.jpg"}
 	src.images["https://fixture/fanart.jpg"] = jpegImage(t, 160, 90)
-	return media, src
+	return src
+}
+
+// TestChain_HeterogeneousPartsLandAsOneRelease is issue #33 through the whole chain:
+// `hnvr00152.part1_8K.mp4` and `hnvr00152.part2_8K.mp4` in one directory and
+// `HNVR-152.part3_8K.mp4` in another are one work — a padded serial is a spelling,
+// not an identity — and the library gets one directory whose three videos are
+// `HNVR-152-cd1..3`, hard links to the three source files. Splitting this work into
+// two tasks is the failure the issue was filed about.
+func TestChain_HeterogeneousPartsLandAsOneRelease(t *testing.T) {
+	media, src := t.TempDir(), minimalSource(t)
+	a, b := filepath.Join(media, "a"), filepath.Join(media, "b")
+	for _, name := range []string{"hnvr00152.part1_8K.mp4", "hnvr00152.part2_8K.mp4"} {
+		writeFile(t, filepath.Join(a, name), 200)
+	}
+	writeFile(t, filepath.Join(b, "HNVR-152.part3_8K.mp4"), 200)
+
+	out := t.TempDir()
+	// The engine first and the plan second: the grouping is what this test is about, so
+	// a broken fold has to fail as "two groups", not as two groups colliding later in
+	// the output directory.
+	engine, err := Build(chainConfig(t, out, ""), Options{
+		Input: Input{Roots: []string{media}},
+		Env:   Environment{Sources: source.NewRegistry(src)},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	res, err := engine.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := len(res.State.Groups.Groups); got != 1 {
+		t.Fatalf("groups = %d (%v), want the three parts in one work", got, groupNumbers(res.State.Groups.Groups))
+	}
+	if _, err := Apply(context.Background(), res.State.Plan); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	// One work, one release: the number is the primary's reading of it, and the
+	// primary is part 1 even though two spellings claim the same serial.
+	if len(res.State.Plan.Items) != 1 {
+		t.Fatalf("plan items = %d, want the three parts in one release", len(res.State.Plan.Items))
+	}
+	item := res.State.Plan.Items[0]
+	if got := item.Number.Normalized; got != "HNVR-152" {
+		t.Errorf("number = %q, want HNVR-152", got)
+	}
+	if got := filepath.Base(item.Group.Primary.Path); got != "hnvr00152.part1_8K.mp4" {
+		t.Errorf("primary = %s, want part 1", got)
+	}
+
+	dir := filepath.Join(out, "HNVR-152")
+	for _, pair := range [][2]string{
+		{filepath.Join(a, "hnvr00152.part1_8K.mp4"), "HNVR-152-cd1.mp4"},
+		{filepath.Join(a, "hnvr00152.part2_8K.mp4"), "HNVR-152-cd2.mp4"},
+		{filepath.Join(b, "HNVR-152.part3_8K.mp4"), "HNVR-152-cd3.mp4"},
+	} {
+		wantLink(t, pair[0], filepath.Join(dir, pair[1]))
+	}
+	// One release, one NFO beside the parts — not one per source directory.
+	if _, err := os.Stat(filepath.Join(dir, "movie.nfo")); err != nil {
+		t.Errorf("movie.nfo: %v", err)
+	}
+	// The library's copy lives under the output root only: neither source directory
+	// grew an output name beside the file that was linked.
+	if _, err := os.Stat(filepath.Join(b, "HNVR-152-cd3.mp4")); !os.IsNotExist(err) {
+		t.Errorf("a renamed copy appeared in the source directory (%v)", err)
+	}
 }
 
 // TestChain_VersionsOfOneNumberShareOneDirectory is ticket #38 through the whole
@@ -819,6 +894,94 @@ func TestChain_SubsequentVersionReusesMetadataAndHardlinks(t *testing.T) {
 	}
 }
 
+// TestChain_EachIncrementalVersionLandsBesideTheFirst is "multi-version across
+// batches" through the whole chain: the work was scraped once, and every later
+// batch that brings another version of the same number hard links it under the
+// rule's own name, reusing the metadata that is already in the directory. Zero
+// external requests is the contract (issue #39); the three names side by side is
+// this ticket's.
+func TestChain_EachIncrementalVersionLandsBesideTheFirst(t *testing.T) {
+	src := minimalSource(t)
+	media := func(files ...string) string {
+		dir := t.TempDir()
+		for _, name := range files {
+			writeFile(t, filepath.Join(dir, name), 200)
+		}
+		return dir
+	}
+
+	first := media("ABC-123.mp4")
+	out := t.TempDir()
+	runChain(t, first, out, Options{Env: Environment{Sources: source.NewRegistry(src)}}, "")
+
+	dir := filepath.Join(out, "ABC-123")
+	nfoPath := filepath.Join(dir, "movie.nfo")
+	nfoMtime := modTimeOf(t, nfoPath)
+	if got := src.scrapes.Load(); got != 1 {
+		t.Fatalf("the first batch scraped %d times, want 1", got)
+	}
+	if got := src.imageFetches.Load(); got != 1 {
+		t.Fatalf("the first batch fetched %d images, want 1", got)
+	}
+
+	// The second batch: the chinese copy arrives after the work was scraped. The same
+	// source object sits in the registry, so its counters are the assertion that the
+	// later batches asked nobody.
+	second := media("ABC-123-C.mp4")
+	res, _ := runChain(t, second, out, Options{Env: Environment{Sources: source.NewRegistry(src)}}, "")
+	if got := src.scrapes.Load(); got != 1 {
+		t.Errorf("the -C batch scraped %d times in total, want the first batch's one", got)
+	}
+	if got := src.imageFetches.Load(); got != 1 {
+		t.Errorf("the -C batch fetched an image: %d in total, want the first batch's one", got)
+	}
+	if got := res.State.ScrapeRun.Reused; got != 1 {
+		t.Errorf("scrape summary reused = %d, want 1", got)
+	}
+	wantLink(t, filepath.Join(second, "ABC-123-C.mp4"), filepath.Join(dir, "ABC-123-中文.mp4"))
+
+	// The third batch: the leaked copy, again with no request and no rewrite of what
+	// is already there.
+	third := media("ABC-123-UC.mp4")
+	res, _ = runChain(t, third, out, Options{Env: Environment{Sources: source.NewRegistry(src)}}, "")
+	if got := src.scrapes.Load(); got != 1 {
+		t.Errorf("the -UC batch scraped %d times in total, want the first batch's one", got)
+	}
+	if got := src.imageFetches.Load(); got != 1 {
+		t.Errorf("the -UC batch fetched an image: %d in total, want the first batch's one", got)
+	}
+	if got := res.State.ScrapeRun.Reused; got != 1 {
+		t.Errorf("scrape summary reused = %d, want 1", got)
+	}
+	wantLink(t, filepath.Join(third, "ABC-123-UC.mp4"), filepath.Join(dir, "ABC-123-中文-破解.mp4"))
+
+	// The rule's whole shape: one directory, one NFO, three versions. The first
+	// batch's video is still the same file, and the NFO it was described by was not
+	// rewritten from a lossy parse.
+	wantLink(t, filepath.Join(first, "ABC-123.mp4"), filepath.Join(dir, "ABC-123.mp4"))
+	if now := modTimeOf(t, nfoPath); !now.Equal(nfoMtime) {
+		t.Errorf("movie.nfo was touched by a later batch: mtime %v → %v", nfoMtime, now)
+	}
+}
+
+// wantLink asserts that an output name is a hard link to the file it came from, which
+// is what "the video landed" means for the default `link: hardlink`.
+func wantLink(t *testing.T, from, to string) {
+	t.Helper()
+	src, err := os.Stat(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst, err := os.Stat(to)
+	if err != nil {
+		t.Errorf("%s: %v", to, err)
+		return
+	}
+	if !os.SameFile(src, dst) {
+		t.Errorf("%s is not a hard link to %s", filepath.Base(to), filepath.Base(from))
+	}
+}
+
 // modTimeOf is the file's mtime, which is how "this run did not touch it" is
 // measured: content equality alone would also pass after an identical rewrite.
 func modTimeOf(t *testing.T, path string) time.Time {
@@ -828,4 +991,14 @@ func modTimeOf(t *testing.T, path string) time.Time {
 		t.Fatal(err)
 	}
 	return info.ModTime()
+}
+
+// groupNumbers is a group list's numbers, for a failure message that says what the
+// fold did without printing every part.
+func groupNumbers(groups []Group) []string {
+	out := make([]string, len(groups))
+	for i, g := range groups {
+		out[i] = g.Number.Normalized
+	}
+	return out
 }

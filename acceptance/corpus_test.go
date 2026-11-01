@@ -1,6 +1,7 @@
 package acceptance
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -35,7 +36,7 @@ func TestEveryCorpusDirectoryIsAccountedFor(t *testing.T) {
 // server is asked about.
 func TestTheCorpusUsesEveryRootAndOnlyThose(t *testing.T) {
 	all := []CorpusRoot{
-		RootLibrary, RootCounterexamples, RootSuccess, RootSources, RootExdev, RootSlow,
+		RootLibrary, RootCounterexamples, RootHeterogeneous, RootVersions, RootSuccess, RootSources, RootExdev, RootSlow,
 	}
 	known := map[CorpusRoot]bool{}
 	for _, root := range all {
@@ -122,5 +123,73 @@ func TestTheLedgerHasNoNamesNothingMaterialises(t *testing.T) {
 		if !used[name] {
 			t.Errorf("corpus/names.tsv records %q, which no corpus file uses (the ledger is not a sample gallery)", name)
 		}
+	}
+}
+
+// The heterogeneous merge is #33's case, and what makes it that case is the parts
+// being in *two* directories under two spellings of one number: `cawd00279` and
+// `CAWD-279`. A one-directory version of it would be the old
+// same-directory-stem heuristic, which is not the rule that has to hold.
+func TestTheHeterogeneousCaseIsOneNumberInTwoDirectories(t *testing.T) {
+	dirs := map[string][]string{}
+	for _, file := range corpus {
+		if file.Root != RootHeterogeneous {
+			continue
+		}
+		dirs[file.Dir] = append(dirs[file.Dir], file.Name)
+	}
+	if len(dirs) != 2 {
+		t.Fatalf("the heterogeneous case lives in %v, want two directories of one work", dirs)
+	}
+	parts := 0
+	for _, names := range dirs {
+		parts += len(names)
+	}
+	if parts != 3 {
+		t.Errorf("the heterogeneous case holds %d parts, want three", parts)
+	}
+	var spellings []string
+	for _, file := range corpus {
+		if file.Root == RootHeterogeneous {
+			spellings = append(spellings, file.Name)
+		}
+	}
+	// One padded spelling and one hyphenated one, or the merge would be trivial.
+	joined := strings.Join(spellings, " ")
+	if !strings.Contains(joined, "cawd00279") || !strings.Contains(joined, "CAWD-279") {
+		t.Errorf("the heterogeneous case's names are %v, want both the padded and the hyphenated spelling", spellings)
+	}
+}
+
+// The versions case is the must-merge positive of ADR-0019: one directory, one
+// number, the original beside the chinese and the leaked copy.
+func TestTheVersionsCaseIsOneNumberWithAllThreeVersions(t *testing.T) {
+	var names []string
+	for _, file := range corpus {
+		if file.Root == RootVersions {
+			names = append(names, file.Name)
+		}
+	}
+	want := []string{"MIDA-557.mp4", "MIDA-557-C.mp4", "MIDA-557-UC.mp4"}
+	if strings.Join(names, " ") != strings.Join(want, " ") {
+		t.Fatalf("the versions case holds %v, want %v", names, want)
+	}
+}
+
+// The interface arm fills one needs-number task, and since ADR-0019 an unnumbered
+// file is a task of its own. Exactly one corpus file may have no number, or the arm
+// would have to choose which one it meant.
+func TestExactlyOneCorpusFileHasNoNumber(t *testing.T) {
+	var unnumbered []string
+	for _, file := range corpus {
+		if file.Root != RootCounterexamples {
+			continue
+		}
+		if !strings.ContainsAny(strings.TrimSuffix(file.Name, filepath.Ext(file.Name)), "0123456789") {
+			unnumbered = append(unnumbered, file.Name)
+		}
+	}
+	if strings.Join(unnumbered, " ") != "hello.mp4" {
+		t.Errorf("the counterexample root's unnumbered files = %v, want exactly hello.mp4", unnumbered)
 	}
 }

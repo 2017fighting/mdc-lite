@@ -44,10 +44,12 @@ a failure.
 | ③ | a hardlink from the corpus filesystem to the **environment's own tmpfs** (two real mount points, two device ids) fails the task with the message that names `copy|move` — and the failed write leaves no product behind |
 | ④ | a rerun of an unchanged release **skips every write and keeps every mtime**; a rerun that gets one still fewer **deletes exactly that still** from the previous run's ledger, and the deletion is on the record; a copy **killed mid-write** leaves no file under the product's name, and the process's own crash recovery finishes it on restart — no `.tmp` left behind |
 | ⑤ | the multi-disc basenames are `{number}-cd{part}`, and no bare `{number}.mp4` was written beside them |
-| ⑥ | the grouping counterexamples stay counterexamples: `ABP-647`/`ABP-648` do not merge, `SSVR-122-cd1`+`SSVR-123-cd2` do, a pair three digits apart does not, a duplicate stem goes to a human with `duplicate_stem`, and a lone trailing digit is not a part — it reads as the number `ABC-124` (the digit stays in the stem and out of the number; the old spec's `ABC-124-001` shape was ruled a spec bug, ticket #30) |
+| ⑥ | the grouping counterexamples stay counterexamples: `ABP-647`/`ABP-648` do not merge, `SSVR-122-cd1`+`SSVR-123-cd2` stay two numbers (a part marker is not evidence about *another* number — the edit-distance merge is gone with ADR-0019), a lone trailing digit is not a part and reads as `ABC-124`, and a name no rule can read (`hello.mp4`) is its own `no_candidate` task waiting for a human — an unresolved file is never folded into a neighbour's task |
 | ⑦ | the three source states: javbus's captured **404** and fc2's captured **200 miss page** are both recorded `notfound` with no reason code and no fields; and the field-level fallback gives `title` to javdb and `publisher` (which javdb does not have) to javbus on the same release |
 | ⑧ | `step_runs` is assertable (types in order, positions in the pipeline file, summaries) and `source_runs` carries **all six reason codes** — `http_5xx`, `timeout`, `blocked`, `cooldown`, `parse`, `egress_unavailable` — each produced by the replay answering that way, never by a simulated branch in the product |
-| ⑨ | a real Chromium renders the **scan view** (directory deck over this run's own filesystem), the **task list** (the run's own rows with a status), the **detail's four tabs**, and the **needs-number panel** fills a number through the UI, submits, and the task really leaves the queue — no axe, no visual regression |
+| ⑨ | a real Chromium renders the **scan view** (directory deck over this run's own filesystem), the **task list** (the run's own rows with a status), the **detail's four tabs**, and the **needs-number panel** fills a number through the UI, submits, and the task really leaves the queue — no axe, no visual regression. Since ADR-0019 the waiting task is one file's own, so the panel has one row and no conflict to arbitrate |
+| — | **one work spelled two ways is one release** (issue #33): `cawd00279.part1_8K.mp4` and `cawd00279.part2_8K.mp4` beside `CAWD-279.part3_8K.mp4` — two directories, two spellings, three part markers — become **one task and one release** of `CAWD-279-cd1..3.mp4`, each a hard link to the part it came from. A padded serial is a spelling, not an identity |
+| — | **the versions of one number land beside the first copy, and the network is asked nothing**: a later batch brings `MIDA-557.mp4`, `MIDA-557-C.mp4` and `MIDA-557-UC.mp4` of a work the main batch already scraped; one task, three videos — `MIDA-557.mp4`, `MIDA-557-中文.mp4`, `MIDA-557-中文-破解.mp4` — the metadata is **reused** (`reused=1`, zero page and image requests, no `source_runs`), the source spelling never survives, and the media server reads the trio as **one entry with three media sources** and no additional part |
 | — | **both terminal states are really reached**: `SSIS-001` ends `succeeded` (every source-level field arrived) and the javbus-only releases end `partial`, asserted against the metadata they report |
 | — | the media server is **the pinned version**, and the run refuses a server that is not — an upgrade is an explicit edit to `compose.yaml`, and assertion ② re-measures the layout on every run |
 | — | every image request the run made answered **200** (a non-200 image is fatal, not a quiet fallback); the one exception is the still an arm deliberately withdraws |
@@ -108,12 +110,20 @@ them.
 
 `acceptance/corpus/names.tsv` is the ledger: every directory the run materialises is
 listed there as **library** (copied verbatim from the owner's media library — the listing
-is the old repository's `acceptance/names-all.txt`), **boundary** (written by hand for a
-rule's counterexample), or **synthetic** (written by hand for one scenario of the
-environment itself — a source answer to classify, another filesystem to write across, a
-write to interrupt). `go test ./acceptance/` checks both directions, so an invented name
-cannot pass as a real one and a ledger entry that nothing uses is caught.
-`acceptance/corpus.go` is the table of files.
+is the old repository's `acceptance/names-all.txt`), **boundary** (written by hand to
+exercise one rule of the product, either side of it: the counterexamples — neighbours
+that must not merge, a conditional part marker — and the must-merge positives — one
+work spelled two ways, the versions of one number), or **synthetic** (written by hand
+for one scenario of the environment itself — a source answer to classify, another
+filesystem to write across, a write to interrupt). `go test ./acceptance/` checks both
+directions, so an invented name cannot pass as a real one and a ledger entry that
+nothing uses is caught. `acceptance/corpus.go` is the table of files.
+
+Two roots carry the must-merge positives, each in its own batch so one batch answers one
+question: `heterogeneous-in` is #33's shape (a padded serial and a hyphenated one, in two
+directories, with part markers — one work), and `versions-in` is the versions of one
+number arriving in one batch after the main batch already scraped the work. Both use
+captured numbers, so both land and the assertions reach the files on disk.
 
 Two settings in `acceptance/config/pipelines/acceptance.yaml` exist because of the corpus
 and would be wrong for a real library: `min_size: 0` (the corpus is one-second generated
@@ -177,17 +187,20 @@ left the queue.
 - **No library refresh in the product.** The acceptance environment triggers the media
   server's own scan; the product's `refresh` step is batch two.
 - **The needs-number arm needs the counterexample batch.** The interface spec's one
-  write path fills the duplicate-stem task the counterexample batch leaves behind; the
-  arm would need its own corpus entry to fill a `no_candidate` task instead.
+  write path fills the `no_candidate` task the counterexample batch leaves behind (one
+  file, one task, one number to type since ADR-0019); the arm would need its own
+  corpus entry to fill an `ambiguous` task instead.
 - **Emby is not asserted.** One server is enough to prove the layout reads; a second one
   would be a second truth to keep current. An optional compose profile (`--profile emby`,
   `emby/embyserver` pinned) exists for a manual re-check, and the gate never starts it.
-- **`-cd{n}` aggregates as additional parts, not as several media sources.** Measured on
-  10.10.7 (`/Videos/{id}/AdditionalParts`): the release is one entry, its `MediaSources`
-  holds the primary disc, and the second disc is an `AdditionalPart` of the same entry.
-  That is the aggregation claim the environment asserts; "two media sources" would be a
-  different layout (versions separated by ` - `, which is what Jellyfin's own naming
-  tests use).
+- **`-cd{n}` aggregates as additional parts; versions aggregate as media sources.**
+  Measured on 10.10.7: a multi-disc release is one entry whose `MediaSources` holds the
+  primary disc with the other discs as `AdditionalPart`s (asserted for `SSIS-001`), and
+  a version trio (`{number}`, `-中文`, `-中文-破解`) is one entry carrying **three
+  `MediaSources`** and no additional part (asserted for `MIDA-557`). Those are the two
+  aggregation claims this environment measures; the server's own ` - `-separated
+  version naming is a different layout it also understands, and not one the product
+  writes.
 - **The self-check breaks one thing.** It proves the gate can go red by breaking the
   part numbering; it does not try to break every arm.
 - **The corpus's counterexample tasks end without output.** Their numbers have no

@@ -277,6 +277,180 @@ func TestAcceptance(t *testing.T) {
 		ran = append(ran, "both terminal states: SSIS-001 `succeeded` (all 14 fields), the javbus-only releases `partial`")
 	})
 
+	// One work, named two ways, in two directories: the #33 shape. Its number is a
+	// captured one, so this batch also lands — the group is what the arm asserts, and
+	// the release on disk is what says the group became one release.
+	heteroBatch := e.runBatch(t, p, "acceptance", RootHeterogeneous)
+
+	t.Run("one work spelled two ways is one release, from two directories (issue #33)", func(t *testing.T) {
+		if len(heteroBatch) != 1 {
+			t.Fatalf("the heterogeneous batch produced %d tasks (%v); a padded serial and a hyphenated one are one work",
+				len(heteroBatch), numbersOf(heteroBatch))
+		}
+		task := heteroBatch[0]
+		if task.Number != "CAWD-279" {
+			t.Errorf("the batch parsed %q, want CAWD-279: the padded spelling is a spelling, not a number", task.Number)
+		}
+		detail := p.detail(t, task.ID)
+		var videos []string
+		parts := map[string]int{}
+		for _, file := range detail.TaskFiles {
+			if file.Kind != "video" {
+				continue
+			}
+			videos = append(videos, filepath.Base(file.Path))
+			parts[filepath.Base(file.Path)] = file.PartIndex
+		}
+		sort.Strings(videos)
+		want := []string{"CAWD-279.part3_8K.mp4", "cawd00279.part1_8K.mp4", "cawd00279.part2_8K.mp4"}
+		if strings.Join(videos, " ") != strings.Join(want, " ") {
+			t.Errorf("the release holds %v, want %v: all three parts, wherever they sit", videos, want)
+		}
+		for name, index := range map[string]int{
+			"cawd00279.part1_8K.mp4": 1, "cawd00279.part2_8K.mp4": 2, "CAWD-279.part3_8K.mp4": 3,
+		} {
+			if got := parts[name]; got != index {
+				t.Errorf("%s is part %d, want %d: the marker is read off the name whichever spelling it follows", name, got, index)
+			}
+		}
+
+		// …and it landed: one directory, three `{number}-cd{part}` videos, each a hard
+		// link to the part it came from.
+		dir := filepath.Join(e.Library, "CAWD-279")
+		for _, pair := range [][2]string{
+			{filepath.Join(e.Scratch, string(RootHeterogeneous), "CAWD-279-parts", "cawd00279.part1_8K.mp4"), "CAWD-279-cd1.mp4"},
+			{filepath.Join(e.Scratch, string(RootHeterogeneous), "CAWD-279-parts", "cawd00279.part2_8K.mp4"), "CAWD-279-cd2.mp4"},
+			{filepath.Join(e.Scratch, string(RootHeterogeneous), "CAWD-279-cd3", "CAWD-279.part3_8K.mp4"), "CAWD-279-cd3.mp4"},
+		} {
+			wantHardLink(t, pair[0], filepath.Join(dir, pair[1]))
+		}
+		if _, err := os.Stat(filepath.Join(dir, "CAWD-279.mp4")); err != nil {
+			t.Errorf("the main batch's own video must still be there: %v", err)
+		}
+		// Neither source directory grew an output name beside the file that was linked:
+		// the library's copy lives under the output root only, and each download
+		// directory still holds exactly what the corpus planted in it.
+		for dir, want := range map[string][]string{
+			filepath.Join(e.Scratch, string(RootHeterogeneous), "CAWD-279-parts"): {"cawd00279.part1_8K.mp4", "cawd00279.part2_8K.mp4"},
+			filepath.Join(e.Scratch, string(RootHeterogeneous), "CAWD-279-cd3"):   {"CAWD-279.part3_8K.mp4"},
+		} {
+			if got := entryNames(t, dir); strings.Join(got, " ") != strings.Join(want, " ") {
+				t.Errorf("%s holds %v, want exactly the corpus's own %v", dir, got, want)
+			}
+		}
+		ran = append(ran, "one work whose parts are named `cawd00279.part1` and `CAWD-279.part3` in two directories became one release of three `-cd{part}` links")
+	})
+
+	// The versions of one number, in one batch: the original, the chinese copy and the
+	// leaked copy. The main batch already scraped MIDA-557, so this one must not ask
+	// the network anything — every product is a hard link under the rule's own name.
+	beforeVersions := e.requestsAbout("MIDA-557")
+	versionsBatch := e.runBatch(t, p, "acceptance", RootVersions)
+
+	t.Run("the versions of one number land beside the first copy, and ask the network nothing", func(t *testing.T) {
+		if len(versionsBatch) != 1 {
+			t.Fatalf("the versions batch produced %d tasks (%v); one number is one work",
+				len(versionsBatch), numbersOf(versionsBatch))
+		}
+		task := versionsBatch[0]
+		if task.Number != "MIDA-557" {
+			t.Errorf("the batch parsed %q, want MIDA-557", task.Number)
+		}
+		detail := p.detail(t, task.ID)
+		if got := len(detail.TaskFiles); got != 3 {
+			t.Errorf("the release holds %d files, want the original and its two copies", got)
+		}
+		// The primary is the row the server calls primary — 原版 before 中文 before 破解 —
+		// and not whichever row happens to come first in the answer.
+		for _, file := range detail.TaskFiles {
+			if file.Role == "primary" && filepath.Base(file.Path) != "MIDA-557.mp4" {
+				t.Errorf("the primary is %s, want the original", filepath.Base(file.Path))
+			}
+		}
+
+		dir := filepath.Join(e.Library, "MIDA-557")
+		// The two versions this batch alone knew about are links to their own sources.
+		for _, pair := range [][2]string{
+			{"MIDA-557.mp4", "MIDA-557.mp4"},
+			{"MIDA-557-UC.mp4", "MIDA-557-中文-破解.mp4"},
+		} {
+			wantHardLink(t, filepath.Join(e.Scratch, string(RootVersions), "MIDA-557", pair[0]), filepath.Join(dir, pair[1]))
+		}
+		// The chinese copy was already there from the main batch. A hardlink write is
+		// skipped only when the destination is the same inode (apply.go says why), so
+		// this batch relinks it to the copy it was handed — the bytes are the claim, and
+		// there is exactly one `-中文` name either way.
+		chinese := filepath.Join(dir, "MIDA-557-中文.mp4")
+		if _, err := os.Stat(chinese); err != nil {
+			t.Fatalf("MIDA-557-中文.mp4: %v", err)
+		}
+		if got, want := fileSHA256(t, chinese), fileSHA256(t, filepath.Join(e.Scratch, string(RootVersions), "MIDA-557", "MIDA-557-C.mp4")); got != want {
+			t.Errorf("MIDA-557-中文.mp4 has sha256 %s, the chinese copy's is %s", got, want)
+		}
+		// One work, one set of products: three videos, whatever order the batches arrived
+		// in. A fourth `-C`-named file would be the old naming rule leaking through.
+		var videoNames []string
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatalf("read %s: %v", dir, err)
+		}
+		for _, entry := range entries {
+			if strings.EqualFold(filepath.Ext(entry.Name()), ".mp4") {
+				videoNames = append(videoNames, entry.Name())
+			}
+		}
+		sort.Strings(videoNames)
+		wantVideos := []string{"MIDA-557-中文-破解.mp4", "MIDA-557-中文.mp4", "MIDA-557.mp4"}
+		if strings.Join(videoNames, " ") != strings.Join(wantVideos, " ") {
+			t.Errorf("the release holds %v, want %v: the source spelling must not survive", videoNames, wantVideos)
+		}
+
+		// Reuse: the metadata the main batch scraped is on disk, so this batch made no
+		// request about the number at all — not a page, not an image.
+		if after := e.requestsAbout("MIDA-557"); after != beforeVersions {
+			t.Errorf("the versions batch made %d request(s) about MIDA-557; the metadata was already on disk",
+				after-beforeVersions)
+		}
+		if got := reusedCount(t, detail); got != 1 {
+			t.Errorf("the scrape summary says reused = %d, want 1", got)
+		}
+		if len(detail.SourceRuns) != 0 {
+			t.Errorf("a reused task asked %d source(s): %v", len(detail.SourceRuns), detail.SourceRuns)
+		}
+
+		// The media server's own reading of the trio, measured rather than assumed: the
+		// three names are one entry carrying three media sources, and no additional part
+		// — the `-中文`/`-破解` names are the layout claim ADR-0020 makes about versions.
+		e.JF.scan(t, e.Library)
+		var trio item
+		e.waitFor(t, 4*time.Minute, "the media server to read the three versions as one release", func() (bool, string) {
+			matches := movieItemsByNumber(e.JF.movies(t), "MIDA-557")
+			if len(matches) != 1 {
+				return false, fmt.Sprintf("MIDA-557 is %d entries", len(matches))
+			}
+			if got := len(matches[0].MediaSources); got != 3 {
+				return false, fmt.Sprintf("the entry carries %d media sources, want the three versions", got)
+			}
+			trio = matches[0]
+			return true, ""
+		})
+		for _, want := range []string{"MIDA-557.mp4", "MIDA-557-中文.mp4", "MIDA-557-中文-破解.mp4"} {
+			found := false
+			for _, src := range trio.MediaSources {
+				if strings.HasSuffix(src.Path, string(filepath.Separator)+want) {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("the entry's media sources do not include %s (%v)", want, pathsOfMedia(trio.MediaSources))
+			}
+		}
+		if parts := e.JF.additionalParts(t, trio.ID); len(parts) != 0 {
+			t.Errorf("the versions became %d additional part(s): a version is a media source, not another disc", len(parts))
+		}
+		ran = append(ran, "the original, the chinese copy and the leaked copy of one number became one release of three links, with zero requests and one reused metadata; the media server reads the trio as one entry with three media sources")
+	})
+
 	// The counterexample batch runs here because its waiting task is what the
 	// interface arm below fills a number into.
 	counterBatch := p.createBatch(t, "acceptance", []string{filepath.Join(e.Scratch, string(RootCounterexamples))})
@@ -288,7 +462,8 @@ func TestAcceptance(t *testing.T) {
 				task.ID, task.Number, task.Status, detailFiles(t, p, task.ID), task.LastError)
 		}
 
-		// Neighbours must not merge: one release each, one file each.
+		// Neighbours must not merge: one release each, one file each. Neither name
+		// carries a part marker, and since ADR-0019 nothing else could make them one.
 		for _, number := range []string{"ABP-647", "ABP-648"} {
 			task, ok := taskByNumber(counterTasks, number)
 			if !ok {
@@ -300,24 +475,13 @@ func TestAcceptance(t *testing.T) {
 			}
 		}
 
-		// Two explicitly marked discs whose stems are one digit apart do merge, and the
-		// number is the primary's.
-		merged, ok := taskByNumber(counterTasks, "SSVR-122")
-		if !ok {
-			t.Error("SSVR-122-cd1 and SSVR-123-cd2 did not become one release")
-		} else if files := detailFiles(t, p, merged.ID); len(files) != 2 {
-			t.Errorf("SSVR-122 holds %v, want both discs", files)
-		}
-		if _, split := taskByNumber(counterTasks, "SSVR-123"); split {
-			t.Error("SSVR-123 also became a release; the two marked discs were split instead of merged")
-		}
-
-		// Marked but too far apart: two releases, not one. This is the pair the group
-		// step records as "looks like parts, did not merge".
-		for _, number := range []string{"ABC-123", "ABC-456"} {
+		// Two marked discs whose numbers differ by one digit stay two releases. Before
+		// ADR-0019 an edit distance married them; a part marker is not evidence that a
+		// different number belongs to the same work.
+		for _, number := range []string{"SSVR-122", "SSVR-123"} {
 			task, ok := taskByNumber(counterTasks, number)
 			if !ok {
-				t.Errorf("the far-apart marked pair lost %s; it must stay two releases", number)
+				t.Errorf("the marked pair lost %s; a part marker says nothing about another number", number)
 				continue
 			}
 			if files := detailFiles(t, p, task.ID); len(files) != 1 {
@@ -325,9 +489,22 @@ func TestAcceptance(t *testing.T) {
 			}
 		}
 
-		// The same stem twice with no part marker on either side goes to a human, with
-		// the reason as a machine code and both files in the task so a person can
-		// decide what they are.
+		// A lone trailing digit stays in the stem and is not a part marker: one file,
+		// one task, no `-cd` rename. What the number reads is pinned too (ticket #30):
+		// ABC-124, not ABC-124-001, which no site indexes.
+		lone, ok := taskByFile(t, p, counterTasks, "ABC-124-1.mp4")
+		if !ok {
+			t.Error("ABC-124-1.mp4 is not in any task")
+		} else if len(lone.TaskFiles) != 1 {
+			t.Errorf("ABC-124-1.mp4 gathered %d files; a lone trailing digit is not a part", len(lone.TaskFiles))
+		}
+		if _, ok := taskByNumber(counterTasks, "ABC-124"); !ok {
+			t.Error("no task parsed to ABC-124: ABC-124-1.mp4 stopped parsing altogether")
+		}
+
+		// A name no rule can read a number off is the one task waiting for a human,
+		// and since ADR-0019 it is a task of that file alone: an unresolved file is
+		// never folded into a neighbour's task.
 		var waiting []taskView
 		for _, task := range counterTasks {
 			if task.Status == "needs_number" {
@@ -335,40 +512,21 @@ func TestAcceptance(t *testing.T) {
 			}
 		}
 		if len(waiting) != 1 {
-			t.Fatalf("tasks waiting for a number = %d (%v), want the duplicate stem and only it",
+			t.Fatalf("tasks waiting for a number = %d (%v), want the unnumbered file and only it",
 				len(waiting), numbersOf(waiting))
 		}
-		if waiting[0].LastError != "duplicate_stem" {
-			t.Errorf("the waiting task says %q, want duplicate_stem", waiting[0].LastError)
+		if waiting[0].LastError != "no_candidate" {
+			t.Errorf("the waiting task says %q, want no_candidate", waiting[0].LastError)
 		}
-		if files := detailFiles(t, p, waiting[0].ID); len(files) != 2 {
-			t.Errorf("the duplicate-stem task holds %v, want both copies so a human can decide", files)
-		}
-
-		// A lone trailing digit stays in the stem and is not a part marker: one file,
-		// one task, no `-cd` rename. (What the number reads is pinned just below.)
-		lone, ok := taskByFile(t, p, counterTasks, "ABC-124-1.mp4")
-		if !ok {
-			t.Error("ABC-124-1.mp4 is not in any task")
-		} else if len(lone.TaskFiles) != 1 {
-			t.Errorf("ABC-124-1.mp4 gathered %d files; a lone trailing digit is not a part", len(lone.TaskFiles))
+		if files := detailFiles(t, p, waiting[0].ID); len(files) != 1 || files[0] != "hello.mp4" {
+			t.Errorf("the waiting task holds %v, want hello.mp4 alone", files)
 		}
 
-		// And what the number reads is pinned too (ticket #30): the lone digit
-		// stays in the stem and out of the number — ABC-124, not ABC-124-001, which no
-		// site indexes. The task must be found by that number; a silent skip here would
-		// let the old parse regression back in unnoticed.
-		if loneByNumber, ok := taskByNumber(counterTasks, "ABC-124"); ok {
-			if lone.ID != 0 && loneByNumber.ID != lone.ID {
-				t.Errorf("ABC-124-1.mp4 landed in the task of number %q; the lone digit must read as ABC-124", lone.Number)
-			}
-		} else {
-			t.Error("no task parsed to ABC-124: ABC-124-1.mp4 stopped parsing altogether")
-		}
-		// The required-fields gate is what turns these into failures: their numbers have
-		// no capture, so no source can supply a title, and `output` refuses to write a
-		// release without one. That refusal is also the other half of "narrowing
-		// required_fields does not manufacture a `succeeded` task" below.
+		// The required-fields gate is what turns the numbered counterexamples into
+		// failures: their numbers have no capture, so no source can supply a title, and
+		// `output` refuses to write a release without one. That refusal is also the
+		// other half of "narrowing required_fields does not manufacture a `succeeded`
+		// task" below.
 		for _, number := range []string{"ABC-124", "ABP-647"} {
 			task, ok := taskByNumber(counterTasks, number)
 			if !ok {
@@ -389,7 +547,7 @@ func TestAcceptance(t *testing.T) {
 			}
 		}
 
-		ran = append(ran, "⑥ grouping counterexamples: neighbours split, marked pair merged, far pair split, duplicate stem to a human")
+		ran = append(ran, "⑥ grouping counterexamples: neighbours split, two marked numbers split, a lone trailing digit is not a part, and an unnumbered file is its own waiting task")
 	})
 
 	t.Run("a narrowed required_fields gate passes but does not make the task succeeded", func(t *testing.T) {
@@ -780,27 +938,30 @@ func TestAcceptance(t *testing.T) {
 				videos = append(videos, file.Path)
 			}
 		}
-		if len(videos) != 2 {
-			t.Fatalf("the waiting task holds %d videos (%v), want the duplicate stem's two copies", len(videos), videos)
+		// Since ADR-0019 an unnumbered file is a task of its own, so the panel has one
+		// row to fill: no conflict to arbitrate, no second part to tick.
+		if len(videos) != 1 {
+			t.Fatalf("the waiting task holds %d videos (%v), want the one unnumbered file", len(videos), videos)
 		}
 		main, ok := taskByNumber(mainTasks, "CAWD-279")
 		if !ok {
 			t.Fatal("CAWD-279 is not in the main batch")
 		}
 
-		// The numbers the UI types are a number neither file carries, so the submission
-		// is a human decision rather than something the parse step could have read.
-		const typed = "ABC-123"
+		// The number the UI types is one the file does not carry, so the submission is a
+		// human decision rather than something the parse step could have read. It has no
+		// capture either, so the rerun stops at the required-fields gate — which is fine:
+		// what this arm asserts is that the server took the number and the task left the
+		// queue.
+		const typed = "XYZ-777"
 		out := e.runInterfaceSmoke(t, map[string]string{
-			"MDC_E2E_BASE_URL":            e.Server,
-			"MDC_E2E_NUMBER":              main.Number,
-			"MDC_E2E_TASK_ID":             strconv.FormatInt(main.ID, 10),
-			"MDC_E2E_CORPUS_DIR":          string(RootLibrary),
-			"MDC_E2E_WAITING_FILE":        filepath.Base(videos[0]),
-			"MDC_E2E_WAITING_SECOND_FILE": filepath.Base(videos[1]),
-			"MDC_E2E_WAITING_PATH":        videos[0],
-			"MDC_E2E_WAITING_SECOND_PATH": videos[1],
-			"MDC_E2E_WAITING_NUMBER":      typed,
+			"MDC_E2E_BASE_URL":       e.Server,
+			"MDC_E2E_NUMBER":         main.Number,
+			"MDC_E2E_TASK_ID":        strconv.FormatInt(main.ID, 10),
+			"MDC_E2E_CORPUS_DIR":     string(RootLibrary),
+			"MDC_E2E_WAITING_FILE":   filepath.Base(videos[0]),
+			"MDC_E2E_WAITING_PATH":   videos[0],
+			"MDC_E2E_WAITING_NUMBER": typed,
 		})
 		t.Logf("interface smoke: %s", out)
 
@@ -1028,6 +1189,41 @@ func waitForFast(t *testing.T, timeout time.Duration, what string, probe func() 
 
 // ---- replay helpers ----
 
+// requestsAbout counts the replayed requests that name a number, which is how "this
+// batch asked nobody" is asserted: a work whose metadata was reused is one the
+// network did not see again. The key holds host, path and query, so a page request
+// and a search both count.
+func (e *env) requestsAbout(number string) int {
+	want := strings.ToUpper(number)
+	n := 0
+	for _, req := range e.Replay.Requests() {
+		if strings.Contains(strings.ToUpper(req.Key), want) {
+			n++
+		}
+	}
+	return n
+}
+
+// reusedCount reads the scrape step's own `reused` count off a task's trace: it is
+// the task's record that the metadata came from disk rather than from a source.
+func reusedCount(t *testing.T, detail taskDetail) int {
+	t.Helper()
+	for _, step := range detail.StepRuns {
+		if step.Type != "scrape" {
+			continue
+		}
+		var summary struct {
+			Reused int `json:"reused"`
+		}
+		if err := json.Unmarshal(step.Summary, &summary); err != nil {
+			t.Fatalf("the scrape step's summary is not the expected shape: %v (%s)", err, step.Summary)
+		}
+		return summary.Reused
+	}
+	t.Fatal("the task's trace has no scrape step")
+	return 0
+}
+
 // answered reports whether the replay answered a route with a status, which is how an
 // assertion says "the fixture was replayed" rather than "the pipeline thinks so".
 func (e *env) answered(t *testing.T, host, path string, status int) bool {
@@ -1156,6 +1352,23 @@ func dstsOf(rows []fileRowView) []string {
 	return out
 }
 
+// wantHardLink asserts that an output name is a hard link to the file it claims to
+// come from, which is what "the video landed" means for the default `link: hardlink`.
+func wantHardLink(t *testing.T, src, dst string) {
+	t.Helper()
+	from, err := os.Stat(src)
+	if err != nil {
+		t.Fatalf("the source file is not there: %v", err)
+	}
+	to, err := os.Stat(dst)
+	if err != nil {
+		t.Fatalf("%s: %v", filepath.Base(dst), err)
+	}
+	if !os.SameFile(from, to) {
+		t.Errorf("%s is not a hard link to %s", filepath.Base(dst), filepath.Base(src))
+	}
+}
+
 // entryNames lists a directory's entry names, sorted, so a failure's message is the
 // same on every run.
 func entryNames(t *testing.T, dir string) []string {
@@ -1222,6 +1435,16 @@ func pathsOf(items []item) []string {
 	out := make([]string, 0, len(items))
 	for _, it := range items {
 		out = append(out, it.Path)
+	}
+	return out
+}
+
+// pathsOfMedia is pathsOf for media sources, whose list is the server's own answer
+// to "what files make up this entry".
+func pathsOfMedia(sources []mediaSource) []string {
+	out := make([]string, 0, len(sources))
+	for _, s := range sources {
+		out = append(out, s.Path)
 	}
 	return out
 }

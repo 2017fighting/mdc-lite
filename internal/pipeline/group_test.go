@@ -115,15 +115,17 @@ func TestGroup_VersionsOfOneNumberAreOneWork(t *testing.T) {
 }
 
 // TestGroup_HeterogeneousPartsAreOneWork: leading zeros and case are spelling, not
-// identity. Normalization makes `hnvr00152` and `HNVR-152` one number, so the two
-// discs are one work even though they sit in different directories (issue #33).
+// identity. Normalization makes `hnvr00152` and `HNVR-152` one number, so the three
+// discs are one work even though they sit in different directories and carry the
+// resolution token (issue #33).
 func TestGroup_HeterogeneousPartsAreOneWork(t *testing.T) {
 	g := groupFiles(t, groupWith(),
-		"/media/a/hnvr00152.part1.mp4",
-		"/media/b/HNVR-152.part3.mp4")
+		"/media/a/hnvr00152.part1_8K.mp4",
+		"/media/a/hnvr00152.part2_8K.mp4",
+		"/media/b/HNVR-152.part3_8K.mp4")
 	grp := wantOneGroup(t, g, "HNVR-152")
-	wantParts(t, grp, "hnvr00152.part1.mp4", "HNVR-152.part3.mp4")
-	if filepath.Base(grp.Primary.Path) != "hnvr00152.part1.mp4" {
+	wantParts(t, grp, "hnvr00152.part1_8K.mp4", "hnvr00152.part2_8K.mp4", "HNVR-152.part3_8K.mp4")
+	if filepath.Base(grp.Primary.Path) != "hnvr00152.part1_8K.mp4" {
 		t.Errorf("primary = %s, want part 1", grp.Primary.Path)
 	}
 	// The primary speaks for the group, so the number's spelling is the primary's
@@ -134,6 +136,17 @@ func TestGroup_HeterogeneousPartsAreOneWork(t *testing.T) {
 	if grp.Dir != "/media/a" {
 		t.Errorf("dir = %q, want the primary's directory", grp.Dir)
 	}
+
+	// The same three names in ONE directory are the shape the issue was filed about
+	// (同一目录): the old rule married same-directory stems by edit distance and lost
+	// these to the padding; the number is the identity, so one directory changes
+	// nothing.
+	oneDir := groupFiles(t, groupWith(),
+		"hnvr00152.part1_8K.mp4",
+		"hnvr00152.part2_8K.mp4",
+		"HNVR-152.part3_8K.mp4")
+	grp = wantOneGroup(t, oneDir, "HNVR-152")
+	wantParts(t, grp, "hnvr00152.part1_8K.mp4", "hnvr00152.part2_8K.mp4", "HNVR-152.part3_8K.mp4")
 }
 
 // TestGroup_PrimaryPrefersTheLowestPart: part order beats version order. A chinese
@@ -175,6 +188,19 @@ func TestGroup_AdjacentNumbersStayApart(t *testing.T) {
 	}
 	if len(g.Unmatched) != 0 {
 		t.Errorf("unmatched = %+v, want none", g.Unmatched)
+	}
+
+	// Marked as parts or not: a part marker is evidence about the work its own number
+	// names, never about a neighbouring number (issue #33's safety boundary, and the
+	// rule that retired the old edit-distance merge).
+	marked := groupFiles(t, groupWith(), "ABP-123-cd1.mp4", "ABP-124-cd2.mp4")
+	if len(marked.Groups) != 2 {
+		t.Fatalf("groups = %d for the marked pair, want 2", len(marked.Groups))
+	}
+	for _, grp := range marked.Groups {
+		if len(grp.Parts) != 1 {
+			t.Errorf("%s holds %v; one disc of one work", grp.Number.Normalized, basenames(grp.Parts))
+		}
 	}
 }
 
